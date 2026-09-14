@@ -73,25 +73,70 @@ tokens stored hashed, sent as an `HttpOnly`, `SameSite=Lax` cookie; mutations re
 Nothing else is stored: no passwords, no emails sent. On the Workers free plan this costs nothing at hobby
 scale; the paid plan is $5/month.
 
-### Deploy
+### Deploy, step by step
 
-1. Create a Google OAuth client (Google Cloud Console → APIs & Services → Credentials → OAuth client ID,
-   type "Web application"). Add `https://<your-domain>/auth/google/callback` as an authorised redirect URI
-   (and `http://localhost:8787/auth/google/callback` for local development).
-2. Create the database and put its id in `wrangler.jsonc`:
-   ```sh
-   npx wrangler login
-   npx wrangler d1 create snapline
-   npm run db:migrate
-   ```
-3. Store the Google credentials as secrets:
-   ```sh
-   npx wrangler secret put GOOGLE_CLIENT_ID
-   npx wrangler secret put GOOGLE_CLIENT_SECRET
-   ```
-4. Deploy: `npm run deploy` (builds the app and uploads it with the Worker). The default
-   `*.workers.dev` URL works; add a custom domain in the Cloudflare dashboard if you like, and register its
-   callback URL with Google.
+You need a Cloudflare account (free plan is enough), a Google Cloud project, and this repository on GitHub.
+
+**1. Create the database (once)**
+
+```sh
+npm install
+npx wrangler login                 # opens the browser
+npx wrangler d1 create snapline    # prints a database_id
+```
+
+Paste the printed `database_id` into `wrangler.jsonc` and commit it. The id is an identifier, not a secret.
+
+**2. Create the Google OAuth client (once)**
+
+In the Google Cloud Console go to APIs & Services → Credentials → Create credentials → OAuth client ID,
+type "Web application". You will add the redirect URI after the first deploy (step 5). If the consent
+screen is not configured yet, configure it as "External" and add your own account as a test user, or
+publish it.
+
+Keep the client id and client secret at hand.
+
+**3. Create a Cloudflare API token (once)**
+
+Cloudflare dashboard → My Profile → API Tokens → Create Token → use the "Edit Cloudflare Workers"
+template, then add the permission `Account → D1 → Edit`. Also note your Account ID (Workers & Pages
+overview, right-hand column).
+
+**4. Add the GitHub secrets (once)**
+
+Repository → Settings → Secrets and variables → Actions → New repository secret:
+
+| Secret | Value |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | the token from step 3 |
+| `CLOUDFLARE_ACCOUNT_ID` | your Cloudflare account id |
+| `GOOGLE_CLIENT_ID` | from step 2 |
+| `GOOGLE_CLIENT_SECRET` | from step 2 |
+
+**5. Push to `main`**
+
+`.github/workflows/deploy.yml` runs typecheck, tests and the build on every push and pull request. On a
+push to `main` it also applies `worker/schema.sql` to D1 (safe to re-run), uploads the Google secrets to
+the Worker, deploys, and hits `/api/me` on the new deployment as a smoke test. The URL appears on the
+workflow run and under Environments → production.
+
+The first deploy gives you `https://snapline.<your-subdomain>.workers.dev`. Go back to the Google OAuth
+client and add `https://snapline.<your-subdomain>.workers.dev/auth/google/callback` as an authorised
+redirect URI. Sign-in works from then on; no redeploy needed.
+
+**6. Optional: custom domain**
+
+Cloudflare dashboard → Workers & Pages → snapline → Settings → Domains & Routes → add your domain. Then
+add `https://<your-domain>/auth/google/callback` to the Google client as well.
+
+**Deploying by hand instead**
+
+```sh
+npx wrangler secret put GOOGLE_CLIENT_ID
+npx wrangler secret put GOOGLE_CLIENT_SECRET
+npm run db:migrate
+npm run deploy
+```
 
 ### Local development with sign-in
 
