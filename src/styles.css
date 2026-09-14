@@ -1249,3 +1249,38 @@ button.account .avatar {
   gap: 2px;
   align-items: flex-start;
 }
+.tree-head {
+  cursor: default;
+}
+.tree-head.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.tree-head .chevron {
+  border: none;
+  background: none;
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.tree-head .tree-label {
+  font-weight: 600;
+}
+.tree-group.depth-1 .tree-head .tree-label {
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 12px;
+}
+.tree-icon {
+  color: var(--muted);
+  font-size: 10px;
+  width: 12px;
+  text-align: center;
+}
+.tree-row.on .tree-icon {
+  color: var(--accent);
+}
+.tree-items .tree-row {
+  padding-left: 30px;
+}
