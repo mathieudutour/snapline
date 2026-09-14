@@ -78,6 +78,12 @@ jobs:
         run: |
           url="${{ steps.deploy.outputs.deployment-url }}"
           if [ -z "$url" ]; then echo "no deployment url reported"; exit 0; fi
-          code=$(curl -s -o /dev/null -w "%{http_code}" "$url/api/me")
-          echo "GET $url/api/me -> $code"
-          test "$code" = "200"
+          # a brand-new workers.dev route can take a minute to propagate: retry before failing
+          for attempt in $(seq 1 24); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$url/api/me" || echo 000)
+            echo "attempt $attempt: GET $url/api/me -> $code"
+            if [ "$code" = "200" ]; then exit 0; fi
+            sleep 5
+          done
+          echo "::error::$url/api/me did not answer 200 within 2 minutes"
+          exit 1
