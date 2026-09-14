@@ -1,15 +1,16 @@
 import { useMemo, useState } from 'react'
-import { isSelected, useEditor, type SelectionItem } from '../model/store'
+import { isReadOnly, isSelected, useEditor, type SelectionItem } from '../model/store'
+import { floorArea, roomName } from '../model/rooms'
 import { findRooms, pointInPolygon, wallLength } from '../model/geometry'
 import { constraintsReferencing, describeConstraint, shortId } from '../model/constraints'
 import { formatArea, formatLength } from '../model/units'
-import type { Constraint, Furniture, Opening, Wall } from '../model/types'
+import type { Constraint, Furniture, Opening, Room, Wall } from '../model/types'
 
-function Group({ title, count, children, defaultOpen = true, depth = 0, detail, selected, onSelect }: { title: string; count: number; children: React.ReactNode; defaultOpen?: boolean; depth?: number; detail?: React.ReactNode; selected?: boolean; onSelect?: (e: React.MouseEvent) => void }) {
+function Group({ title, count, children, defaultOpen = true, depth = 0, detail, selected, onSelect, onRename }: { title: string; count: number; children: React.ReactNode; defaultOpen?: boolean; depth?: number; detail?: React.ReactNode; selected?: boolean; onSelect?: (e: React.MouseEvent) => void; onRename?: () => void }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
     <div className={`tree-group depth-${depth}`}>
-      <div className={`tree-head ${selected ? 'on' : ''}`} style={{ paddingLeft: 14 + depth * 14 }} onClick={onSelect}>
+      <div className={`tree-head ${selected ? 'on' : ''}`} style={{ paddingLeft: 14 + depth * 14 }} onClick={onSelect} onDoubleClick={onRename} title={onRename ? 'Double-click to rename' : undefined}>
         <button
           className={`chevron ${open ? 'open' : ''}`}
           onClick={(e) => {
@@ -36,6 +37,12 @@ export function Hierarchy() {
   const removeConstraint = useEditor((s) => s.removeConstraint)
   const units = useEditor((s) => s.units)
   const rooms = useMemo(() => findRooms(plan), [plan])
+  const nameRoom = useEditor((s) => s.nameRoom)
+  const readOnly = useEditor(isReadOnly)
+  const rename = (room: Room, index: number) => {
+    const name = prompt('Room name', roomName(plan, room, index))
+    if (name !== null) nameRoom(room, name)
+  }
   const walls = Object.values(plan.walls)
   const openings = Object.values(plan.openings)
   const furniture = Object.values(plan.furniture)
@@ -144,10 +151,18 @@ export function Hierarchy() {
   return (
     <div className="tree">
       {rooms.length === 0 && <div className="tree-empty">Close a loop of walls to create a room.</div>}
+      {rooms.length > 0 && (
+        <div className="tree-total">
+          <span>Floor area</span>
+          <span className="tree-detail">
+            {formatArea(floorArea(rooms), units)} · {rooms.length} room{rooms.length > 1 ? 's' : ''}
+          </span>
+        </div>
+      )}
       {roomsWithContent.map((r) => {
         const on = r.walls.length > 0 && r.walls.every((w) => isSelected(selection, 'wall', w.id))
         return (
-          <Group key={r.room.id} title={`Room ${r.index + 1}`} count={0} detail={formatArea(r.room.area, units)} selected={on} onSelect={(e) => pick(r.walls.map((w) => ({ kind: 'wall' as const, id: w.id })), e)}>
+          <Group key={r.room.id} title={roomName(plan, r.room, r.index)} count={0} detail={formatArea(r.room.area, units)} selected={on} onSelect={(e) => pick(r.walls.map((w) => ({ kind: 'wall' as const, id: w.id })), e)} onRename={readOnly ? undefined : () => rename(r.room, r.index)}>
             {contents(r, 1)}
           </Group>
         )

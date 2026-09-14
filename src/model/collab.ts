@@ -10,8 +10,8 @@ import type { Plan, PlanSettings } from './types'
 import type { Floor, Project, Roof } from './project'
 import type { Site } from './sun'
 
-export type Collection = 'points' | 'walls' | 'openings' | 'furniture' | 'constraints'
-export const COLLECTIONS: Collection[] = ['points', 'walls', 'openings', 'furniture', 'constraints']
+export type Collection = 'points' | 'walls' | 'openings' | 'furniture' | 'constraints' | 'rooms'
+export const COLLECTIONS: Collection[] = ['points', 'walls', 'openings', 'furniture', 'constraints', 'rooms']
 
 export type Op =
   | { k: 'entity'; floorId: string; coll: Collection; id: string; v: unknown | null }

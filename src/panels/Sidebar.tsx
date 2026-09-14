@@ -8,7 +8,8 @@ import { ImportModelDialog } from './ImportModel'
 import { constraintsReferencing, pointDistance, shortId } from '../model/constraints'
 import { useMemo } from 'react'
 import { dimensionSide, findRooms, oppositeSide, wallFace, wallLength } from '../model/geometry'
-import { formatLength, parseLength, type Units } from '../model/units'
+import { formatArea, formatLength, parseLength, type Units } from '../model/units'
+import { floorArea } from '../model/rooms'
 
 export function LengthField({ value, onChange, label, units }: { value: number; onChange: (v: number) => void; label: string; units: Units }) {
   const [text, setText] = useState(formatLength(value, units, false))
@@ -404,6 +405,25 @@ export function CataloguePanel() {
   )
 }
 
+/** total area of the rooms on this floor and of the whole project */
+function FloorAreaRow() {
+  const project = useEditor((s) => s.project)
+  const plan = useEditor((s) => s.plan)
+  const units = useEditor((s) => s.units)
+  const here = useMemo(() => floorArea(findRooms(plan)), [plan])
+  const total = useMemo(() => project.floors.reduce((sum, f) => sum + floorArea(findRooms(f.plan)), 0), [project])
+  if (here <= 0 && total <= 0) return null
+  return (
+    <div className="field">
+      <span>Floor area</span>
+      <span className="muted small">
+        {formatArea(here, units)}
+        {project.floors.length > 1 ? ` · all floors ${formatArea(total, units)}` : ''}
+      </span>
+    </div>
+  )
+}
+
 function SettingsProps() {
   const settings = useEditor((s) => s.plan.settings)
   const units = useEditor((s) => s.units)
@@ -427,6 +447,7 @@ function SettingsProps() {
             <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => floor && name.trim() && name !== floor.name && renameFloor(floor.id, name.trim())} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
           </span>
         </label>
+        <FloorAreaRow />
         <LengthField label="Floor height" units={units} value={settings.wallHeight} onChange={(v) => setSettings({ wallHeight: v })} />
         <LengthField label="Wall thickness" units={units} value={settings.wallThickness} onChange={(v) => setSettings({ wallThickness: v })} />
         <p className="muted small">Floor height is the default height of new walls on this floor and sets where the floor above starts.</p>

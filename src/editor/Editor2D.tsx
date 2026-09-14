@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Furniture, Opening, Plan, Vec2, Wall } from '../model/types'
 import { furnitureCorners, localToPlan, snapFurnitureToWall } from '../model/furniture'
 import { resolvePlanIconUrl } from '../furniture/catalog'
-import { add, dimensionSide, dist, dot, findRooms, normalize, oppositeSide, perp, planBounds, projectOnSegment, scale, sideNormal, sub, wallFace, wallLength, wallPolygon, wallsAtPoint } from '../model/geometry'
-import { floorBelow, isSelected, useEditor, type SelectionItem } from '../model/store'
+import { add, dimensionSide, dist, dot, findRooms, normalize, oppositeSide, perp, planBounds, pointInPolygon, projectOnSegment, scale, sideNormal, sub, wallFace, wallLength, wallPolygon, wallsAtPoint } from '../model/geometry'
+import { floorBelow, isReadOnly, isSelected, useEditor, type SelectionItem } from '../model/store'
 import { constraintsReferencing } from '../model/constraints'
 import { formatArea, formatLength, parseLength, type Units } from '../model/units'
 import { snapPosition, type SnapResult } from './snapping'
@@ -11,6 +11,7 @@ import { screenToWorld, worldToScreen, type Viewport } from './viewport'
 import { Dimension } from './Dimension'
 import { setLiveCursor } from '../sync/liveController'
 import { wallGap } from '../model/measure'
+import { roomName } from '../model/rooms'
 import { PeerCursors, usePeerSelections } from './Peers'
 import { Compass } from '../panels/Site'
 
@@ -58,6 +59,7 @@ export function Editor2D() {
   const snapGrid = useEditor((s) => s.snapGrid)
   const gridSize = useEditor((s) => s.gridSize)
   const rooms = useMemo(() => findRooms(plan), [plan])
+  const readOnly = useEditor(isReadOnly)
 
   const [cursor, setCursor] = useState<Vec2 | null>(null)
   const [hover, setHover] = useState<SelectionItem | null>(null)
@@ -627,8 +629,20 @@ export function Editor2D() {
     }
   }
 
-  const onDoubleClick = () => {
-    if (tool === 'wall' && drawing) finishDrawing()
+  const onDoubleClick = (e: React.MouseEvent) => {
+    if (tool === 'wall' && drawing) {
+      finishDrawing()
+      return
+    }
+    // double-click inside a room (on empty floor) names it
+    if (tool !== 'select' || readOnly) return
+    const target = e.target as Element
+    if (target.closest('[data-kind]')) return
+    const world = toWorld(e)
+    const i = rooms.findIndex((r) => pointInPolygon(world, r.polygon))
+    if (i < 0) return
+    const name = prompt('Room name', roomName(plan, rooms[i], i))
+    if (name !== null) useEditor.getState().nameRoom(rooms[i], name)
   }
 
   // ---- inline editing ----
@@ -752,12 +766,7 @@ export function Editor2D() {
 
           {/* rooms */}
           {rooms.map((r) => (
-            <g key={r.id} style={{ pointerEvents: 'none' }}>
-              <polygon points={r.polygon.map((p) => `${p.x},${p.y}`).join(' ')} fill="#f6f1e7" />
-              <text x={r.centroid.x} y={r.centroid.y} fontSize={12 * px} textAnchor="middle" dominantBaseline="central" fill="#8a7d66" fontFamily="ui-sans-serif, system-ui, sans-serif">
-                {formatArea(r.area, units)}
-              </text>
-            </g>
+            <polygon key={r.id} points={r.polygon.map((p) => `${p.x},${p.y}`).join(' ')} fill="#f6f1e7" style={{ pointerEvents: 'none' }} />
           ))}
 
           {/* guides */}
@@ -981,6 +990,17 @@ export function Editor2D() {
           {alt && tool === 'select' && selection.length === 1 && selection[0].kind === 'wall' && measureTarget && measureTarget !== selection[0].id && plan.walls[selection[0].id] && plan.walls[measureTarget] && (
             <GapMeasure gap={wallGap(plan, plan.walls[selection[0].id], plan.walls[measureTarget])} px={px} units={units} />
           )}
+          {/* room names and areas, above the furniture */}
+          {rooms.map((r, i) => (
+            <g key={'label' + r.id} style={{ pointerEvents: 'none' }}>
+              <text x={r.centroid.x} y={r.centroid.y - 8 * px} fontSize={12.5 * px} fontWeight={600} textAnchor="middle" dominantBaseline="central" fill="#5d5240" stroke="white" strokeWidth={3 * px} paintOrder="stroke" fontFamily="ui-sans-serif, system-ui, sans-serif">
+                {roomName(plan, r, i)}
+              </text>
+              <text x={r.centroid.x} y={r.centroid.y + 8 * px} fontSize={11 * px} textAnchor="middle" dominantBaseline="central" fill="#7d7160" stroke="white" strokeWidth={3 * px} paintOrder="stroke" fontFamily="ui-sans-serif, system-ui, sans-serif">
+                {formatArea(r.area, units)}
+              </text>
+            </g>
+          ))}
           <PeerCursors px={px} />
         </g>
       </svg>

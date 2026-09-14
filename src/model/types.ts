@@ -86,12 +86,21 @@ export interface PlanSettings {
   units: 'm' | 'cm'
 }
 
+/** a name pinned inside a room; the room it names is the one containing the pin */
+export interface RoomLabel {
+  id: string
+  name: string
+  x: number
+  y: number
+}
+
 export interface Plan {
   points: Record<string, PlanPoint>
   walls: Record<string, Wall>
   openings: Record<string, Opening>
   furniture: Record<string, Furniture>
   constraints: Record<string, Constraint>
+  rooms: Record<string, RoomLabel>
   settings: PlanSettings
 }
 
@@ -110,6 +119,7 @@ export function emptyPlan(): Plan {
     openings: {},
     furniture: {},
     constraints: {},
+    rooms: {},
     settings: { wallHeight: 2.5, wallThickness: 0.2, units: 'm' },
   }
 }

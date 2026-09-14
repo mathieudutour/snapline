@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import type { Constraint, ConstraintInput, Furniture, Opening, OpeningKind, Plan, PlanPoint, Vec2, Wall } from './types'
+import type { Constraint, ConstraintInput, Furniture, Opening, OpeningKind, Plan, PlanPoint, Room, Vec2, Wall } from './types'
+import { roomLabel } from './rooms'
 import { CATALOG_BY_KEY } from '../furniture/catalog'
 import { emptyPlan, newId } from './types'
 import { constraintsReferencing, solvePlan, type DragTarget, type FurnitureDrag, type SolveReport } from './constraints'
@@ -158,6 +159,8 @@ export interface EditorState {
   /** set a wall length; with `side` the value is the face-to-face length on that side */
   setWallLength: (wallId: string, value: number, lock: boolean, side?: WallSide) => void
   addConstraint: (c: ConstraintInput) => void
+  /** name a room (a label pinned at its centroid; an empty name removes it) */
+  nameRoom: (room: Room, name: string) => void
   removeConstraint: (id: string) => void
   deleteSelection: () => void
   deleteItems: (items: SelectionItem[]) => void
@@ -303,6 +306,7 @@ export function normalizePlan(raw: Partial<Plan>): Plan {
     openings: raw.openings ?? {},
     furniture: raw.furniture ?? {},
     constraints: raw.constraints ?? {},
+    rooms: raw.rooms ?? {},
     settings: { ...base.settings, ...(raw.settings ?? {}) },
   }
 }
@@ -354,7 +358,12 @@ function clonePlanWithNewIds(plan: Plan): Plan {
     }
     constraints[id] = remap(c as unknown as Record<string, unknown>) as unknown as Constraint
   }
-  return { ...plan, points, walls, openings, furniture, constraints }
+  const rooms: Plan['rooms'] = {}
+  for (const r of Object.values(plan.rooms ?? {})) {
+    const id = newId('rm')
+    rooms[id] = { ...r, id }
+  }
+  return { ...plan, points, walls, openings, furniture, constraints, rooms }
 }
 
 const MAX_UNDO = 100
@@ -1214,6 +1223,20 @@ export const useEditor = create<EditorState>((set, get) => {
       const constraints = withoutConflicting(plan, c)
       constraints[id] = { ...c, id } as Constraint
       get().commit({ ...plan, constraints })
+    },
+    nameRoom: (room, name) => {
+      const plan = get().plan
+      const existing = roomLabel(plan, room)
+      const rooms = { ...plan.rooms }
+      if (!name.trim()) {
+        if (!existing) return
+        delete rooms[existing.id]
+      } else if (existing) rooms[existing.id] = { ...existing, name: name.trim() }
+      else {
+        const id = newId('rm')
+        rooms[id] = { id, name: name.trim(), x: room.centroid.x, y: room.centroid.y }
+      }
+      get().commit({ ...plan, rooms })
     },
     removeConstraint: (id) => {
       const plan = get().plan
