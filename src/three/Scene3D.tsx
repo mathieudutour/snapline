@@ -1,0 +1,249 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { OrbitControls, PointerLockControls, Sky } from '@react-three/drei'
+import * as THREE from 'three'
+import { useEditor } from '../model/store'
+import { buildScene, type OpeningMeshData, type SceneData } from './buildScene'
+import { resolveCollisions } from './collision'
+
+const WALL_COLOR = '#f2efe9'
+const FLOOR_COLORS = ['#d9c2a3', '#cdb693', '#e0cbb0', '#c9b596']
+
+function useSceneData(): SceneData {
+  const plan = useEditor((s) => s.plan)
+  const data = useMemo(() => buildScene(plan), [plan])
+  useEffect(() => () => data.dispose(), [data])
+  return data
+}
+
+function DoorMesh({ o }: { o: OpeningMeshData }) {
+  const { width, height } = o.opening
+  const depth = o.thickness + 0.02
+  const jamb = 0.05
+  const hingeX = o.hingeAtB ? width / 2 : -width / 2
+  const dir = o.hingeAtB ? -1 : 1
+  const openAngle = (o.swingPositiveZ ? -1 : 1) * dir * (Math.PI / 2) * 0.85
+  return (
+    <group position={o.position} rotation={[0, o.rotationY, 0]}>
+      <mesh position={[-width / 2 - jamb / 2, height / 2, 0]} castShadow>
+        <boxGeometry args={[jamb, height, depth]} />
+        <meshStandardMaterial color="#ffffff" />
+      </mesh>
+      <mesh position={[width / 2 + jamb / 2, height / 2, 0]} castShadow>
+        <boxGeometry args={[jamb, height, depth]} />
+        <meshStandardMaterial color="#ffffff" />
+      </mesh>
+      <mesh position={[0, height + jamb / 2, 0]} castShadow>
+        <boxGeometry args={[width + 2 * jamb, jamb, depth]} />
+        <meshStandardMaterial color="#ffffff" />
+      </mesh>
+      <group position={[hingeX, 0, 0]} rotation={[0, openAngle, 0]}>
+        <mesh position={[(dir * width) / 2, height / 2, 0]} castShadow>
+          <boxGeometry args={[width, height, 0.04]} />
+          <meshStandardMaterial color="#b98d5b" />
+        </mesh>
+        <mesh position={[dir * (width - 0.08), height * 0.48, 0.035]}>
+          <sphereGeometry args={[0.025, 12, 12]} />
+          <meshStandardMaterial color="#c0c0c0" metalness={0.8} roughness={0.3} />
+        </mesh>
+      </group>
+    </group>
+  )
+}
+
+function WindowMesh({ o }: { o: OpeningMeshData }) {
+  const { width, height, sill } = o.opening
+  const depth = o.thickness + 0.02
+  const f = 0.05
+  return (
+    <group position={o.position} rotation={[0, o.rotationY, 0]}>
+      <mesh position={[0, sill + height / 2, 0]}>
+        <boxGeometry args={[width, height, 0.02]} />
+        <meshPhysicalMaterial color="#9fd0ff" transparent opacity={0.35} roughness={0.05} metalness={0.1} />
+      </mesh>
+      <mesh position={[-width / 2 + f / 2, sill + height / 2, 0]}>
+        <boxGeometry args={[f, height, depth]} />
+        <meshStandardMaterial color="#ffffff" />
+      </mesh>
+      <mesh position={[width / 2 - f / 2, sill + height / 2, 0]}>
+        <boxGeometry args={[f, height, depth]} />
+        <meshStandardMaterial color="#ffffff" />
+      </mesh>
+      <mesh position={[0, sill + f / 2, 0]}>
+        <boxGeometry args={[width, f, depth]} />
+        <meshStandardMaterial color="#ffffff" />
+      </mesh>
+      <mesh position={[0, sill + height - f / 2, 0]}>
+        <boxGeometry args={[width, f, depth]} />
+        <meshStandardMaterial color="#ffffff" />
+      </mesh>
+      {width > 1 && (
+        <mesh position={[0, sill + height / 2, 0]}>
+          <boxGeometry args={[0.04, height, 0.06]} />
+          <meshStandardMaterial color="#ffffff" />
+        </mesh>
+      )}
+    </group>
+  )
+}
+
+function PlanMeshes({ data, showCeilings }: { data: SceneData; showCeilings: boolean }) {
+  return (
+    <group>
+      {data.walls.map((w) => (
+        <mesh key={w.id} geometry={w.geometry} castShadow receiveShadow>
+          <meshStandardMaterial color={WALL_COLOR} roughness={0.9} />
+        </mesh>
+      ))}
+      {data.floors.map((f, i) => (
+        <group key={f.id}>
+          <mesh geometry={f.geometry} position={[0, 0.005, 0]} receiveShadow>
+            <meshStandardMaterial color={FLOOR_COLORS[i % FLOOR_COLORS.length]} roughness={0.8} />
+          </mesh>
+          {showCeilings && (
+            <mesh geometry={f.ceiling} position={[0, f.height - 0.005, 0]}>
+              <meshStandardMaterial color="#fbfbfb" roughness={1} />
+            </mesh>
+          )}
+        </group>
+      ))}
+      {data.openings.map((o) => (o.opening.kind === 'door' ? <DoorMesh key={o.id} o={o} /> : <WindowMesh key={o.id} o={o} />))}
+    </group>
+  )
+}
+
+function Ground({ center, radius }: { center: { x: number; y: number }; radius: number }) {
+  const size = Math.max(40, radius * 6)
+  return (
+    <group position={[center.x, 0, center.y]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
+        <planeGeometry args={[size, size]} />
+        <meshStandardMaterial color="#b9c7b0" roughness={1} />
+      </mesh>
+      <gridHelper args={[size, size, '#9fb094', '#aebfa5']} position={[0, 0, 0]} />
+    </group>
+  )
+}
+
+function Lights({ center, radius }: { center: { x: number; y: number }; radius: number }) {
+  const d = Math.max(10, radius * 1.5)
+  return (
+    <>
+      <hemisphereLight args={['#ffffff', '#8a7f6a', 0.7]} />
+      <directionalLight
+        position={[center.x + radius, radius * 1.6 + 6, center.y + radius * 0.6]}
+        intensity={1.6}
+        castShadow
+        shadow-mapSize={[2048, 2048]}
+        shadow-camera-left={-d}
+        shadow-camera-right={d}
+        shadow-camera-top={d}
+        shadow-camera-bottom={-d}
+        shadow-camera-near={0.5}
+        shadow-camera-far={d * 4}
+        target-position={[center.x, 0, center.y]}
+      />
+      <ambientLight intensity={0.25} />
+    </>
+  )
+}
+
+function WalkController({ data, locked }: { data: SceneData; locked: boolean }) {
+  const { camera } = useThree()
+  const keys = useRef<Set<string>>(new Set())
+  const velocity = useRef(new THREE.Vector3())
+  const eye = 1.65
+  useEffect(() => {
+    camera.position.set(data.spawn.x, eye, data.spawn.y)
+    // look towards the plan centre if we are not in it
+    const target = new THREE.Vector3(data.center.x, eye, data.center.y)
+    if (target.distanceTo(camera.position) > 0.5) camera.lookAt(target)
+    else camera.lookAt(new THREE.Vector3(data.spawn.x + 1, eye, data.spawn.y))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      keys.current.add(e.code)
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault()
+    }
+    const up = (e: KeyboardEvent) => keys.current.delete(e.code)
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    return () => {
+      window.removeEventListener('keydown', down)
+      window.removeEventListener('keyup', up)
+    }
+  }, [])
+  useFrame((_, dt) => {
+    if (!locked) return
+    const k = keys.current
+    const forward = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0)
+    const strafe = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0)
+    const speed = k.has('ShiftLeft') || k.has('ShiftRight') ? 4.5 : 2.2
+    const dir = new THREE.Vector3()
+    camera.getWorldDirection(dir)
+    dir.y = 0
+    if (dir.lengthSq() < 1e-6) dir.set(0, 0, -1)
+    dir.normalize()
+    const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize()
+    const wish = new THREE.Vector3().addScaledVector(dir, forward).addScaledVector(right, strafe)
+    if (wish.lengthSq() > 0) wish.normalize().multiplyScalar(speed)
+    // smooth acceleration
+    velocity.current.lerp(wish, Math.min(1, dt * 12))
+    const step = Math.min(dt, 0.05)
+    camera.position.addScaledVector(velocity.current, step)
+    resolveCollisions(camera.position, data.blockers, 0.3)
+    camera.position.y = eye
+  })
+  return null
+}
+
+function FrameOrbit({ data }: { data: SceneData }) {
+  const { camera } = useThree()
+  const done = useRef(false)
+  useEffect(() => {
+    if (done.current) return
+    done.current = true
+    camera.position.set(data.center.x + data.radius * 1.2, data.radius * 1.3 + 4, data.center.y + data.radius * 1.6)
+    camera.lookAt(data.center.x, 0, data.center.y)
+  }, [camera, data])
+  return <OrbitControls target={[data.center.x, 0, data.center.y]} maxPolarAngle={Math.PI / 2 - 0.02} makeDefault />
+}
+
+export function Scene3D({ walk }: { walk: boolean }) {
+  const data = useSceneData()
+  const [locked, setLocked] = useState(false)
+  const controlsRef = useRef<{ lock: () => void; unlock: () => void } | null>(null)
+  useEffect(() => {
+    if (!walk) setLocked(false)
+  }, [walk])
+  return (
+    <div className="scene3d">
+      <Canvas shadows="percentage" camera={{ fov: walk ? 75 : 50, near: 0.05, far: 500 }} gl={{ antialias: true }} onCreated={({ gl }) => gl.setClearColor('#dfe7f0')}>
+        <Sky sunPosition={[data.center.x + data.radius, data.radius * 1.6 + 6, data.center.y + data.radius * 0.6]} turbidity={6} rayleigh={1.5} distance={400} />
+        <Lights center={data.center} radius={data.radius} />
+        <Ground center={data.center} radius={data.radius} />
+        <PlanMeshes data={data} showCeilings={walk} />
+        {walk ? (
+          <>
+            <PointerLockControls ref={controlsRef as never} onLock={() => setLocked(true)} onUnlock={() => setLocked(false)} />
+            <WalkController data={data} locked={locked} />
+          </>
+        ) : (
+          <FrameOrbit data={data} />
+        )}
+      </Canvas>
+      {walk && !locked && (
+        <div className="walk-overlay" onClick={() => controlsRef.current?.lock()}>
+          <div className="card">
+            <h2>Walk through your plan</h2>
+            <p>Click to start. Move with <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> or the arrow keys, look around with the mouse, hold <kbd>Shift</kbd> to run.</p>
+            <p>Press <kbd>Esc</kbd> to release the mouse.</p>
+          </div>
+        </div>
+      )}
+      {walk && locked && <div className="crosshair" />}
+      {!walk && <div className="scene-hint">Drag to orbit · right-drag to pan · scroll to zoom</div>}
+    </div>
+  )
+}
