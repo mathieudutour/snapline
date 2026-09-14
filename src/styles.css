@@ -1469,3 +1469,39 @@ button.danger {
     transform: translate(-50%, 0);
   }
 }
+
+/* ---------- live collaboration ---------- */
+.peers {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+}
+.peers .peer {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--panel);
+  margin-left: -6px;
+  display: grid;
+  place-items: center;
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+}
+.peers .peer:first-child {
+  margin-left: 0;
+}
+.peers .peer.more {
+  background: var(--muted);
+}
+.peers .live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2ea44f;
+  margin-left: 4px;
+}
+.peers.connecting .live-dot {
+  background: #f0a020;
+}

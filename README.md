@@ -41,7 +41,7 @@ npm run build      # production bundle in dist/
 
 ## Deploying
 
-Pushes to `main` run `.github/workflows/deploy.yml`: typecheck, tests and build, then a deploy to Cloudflare Workers with static assets, a D1 database for accounts and projects, and an R2 bucket for imported models.
+Pushes to `main` run `.github/workflows/deploy.yml`: typecheck, tests and build, then a deploy to Cloudflare Workers with static assets, a D1 database for accounts and projects, a Durable Object per shared project for live sessions (created by the deploy itself), and an R2 bucket for imported models.
 
 1. Create a Cloudflare API token with the Workers Scripts, Workers KV/D1 and R2 edit permissions, and add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as GitHub Actions secrets.
 2. Create a D1 database called `snapline` and put its id in `wrangler.jsonc`. The workflow applies the migrations in `worker/migrations`.
@@ -76,7 +76,8 @@ canvas in the middle with a floating toolbar at the bottom, and an inspector for
 | Projects | The project name at the top of the left panel opens a menu (rename, import, export, delete); the Projects rail tab lists all projects. |
 | Preferences | The Prefs rail tab: metric (m or cm) or imperial (feet and inches), grid snap, auto-lock, ghost of the floor below. |
 | Sharing | Project menu → Share… invites people by the email of their Google account; they see the project in their list and can edit everything. Owners remove people or delete the project; invited editors can leave it. |
-| Diverging edits | Saves carry the version they started from. If someone else saved in between while you had unsaved edits, a dialog asks whether to overwrite their version, keep both (your edits become a copy of your own), or discard yours. Projects you have not edited pick up other people's changes automatically (every 30 s and when the tab regains focus). |
+| Live collaboration | A shared project opens a live session: everyone in it sees the others' cursors, selections and edits as they happen (avatars in the inspector header show who is there). Edits travel as per-entity operations, so people can work on different parts of the plan at once; when two people change the same wall, the last change wins. Undo only undoes your own steps. |
+| Diverging edits | Edits made while disconnected are merged on reconnect when nobody else saved in between. Otherwise (or when saving without a live session) a dialog asks whether to overwrite their version, keep both (your edits become a copy of your own), or discard yours. Projects you have not edited pick up other people's changes automatically (every 30 s and when the tab regains focus). |
 | 3D / walkthrough | Switch with 2D / 3D / Walk in the inspector header. In 3D tick "Cut above" to look inside; the walkthrough runs on the floor selected in the Floors list. |
 
 ## Furniture catalogue
@@ -108,8 +109,8 @@ src/editor     2D SVG editor, snapping, dimension labels
 src/panels     toolbar and side panel
 src/three      3D scene builder, orbit view, walkthrough and collisions
 src/furniture  catalogue metadata and asset URLs
-src/sync       API client for the account and project sync
-worker         Cloudflare Worker: Google sign-in, sessions, projects, sharing and models API, D1 migrations, R2 files
+src/sync       API client, project sync and the live-collaboration connection
+worker         Cloudflare Worker: Google sign-in, sessions, projects, sharing and models API, live rooms (Durable Object), D1 migrations, R2 files
 public/furniture  generated GLB models, thumbnails, plan symbols and credits
 scripts        catalogue import and icon rendering
 ```

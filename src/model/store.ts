@@ -7,6 +7,7 @@ import { dist, projectOnSegment, wallLength, wallsAtPoint, type WallSide } from 
 import { exampleProject } from './example'
 import { defaultFloorName, floorElevation, newProject, normalizeProject, type Floor, type Project, type ProjectMeta, type Roof } from './project'
 import type { Units } from './units'
+import { applyOps, floorsTouched, type Op, type Peer, type Presence } from './collab'
 import { CUSTOM_CATEGORY, type CatalogItem } from '../furniture/catalog'
 import { deleteModelBlobs, getModelBlobs, loadCustomModelMeta, newModelKey, parseModelFile, putModelBlobs, registerModelUrls, saveCustomModelMeta, unregisterModelUrls, type CustomModel } from '../furniture/customModels'
 import { renderModelIcons } from '../furniture/renderIcon'
@@ -37,6 +38,15 @@ export interface SyncConflict {
 }
 export type ConflictChoice = 'overwrite' | 'duplicate' | 'theirs'
 
+/** state of the live-collaboration connection for the open project */
+export interface LiveState {
+  status: 'off' | 'connecting' | 'on'
+  /** our own peer id in the room */
+  you: string | null
+  peers: Peer[]
+  presence: Record<string, Presence>
+}
+
 export interface EditorState {
   /** signed-in account; null when signed out, undefined until checked */
   user: AccountUser | null | undefined
@@ -58,6 +68,16 @@ export interface EditorState {
   setNotice: (n: string | null) => void
   /** refresh sharing info of a project after inviting or removing people */
   refreshProjectMeta: (id: string) => Promise<void>
+  live: LiveState
+  setLive: (patch: Partial<LiveState>) => void
+  /** apply operations received from the room; the caller holds them back while a drag is in progress */
+  applyRemoteOps: (ops: Op[]) => void
+  /** take the room's copy of a project as the local one (no undo entry, keeps the view) */
+  adoptRoomProject: (project: Project, version: number) => void
+  /** the room wrote the project to the account */
+  markSaved: (projectId: string, version: number, updatedAt: number) => void
+  /** report a diverging room copy (offline edits on top of an older version) */
+  reportConflict: (c: SyncConflict) => void
 
   /** the current project; `plan` mirrors the active floor's plan */
   project: Project
@@ -570,6 +590,7 @@ export const useEditor = create<EditorState>((set, get) => {
   const push = async (project: Project, force = false) => {
     if (!get().user) return
     if (!force && get().conflicts.some((c) => c.projectId === project.id)) return // paused until the user decides
+    if (!force && get().live.status === 'on' && project.id === get().project.id) return // the live room saves for us
     const meta = metaOf(project.id)
     const seqAtStart = editSeq
     set({ syncStatus: 'syncing' })
@@ -764,6 +785,47 @@ export const useEditor = create<EditorState>((set, get) => {
     },
     notice: null,
     setNotice: (notice) => set({ notice }),
+    live: { status: 'off', you: null, peers: [], presence: {} },
+    setLive: (patch) => set({ live: { ...get().live, ...patch } }),
+    applyRemoteOps: (ops) => {
+      if (!ops.length) return
+      const { project, activeFloorId, undoStack, redoStack } = get()
+      let next = applyOps(project, ops)
+      const touched = floorsTouched(ops)
+      const floorId = next.floors.some((f) => f.id === activeFloorId) ? activeFloorId : next.floors[0].id
+      let plan = get().plan
+      let report = get().report
+      if (touched === 'all' || touched.has(floorId) || floorId !== activeFloorId) {
+        const solved = solvePlan(activePlan(next, floorId))
+        next = withFloorPlan(next, floorId, solved.plan)
+        plan = solved.plan
+        report = solved.report
+      }
+      const exists = (s: SelectionItem) => (s.kind === 'point' ? !!plan.points[s.id] : s.kind === 'wall' ? !!plan.walls[s.id] : s.kind === 'furniture' ? !!plan.furniture[s.id] : !!plan.openings[s.id])
+      // rebase the undo history so undoing your own step does not revert other people's edits
+      set({
+        project: next,
+        activeFloorId: floorId,
+        plan,
+        report,
+        selection: get().selection.filter(exists),
+        undoStack: undoStack.map((u) => ({ ...u, project: applyOps(u.project, ops) })),
+        redoStack: redoStack.map((u) => ({ ...u, project: applyOps(u.project, ops) })),
+        projects: updateIndex(next, get().projects),
+      })
+      saveProjectNow(next)
+    },
+    adoptRoomProject: (project, version) => {
+      saveProjectNow(project)
+      setMeta(project.id, { syncedVersion: version, dirty: false, name: project.name, updatedAt: project.updatedAt })
+      if (get().project.id === project.id) replaceOpenProject(project)
+    },
+    markSaved: (projectId, version, updatedAt) => {
+      const u = get().user
+      setMeta(projectId, { syncedVersion: version, dirty: false, updatedAt, updatedBy: u ? { email: u.email, name: u.name } : null })
+      if (get().syncStatus !== 'conflict' && get().syncStatus !== 'error') set({ syncStatus: 'synced' })
+    },
+    reportConflict: (c) => addConflict(c),
     refreshProjectMeta: async (id) => {
       const remote = await listRemoteProjects()
       const r = remote.find((p) => p.id === id)

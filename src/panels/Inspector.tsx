@@ -1,6 +1,7 @@
 import { useEditor, type ViewMode } from '../model/store'
 import { SelectionInspector } from './Sidebar'
 import { AccountButton } from './Account'
+import { PeerAvatars } from '../editor/Peers'
 
 const MODES: { id: ViewMode; label: string }[] = [
   { id: 'plan', label: '2D' },
@@ -34,6 +35,7 @@ export function Inspector() {
             {Math.round(zoom)}%
           </button>
         )}
+        <PeerAvatars />
         <AccountButton />
       </div>
       <div className="panel-scroll">

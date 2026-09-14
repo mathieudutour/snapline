@@ -13,6 +13,10 @@ export interface AppConfig {
   store: Store
   /** file storage for imported models; undefined when no bucket is bound */
   objects?: ObjectStore
+  /** live collaboration: hand an authenticated WebSocket upgrade to the project's room */
+  live?: (req: Request, ctx: { projectId: string; user: User }) => Promise<Response>
+  /** tell an open room that the stored project changed through the REST API */
+  onProjectSaved?: (projectId: string, project: Record<string, unknown>, version: number) => Promise<void>
   google: GoogleConfig
   now?: () => number
   /** set to false for local http dev */
@@ -103,6 +107,12 @@ export function createApp(cfg: AppConfig) {
       const access = { userId, email: me.user.email }
       const withRole = <T extends { ownerId: string }>(meta: T) => ({ ...meta, role: meta.ownerId === userId ? ('owner' as const) : ('editor' as const) })
       if (path === '/api/projects' && req.method === 'GET') return json({ projects: (await cfg.store.listProjects(access)).map(withRole) })
+      const live = /^\/api\/projects\/([A-Za-z0-9_-]{1,64})\/live$/.exec(path)
+      if (live && req.method === 'GET') {
+        if (!cfg.live) return error(503, 'live collaboration is not configured')
+        if (!(await cfg.store.getProjectMeta(access, live[1]))) return error(404, 'not found')
+        return cfg.live(req, { projectId: live[1], user: me.user })
+      }
       const m = /^\/api\/projects\/([A-Za-z0-9_-]{1,64})(?:\/members(?:\/([^/]{1,254}))?)?$/.exec(path)
       if (m) {
         const id = m[1]
@@ -175,8 +185,12 @@ export function createApp(cfg: AppConfig) {
               return json({ conflict: true, project: JSON.parse(existing.data), version: existing.version, updatedAt: existing.updatedAt, updatedBy: meta?.updatedBy ?? null }, { status: 409 })
             }
             const version = existing.version + 1
-            const ok = await cfg.store.putProject({ ...existing, name, data: JSON.stringify({ ...project, id, updatedAt }), updatedAt, version, updatedBy: userId }, existing.version)
-            if (ok) return json({ ok: true, updatedAt, version })
+            const data = { ...project, id, updatedAt }
+            const ok = await cfg.store.putProject({ ...existing, name, data: JSON.stringify(data), updatedAt, version, updatedBy: userId }, existing.version)
+            if (ok) {
+              if (cfg.onProjectSaved) await cfg.onProjectSaved(id, data, version).catch(() => undefined)
+              return json({ ok: true, updatedAt, version })
+            }
             // someone saved between our read and write: loop once more (a forced save retries, a normal one will report the conflict)
           }
           return error(409, 'save raced with another save, try again')

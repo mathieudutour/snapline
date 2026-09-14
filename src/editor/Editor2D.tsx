@@ -9,6 +9,8 @@ import { formatArea, formatLength, parseLength, type Units } from '../model/unit
 import { snapPosition, type SnapResult } from './snapping'
 import { screenToWorld, worldToScreen, type Viewport } from './viewport'
 import { Dimension } from './Dimension'
+import { setLiveCursor } from '../sync/liveController'
+import { PeerCursors, usePeerSelections } from './Peers'
 
 type DragState =
   | { kind: 'pan'; startScreen: Vec2; startVp: Viewport }
@@ -95,6 +97,7 @@ export function Editor2D() {
   )
   const toScreen = useCallback((p: Vec2): Vec2 => worldToScreen(vp, p, size.width, size.height), [vp, size])
 
+  const peerSelections = usePeerSelections()
   /** the side a wall's dimension is drawn on (away from rooms) and its outward normal */
   const wallSide = useCallback((w: Wall) => dimensionSide(plan, rooms, w), [plan, rooms])
   const DIM_GAP = 0.35
@@ -468,6 +471,7 @@ export function Editor2D() {
   const onPointerMove = (e: React.PointerEvent) => {
     const world = toWorld(e)
     setCursor(world)
+    setLiveCursor(world)
     const drag = dragRef.current
     const st = useEditor.getState()
     if (drag?.kind === 'pan') {
@@ -692,7 +696,7 @@ export function Editor2D() {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerLeave={() => setCursor(null)}
+        onPointerLeave={() => (setCursor(null), setLiveCursor(null))}
         onDoubleClick={onDoubleClick}
         onContextMenu={(e) => {
           e.preventDefault()
@@ -748,6 +752,7 @@ export function Editor2D() {
             const sel = isSelected(selection, 'wall', w.id)
             const hov = hover?.kind === 'wall' && hover.id === w.id && tool === 'select'
             const fill = sel ? '#2f6fed' : hov ? '#5a5a5a' : '#3b3b3b'
+            const peer = peerSelections.get(`wall:${w.id}`)
             return (
               <polygon
                 key={w.id}
@@ -755,8 +760,8 @@ export function Editor2D() {
                 data-id={w.id}
                 points={poly.map((p) => `${p.x},${p.y}`).join(' ')}
                 fill={fill}
-                stroke={sel ? '#1b4fc0' : '#222'}
-                strokeWidth={px}
+                stroke={peer ?? (sel ? '#1b4fc0' : '#222')}
+                strokeWidth={peer ? 3 * px : px}
                 strokeLinejoin="round"
                 onPointerEnter={() => setHover({ kind: 'wall', id: w.id })}
                 onPointerLeave={() => setHover(null)}
@@ -820,7 +825,7 @@ export function Editor2D() {
 
           {/* furniture */}
           {Object.values(plan.furniture).map((f) => (
-            <FurnitureShape key={f.id} piece={f} selected={isSelected(selection, 'furniture', f.id)} hovered={hover?.kind === 'furniture' && hover.id === f.id && tool === 'select'} px={px} interactive={tool === 'select'} onHover={(h) => setHover(h ? { kind: 'furniture', id: f.id } : null)} />
+            <FurnitureShape key={f.id} piece={f} selected={isSelected(selection, 'furniture', f.id)} hovered={hover?.kind === 'furniture' && hover.id === f.id && tool === 'select'} px={px} interactive={tool === 'select'} onHover={(h) => setHover(h ? { kind: 'furniture', id: f.id } : null)} peerColor={peerSelections.get(`furniture:${f.id}`)} />
           ))}
           {tool === 'select' && selection.filter((s) => s.kind === 'furniture' && plan.furniture[s.id]).map((s) => <FurnitureHandles key={s.id} piece={plan.furniture[s.id]} px={px} />)}
           {placementGhost && placingItem && (
@@ -950,6 +955,7 @@ export function Editor2D() {
           {snap && (snap.pointId || snap.wall) && dragRef.current?.kind === 'point' && (
             <circle cx={snap.pos.x} cy={snap.pos.y} r={9 * px} fill="none" stroke="#e0891d" strokeWidth={px * 2} style={{ pointerEvents: 'none' }} />
           )}
+          <PeerCursors px={px} />
         </g>
       </svg>
 
@@ -1058,16 +1064,16 @@ function ShortcutsPanel({ onClose }: { onClose: () => void }) {
   )
 }
 
-function FurnitureShape({ piece, selected, hovered, px, interactive, onHover }: { piece: Furniture; selected: boolean; hovered: boolean; px: number; interactive: boolean; onHover: (h: boolean) => void }) {
+function FurnitureShape({ piece, selected, hovered, px, interactive, onHover, peerColor }: { piece: Furniture; selected: boolean; hovered: boolean; px: number; interactive: boolean; onHover: (h: boolean) => void; peerColor?: string }) {
   void interactive
   const deg = (piece.angle * 180) / Math.PI
   const side = Math.max(piece.width, piece.depth) * 1.02
-  const stroke = selected ? '#2f6fed' : hovered ? '#4a7ee8' : '#6b6b6b'
+  const stroke = peerColor ?? (selected ? '#2f6fed' : hovered ? '#4a7ee8' : '#6b6b6b')
   const wallMounted = piece.elevation > 0.9
   return (
     <g data-kind="furniture" data-id={piece.id} onPointerEnter={() => onHover(true)} onPointerLeave={() => onHover(false)} style={{ cursor: interactive ? 'move' : undefined }}>
       <g transform={`translate(${piece.x} ${piece.y}) rotate(${deg})`}>
-        <rect x={-piece.width / 2} y={-piece.depth / 2} width={piece.width} height={piece.depth} fill={wallMounted ? 'rgba(255,255,255,0.35)' : 'white'} stroke={stroke} strokeWidth={px * (selected ? 2 : 1)} strokeDasharray={wallMounted ? `${4 * px} ${3 * px}` : undefined} />
+        <rect x={-piece.width / 2} y={-piece.depth / 2} width={piece.width} height={piece.depth} fill={wallMounted ? 'rgba(255,255,255,0.35)' : 'white'} stroke={stroke} strokeWidth={px * (selected || peerColor ? 2 : 1)} strokeDasharray={wallMounted ? `${4 * px} ${3 * px}` : undefined} />
         {resolvePlanIconUrl(piece.catalogKey) ? (
           <image href={resolvePlanIconUrl(piece.catalogKey)!} x={-side / 2} y={-side / 2} width={side} height={side} preserveAspectRatio="none" opacity={wallMounted ? 0.6 : 1} style={{ pointerEvents: 'none' }} />
         ) : (

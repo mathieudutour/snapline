@@ -72,7 +72,7 @@ export function ShareDialog({ projectId, onClose }: { projectId: string; onClose
         <div className="props">
           {role === 'owner' ? (
             <>
-              <p className="muted small">People you invite sign in with Google using that email and then see this project in their list. They can edit everything; changes are exchanged when each of you saves, not live.</p>
+              <p className="muted small">People you invite sign in with Google using that email and then see this project in their list. Everyone edits the same plan live: you see each other's cursors and changes as they happen. Edits made while offline are merged when you reconnect.</p>
               <form
                 className="row"
                 onSubmit={(e) => {
@@ -88,7 +88,7 @@ export function ShareDialog({ projectId, onClose }: { projectId: string; onClose
             </>
           ) : (
             <p className="muted small">
-              Shared with you by <b>{owner ? owner.name || owner.email : '…'}</b>. You can edit everything; changes are exchanged when each of you saves, not live.
+              Shared with you by <b>{owner ? owner.name || owner.email : '…'}</b>. Everyone edits the same plan live: you see each other's cursors and changes as they happen.
             </p>
           )}
           <ul className="member-list">
