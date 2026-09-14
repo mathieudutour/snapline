@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import type { Opening, Plan, Vec2, Wall } from '../model/types'
-import { add, clipPolygonToRange, findRooms, normalize, polygonArea, scale, sub, wallLength, wallPolygon, planBounds } from '../model/geometry'
+import { add, clipPolygonConvex, clipPolygonToRange, findRooms, normalize, polygonArea, scale, sub, wallLength, wallPolygon, planBounds } from '../model/geometry'
 import { roofFootprint, type Roof } from '../model/project'
 
 export interface WallMeshData {
@@ -152,7 +152,7 @@ function wallGeometry(plan: Plan, wall: Wall, bandBelow = 0): THREE.BufferGeomet
   return geometry
 }
 
-function floorGeometry(polygon: Vec2[], ceiling: boolean): THREE.BufferGeometry {
+function floorGeometry(polygon: Vec2[], ceiling: boolean, holes: Vec2[][] = []): THREE.BufferGeometry {
   const shape = new THREE.Shape()
   polygon.forEach((p, i) => {
     const x = p.x
@@ -161,12 +161,21 @@ function floorGeometry(polygon: Vec2[], ceiling: boolean): THREE.BufferGeometry 
     else shape.lineTo(x, y)
   })
   shape.closePath()
+  // openings in the slab (stairwells, voids): each cut is clipped to the room so the triangulation stays valid
+  for (const hole of holes) {
+    const inside = clipPolygonConvex(polygon, hole)
+    if (inside.length < 3) continue
+    const path = new THREE.Path()
+    inside.forEach((p, i) => (i === 0 ? path.moveTo(p.x, ceiling ? p.y : -p.y) : path.lineTo(p.x, ceiling ? p.y : -p.y)))
+    path.closePath()
+    shape.holes.push(path)
+  }
   const geometry = new THREE.ShapeGeometry(shape)
   geometry.rotateX(ceiling ? Math.PI / 2 : -Math.PI / 2)
   return geometry
 }
 
-export function buildScene(plan: Plan, options: { bandBelow?: number } = {}): SceneData {
+export function buildScene(plan: Plan, options: { bandBelow?: number; floorHoles?: Vec2[][]; ceilingHoles?: Vec2[][] } = {}): SceneData {
   const walls: WallMeshData[] = []
   const blockers: Blocker[] = []
   let maxHeight = 2.5
@@ -214,7 +223,7 @@ export function buildScene(plan: Plan, options: { bandBelow?: number } = {}): Sc
   const floors: FloorMeshData[] = rooms.map((r) => {
     const heights = r.pointIds.flatMap((pid) => Object.values(plan.walls).filter((w) => w.a === pid || w.b === pid).map((w) => w.height))
     const height = heights.length ? Math.min(...heights) : plan.settings.wallHeight
-    return { id: r.id, geometry: floorGeometry(r.polygon, false), ceiling: floorGeometry(r.polygon, true), height }
+    return { id: r.id, geometry: floorGeometry(r.polygon, false, options.floorHoles), ceiling: floorGeometry(r.polygon, true, options.ceilingHoles), height }
   })
   const bounds = planBounds(plan)
   const center = bounds ? { x: (bounds.min.x + bounds.max.x) / 2, y: (bounds.min.y + bounds.max.y) / 2 } : { x: 0, y: 0 }

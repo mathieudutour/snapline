@@ -10,6 +10,7 @@ import { SEASON_DAY, sunPosition, sunVector, type SunPosition } from '../model/s
 import { useEditor } from '../model/store'
 import { floorElevation, floorHeight, projectTopElevation } from '../model/project'
 import { buildRoofGeometry, buildScene, type OpeningMeshData, type SceneData } from './buildScene'
+import { floorCutouts, stairSteps, structureKind } from '../model/structures'
 import type { Plan } from '../model/types'
 import { resolveCollisions } from './collision'
 
@@ -35,7 +36,13 @@ function useFloorScenes(): FloorScene[] {
         plan: f.plan,
         elevation: floorElevation(project, f.id),
         height: floorHeight(f),
-        data: buildScene(f.plan, { bandBelow: index > 0 ? project.slabThickness : 0 }),
+        data: buildScene(f.plan, {
+          bandBelow: index > 0 ? project.slabThickness : 0,
+          // the slab is cut by openings on this floor and by stairs coming up from the floor below;
+          // the ceiling (underside of the slab above) by openings above and stairs going up from here
+          floorHoles: floorCutouts(f.plan.furniture, project.floors[index - 1]?.plan.furniture),
+          ceilingHoles: floorCutouts(project.floors[index + 1]?.plan.furniture ?? {}, f.plan.furniture),
+        }),
       })),
     [project],
   )
@@ -167,9 +174,72 @@ function FurniturePlaceholder({ piece }: { piece: Furniture }) {
   )
 }
 
+/** stairs, balconies and floor openings are built from boxes rather than loaded models */
+function StructureMesh({ piece, kind }: { piece: Furniture; kind: 'stairs' | 'void' | 'balcony' }) {
+  const slab = useEditor((s) => s.project.slabThickness)
+  if (kind === 'void') return null // the hole in the slab is the opening
+  if (kind === 'stairs') {
+    const n = stairSteps(piece.height)
+    const rise = piece.height / n
+    const tread = piece.depth / n
+    // the bottom step is at the front (+z), the flight climbs towards the back
+    return (
+      <group>
+        {Array.from({ length: n }, (_, i) => (
+          <mesh key={i} position={[0, ((i + 1) * rise) / 2, piece.depth / 2 - tread * (i + 0.5)]} castShadow receiveShadow>
+            <boxGeometry args={[piece.width, (i + 1) * rise, tread]} />
+            <meshStandardMaterial color="#c8b294" roughness={0.8} />
+          </mesh>
+        ))}
+        {[-1, 1].map((side) => (
+          <mesh key={side} position={[(side * (piece.width - 0.04)) / 2, piece.height / 2 + 0.45, 0]} rotation={[Math.atan2(piece.height, piece.depth), 0, 0]} castShadow>
+            <boxGeometry args={[0.04, 0.04, Math.hypot(piece.height, piece.depth)]} />
+            <meshStandardMaterial color="#5a4632" />
+          </mesh>
+        ))}
+      </group>
+    )
+  }
+  // balcony: a slab flush with the floor, a railing on the front and sides (the back is against the wall)
+  const rail = Math.max(0.9, piece.height)
+  const posts: [number, number][] = []
+  const step = 0.12
+  for (let x = -piece.width / 2 + 0.05; x <= piece.width / 2 - 0.04; x += step) posts.push([x, piece.depth / 2 - 0.03])
+  for (let z = -piece.depth / 2 + 0.05; z < piece.depth / 2 - 0.03; z += step) {
+    posts.push([-piece.width / 2 + 0.03, z])
+    posts.push([piece.width / 2 - 0.03, z])
+  }
+  return (
+    <group>
+      <mesh position={[0, -slab / 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[piece.width, slab, piece.depth]} />
+        <meshStandardMaterial color="#cfc9c0" roughness={0.9} />
+      </mesh>
+      {posts.map(([x, z], i) => (
+        <mesh key={i} position={[x, rail / 2, z]} castShadow>
+          <boxGeometry args={[0.02, rail, 0.02]} />
+          <meshStandardMaterial color="#444" metalness={0.4} roughness={0.5} />
+        </mesh>
+      ))}
+      <mesh position={[0, rail, piece.depth / 2 - 0.03]} castShadow>
+        <boxGeometry args={[piece.width, 0.05, 0.06]} />
+        <meshStandardMaterial color="#5a4632" />
+      </mesh>
+      {[-1, 1].map((side) => (
+        <mesh key={side} position={[(side * (piece.width - 0.06)) / 2, rail, 0]} castShadow>
+          <boxGeometry args={[0.06, 0.05, piece.depth]} />
+          <meshStandardMaterial color="#5a4632" />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
 function FurnitureOrBox({ piece }: { piece: Furniture }) {
   // re-render when imported models finish loading
   useEditor((s) => s.customModels.length)
+  const kind = structureKind(piece.catalogKey)
+  if (kind) return <StructureMesh piece={piece} kind={kind} />
   const url = resolveModelUrl(piece.catalogKey)
   if (!url) return <FurniturePlaceholder piece={piece} />
   return (

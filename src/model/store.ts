@@ -1215,8 +1215,10 @@ export const useEditor = create<EditorState>((set, get) => {
       const item = get().catalogItem(catalogKey)
       if (!item) return null
       const plan = get().plan
+      // a flight of stairs climbs to the floor above: floor height plus the slab
+      const height = catalogKey === 'sys-stairs' ? plan.settings.wallHeight + get().project.slabThickness : item.height
       const id = newId('f')
-      const piece: Furniture = { id, catalogKey, name: item.name, x: pos.x, y: pos.y, angle, width: item.width, depth: item.depth, height: item.height, elevation: item.elevation }
+      const piece: Furniture = { id, catalogKey, name: item.name, x: pos.x, y: pos.y, angle, width: item.width, depth: item.depth, height, elevation: item.elevation }
       get().commit({ ...plan, furniture: { ...plan.furniture, [id]: piece } })
       return id
     },

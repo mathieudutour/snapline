@@ -13,7 +13,9 @@ export interface CatalogItem {
   library: string
 }
 
-export const CATALOG: CatalogItem[] = raw as CatalogItem[]
+import { STRUCTURES, STRUCTURE_ICONS, structureKind } from '../model/structures'
+
+export const CATALOG: CatalogItem[] = [...STRUCTURES, ...(raw as CatalogItem[])]
 export const CUSTOM_CATEGORY = 'My models'
 export const CATALOG_BY_KEY: Record<string, CatalogItem> = Object.fromEntries(CATALOG.map((c) => [c.key, c]))
 export const CATEGORIES: string[] = [...new Set(CATALOG.map((c) => c.category))]
@@ -27,6 +29,6 @@ export const creditsUrl = `${base}/furniture/CREDITS.md`
 import { customModelUrls, isCustomKey } from './customModels'
 
 /** URLs for bundled or imported models; imported ones resolve to object URLs once their files are loaded */
-export const resolveModelUrl = (key: string) => (isCustomKey(key) ? customModelUrls(key)?.glb ?? null : modelUrl(key))
-export const resolvePlanIconUrl = (key: string) => (isCustomKey(key) ? customModelUrls(key)?.plan ?? null : planIconUrl(key))
-export const resolveIconUrl = (key: string) => (isCustomKey(key) ? customModelUrls(key)?.thumb ?? null : iconUrl(key))
+export const resolveModelUrl = (key: string) => (structureKind(key) ? null : isCustomKey(key) ? customModelUrls(key)?.glb ?? null : modelUrl(key))
+export const resolvePlanIconUrl = (key: string) => (structureKind(key) ? null : isCustomKey(key) ? customModelUrls(key)?.plan ?? null : planIconUrl(key))
+export const resolveIconUrl = (key: string) => STRUCTURE_ICONS[key] ?? (isCustomKey(key) ? customModelUrls(key)?.thumb ?? null : iconUrl(key))

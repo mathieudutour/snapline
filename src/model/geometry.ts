@@ -297,3 +297,40 @@ export function planBounds(plan: Plan): { min: Vec2; max: Vec2 } | null {
   }
   return { min, max }
 }
+
+/** Sutherland–Hodgman: the part of `subject` inside the convex polygon `clip` (either winding) */
+export function clipPolygonConvex(subject: Vec2[], clip: Vec2[]): Vec2[] {
+  if (clip.length < 3) return []
+  // orient the clip polygon counter-clockwise (positive area) so "inside" is a consistent side
+  const area = clip.reduce((a, p, i) => a + cross(p, clip[(i + 1) % clip.length]), 0)
+  const c = area < 0 ? [...clip].reverse() : clip
+  let output = subject
+  for (let i = 0; i < c.length && output.length; i++) {
+    const a = c[i]
+    const b = c[(i + 1) % c.length]
+    const edge = sub(b, a)
+    const inside = (p: Vec2) => cross(edge, sub(p, a)) >= -1e-9
+    const input = output
+    output = []
+    for (let j = 0; j < input.length; j++) {
+      const cur = input[j]
+      const prev = input[(j + input.length - 1) % input.length]
+      const curIn = inside(cur)
+      const prevIn = inside(prev)
+      if (curIn) {
+        if (!prevIn) output.push(intersect(prev, cur, a, b))
+        output.push(cur)
+      } else if (prevIn) output.push(intersect(prev, cur, a, b))
+    }
+  }
+  return output
+}
+
+function intersect(p1: Vec2, p2: Vec2, a: Vec2, b: Vec2): Vec2 {
+  const d = sub(p2, p1)
+  const e = sub(b, a)
+  const den = cross(d, e)
+  if (Math.abs(den) < 1e-12) return p1
+  const t = cross(sub(a, p1), e) / den
+  return add(p1, scale(d, t))
+}

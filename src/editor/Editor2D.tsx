@@ -12,6 +12,7 @@ import { Dimension } from './Dimension'
 import { setLiveCursor } from '../sync/liveController'
 import { wallGap } from '../model/measure'
 import { roomName } from '../model/rooms'
+import { stairSteps, structureKind } from '../model/structures'
 import { PeerCursors, usePeerSelections } from './Peers'
 import { Compass } from '../panels/Site'
 import { CommentComposer, CommentPin, CommentThread } from './Comments'
@@ -1268,6 +1269,51 @@ function FurnitureShape({ piece, selected, hovered, px, interactive, onHover, pe
   const side = Math.max(piece.width, piece.depth) * 1.02
   const stroke = peerColor ?? (selected ? '#2f6fed' : hovered ? '#4a7ee8' : '#6b6b6b')
   const wallMounted = piece.elevation > 0.9
+  const kind = structureKind(piece.catalogKey)
+  if (kind) {
+    const w = piece.width
+    const d = piece.depth
+    return (
+      <g data-kind="furniture" data-id={piece.id} onPointerEnter={() => onHover(true)} onPointerLeave={() => onHover(false)} style={{ cursor: interactive ? 'move' : undefined }}>
+        <g transform={`translate(${piece.x} ${piece.y}) rotate(${deg})`}>
+          {kind === 'stairs' && (
+            <>
+              <rect x={-w / 2} y={-d / 2} width={w} height={d} fill="white" stroke={stroke} strokeWidth={px * (selected || peerColor ? 2 : 1)} />
+              {Array.from({ length: stairSteps(piece.height) - 1 }, (_, i) => {
+                const y = d / 2 - ((i + 1) * d) / stairSteps(piece.height)
+                return <line key={i} x1={-w / 2} y1={y} x2={w / 2} y2={y} stroke="#8a8a8a" strokeWidth={px} />
+              })}
+              <line x1={0} y1={d / 2 - 0.15} x2={0} y2={-d / 2 + 0.25} stroke="#2f6fed" strokeWidth={px * 1.5} />
+              <path d={`M${-0.12} ${-d / 2 + 0.4} L0 ${-d / 2 + 0.2} L0.12 ${-d / 2 + 0.4}`} fill="none" stroke="#2f6fed" strokeWidth={px * 1.5} />
+              <text y={d / 2 - 0.1} fontSize={9 * px} textAnchor="middle" fill="#2f6fed" fontFamily="ui-sans-serif, system-ui, sans-serif" style={{ pointerEvents: 'none' }}>
+                up
+              </text>
+            </>
+          )}
+          {kind === 'void' && (
+            <>
+              <rect x={-w / 2} y={-d / 2} width={w} height={d} fill="rgba(120,120,120,0.08)" stroke={stroke} strokeWidth={px * (selected || peerColor ? 2 : 1)} strokeDasharray={`${5 * px} ${3 * px}`} />
+              <line x1={-w / 2} y1={-d / 2} x2={w / 2} y2={d / 2} stroke="#b0b0b0" strokeWidth={px} />
+              <line x1={-w / 2} y1={d / 2} x2={w / 2} y2={-d / 2} stroke="#b0b0b0" strokeWidth={px} />
+              <text fontSize={9 * px} textAnchor="middle" dominantBaseline="central" fill="#8a8a8a" fontFamily="ui-sans-serif, system-ui, sans-serif" style={{ pointerEvents: 'none' }}>
+                open to below
+              </text>
+            </>
+          )}
+          {kind === 'balcony' && (
+            <>
+              <rect x={-w / 2} y={-d / 2} width={w} height={d} fill="#e9e6e0" stroke={stroke} strokeWidth={px * (selected || peerColor ? 2 : 1)} />
+              {/* railing on the front and the sides */}
+              <path d={`M${-w / 2} ${-d / 2} V${d / 2} H${w / 2} V${-d / 2}`} fill="none" stroke="#444" strokeWidth={px * 3} />
+              {Array.from({ length: Math.max(1, Math.round(w / 0.3)) }, (_, i) => -w / 2 + ((i + 0.5) * w) / Math.round(w / 0.3)).map((x, i) => (
+                <line key={i} x1={x} y1={d / 2 - 0.08} x2={x} y2={d / 2} stroke="#444" strokeWidth={px} />
+              ))}
+            </>
+          )}
+        </g>
+      </g>
+    )
+  }
   return (
     <g data-kind="furniture" data-id={piece.id} onPointerEnter={() => onHover(true)} onPointerLeave={() => onHover(false)} style={{ cursor: interactive ? 'move' : undefined }}>
       <g transform={`translate(${piece.x} ${piece.y}) rotate(${deg})`}>
