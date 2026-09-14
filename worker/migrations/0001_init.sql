@@ -1,4 +1,4 @@
--- Snapline D1 schema. Apply with: npx wrangler d1 execute snapline --remote --file worker/schema.sql
+-- Initial schema. Migrations are applied with: npx wrangler d1 migrations apply snapline --remote
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   google_sub TEXT NOT NULL UNIQUE,

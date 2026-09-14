@@ -1,4 +1,4 @@
-import type { ObjectStore, Store, User } from './store'
+import { normalizeEmail, type ObjectStore, type Store, type User } from './store'
 import { buildAuthUrl, exchangeCode, verifyIdToken, type GoogleConfig } from './google'
 import { error, json, parseCookies, randomToken, serializeCookie, sha256Base64url, sha256Hex } from './util'
 
@@ -100,19 +100,54 @@ export function createApp(cfg: AppConfig) {
       if (path === '/api/me' && req.method === 'GET') return json({ user: me ? publicUser(me.user) : null })
       if (!me) return error(401, 'sign in required')
       const userId = me.user.id
-      if (path === '/api/projects' && req.method === 'GET') return json({ projects: await cfg.store.listProjects(userId) })
-      const m = /^\/api\/projects\/([A-Za-z0-9_-]{1,64})$/.exec(path)
+      const access = { userId, email: me.user.email }
+      const withRole = <T extends { ownerId: string }>(meta: T) => ({ ...meta, role: meta.ownerId === userId ? ('owner' as const) : ('editor' as const) })
+      if (path === '/api/projects' && req.method === 'GET') return json({ projects: (await cfg.store.listProjects(access)).map(withRole) })
+      const m = /^\/api\/projects\/([A-Za-z0-9_-]{1,64})(?:\/members(?:\/([^/]{1,254}))?)?$/.exec(path)
       if (m) {
         const id = m[1]
+        const membersPath = path.includes('/members')
+        const memberEmail = m[2] ? normalizeEmail(decodeURIComponent(m[2])) : null
+        // ---- sharing ----
+        if (membersPath) {
+          const meta = await cfg.store.getProjectMeta(access, id)
+          if (!meta) return error(404, 'not found')
+          const isOwner = meta.ownerId === userId
+          if (req.method === 'GET' && !memberEmail) {
+            return json({ owner: meta.owner, role: isOwner ? 'owner' : 'editor', members: await cfg.store.listMembers(id) })
+          }
+          if (req.method === 'POST' && !memberEmail) {
+            if (!isOwner) return error(403, 'only the owner can share a project')
+            let body: { email?: unknown }
+            try {
+              body = JSON.parse(await req.text())
+            } catch {
+              return error(400, 'invalid json')
+            }
+            const email = typeof body.email === 'string' ? normalizeEmail(body.email) : ''
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return error(400, 'invalid email')
+            if (email === normalizeEmail(me.user.email)) return error(400, 'that is your own address')
+            await cfg.store.addMember(id, email, userId)
+            return json({ ok: true, members: await cfg.store.listMembers(id) })
+          }
+          if (req.method === 'DELETE' && memberEmail) {
+            // the owner can remove anyone; a member can remove themselves (leave)
+            if (!isOwner && memberEmail !== normalizeEmail(me.user.email)) return error(403, 'only the owner can remove members')
+            await cfg.store.removeMember(id, memberEmail)
+            return json({ ok: true })
+          }
+          return error(404, 'not found')
+        }
         if (req.method === 'GET') {
-          const row = await cfg.store.getProject(userId, id)
+          const row = await cfg.store.getProject(access, id)
           if (!row) return error(404, 'not found')
-          return json({ project: JSON.parse(row.data), updatedAt: row.updatedAt })
+          const meta = await cfg.store.getProjectMeta(access, id)
+          return json({ project: JSON.parse(row.data), updatedAt: row.updatedAt, version: row.version, updatedBy: meta?.updatedBy ?? null, role: row.userId === userId ? 'owner' : 'editor' })
         }
         if (req.method === 'PUT') {
           const text = await req.text()
           if (text.length > MAX_PROJECT_BYTES) return error(413, 'project too large')
-          let body: { project?: Record<string, unknown> }
+          let body: { project?: Record<string, unknown>; baseVersion?: unknown; force?: unknown }
           try {
             body = JSON.parse(text)
           } catch {
@@ -120,14 +155,37 @@ export function createApp(cfg: AppConfig) {
           }
           const project = body.project
           if (!project || typeof project !== 'object' || !Array.isArray(project.floors)) return error(400, 'invalid project')
-          const existing = await cfg.store.getProject(userId, id)
+          const baseVersion = typeof body.baseVersion === 'number' ? body.baseVersion : 0
+          const force = body.force === true
           const updatedAt = now()
           const name = typeof project.name === 'string' && project.name.trim() ? project.name : 'Untitled project'
-          await cfg.store.putProject({ id, userId, name, data: JSON.stringify({ ...project, id, updatedAt }), updatedAt, createdAt: existing?.createdAt ?? updatedAt })
-          return json({ ok: true, updatedAt })
+          for (let attempt = 0; attempt < 2; attempt++) {
+            const existing = await cfg.store.getProject(access, id)
+            if (!existing) {
+              // a project with this id that the caller cannot see: never overwrite someone else's
+              const version = 1
+              const ok = await cfg.store.putProject({ id, userId, name, data: JSON.stringify({ ...project, id, updatedAt }), updatedAt, createdAt: updatedAt, version, updatedBy: userId }, null)
+              if (ok) return json({ ok: true, updatedAt, version })
+              if ((await cfg.store.getProject(access, id)) === null) return error(403, 'this project id belongs to someone else')
+              continue
+            }
+            if (!force && existing.version !== baseVersion) {
+              // the copy the client started from is stale: hand back the current version so it can decide
+              const meta = await cfg.store.getProjectMeta(access, id)
+              return json({ conflict: true, project: JSON.parse(existing.data), version: existing.version, updatedAt: existing.updatedAt, updatedBy: meta?.updatedBy ?? null }, { status: 409 })
+            }
+            const version = existing.version + 1
+            const ok = await cfg.store.putProject({ ...existing, name, data: JSON.stringify({ ...project, id, updatedAt }), updatedAt, version, updatedBy: userId }, existing.version)
+            if (ok) return json({ ok: true, updatedAt, version })
+            // someone saved between our read and write: loop once more (a forced save retries, a normal one will report the conflict)
+          }
+          return error(409, 'save raced with another save, try again')
         }
         if (req.method === 'DELETE') {
-          await cfg.store.deleteProject(userId, id)
+          const meta = await cfg.store.getProjectMeta(access, id)
+          if (!meta) return json({ ok: true })
+          if (meta.ownerId === userId) await cfg.store.deleteProject(userId, id)
+          else await cfg.store.removeMember(id, normalizeEmail(me.user.email)) // a member deleting = leaving
           return json({ ok: true })
         }
       }

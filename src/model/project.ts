@@ -38,6 +38,16 @@ export interface ProjectMeta {
   id: string
   name: string
   updatedAt: number
+  /** account version this device last synced with; missing = never synced (the next sync creates it) */
+  syncedVersion?: number
+  /** local edits made since `syncedVersion` was synced */
+  dirty?: boolean
+  /** owner of the account copy, or an invited editor */
+  role?: 'owner' | 'editor'
+  owner?: { email: string; name: string }
+  updatedBy?: { email: string; name: string } | null
+  /** how many people the owner shared it with */
+  memberCount?: number
 }
 
 export const DEFAULT_ROOF: Roof = { type: 'gable', pitch: 30, overhang: 0.4, ridge: 'long', thickness: 0.2, color: '#8d5a3c' }

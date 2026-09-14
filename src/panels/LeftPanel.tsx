@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useEditor } from '../model/store'
 import { Hierarchy } from './Hierarchy'
 import { CataloguePanel } from './Sidebar'
+import { ShareDialog } from './Share'
 import { navigate } from '../router'
 
 function ProjectMenu() {
@@ -9,7 +10,11 @@ function ProjectMenu() {
   const renameProject = useEditor((s) => s.renameProject)
   const deleteProject = useEditor((s) => s.deleteProject)
   const importProject = useEditor((s) => s.importProject)
+  const user = useEditor((s) => s.user)
+  const meta = useEditor((s) => s.projects.find((p) => p.id === s.project.id))
+  const isEditor = meta?.role === 'editor'
   const [open, setOpen] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
@@ -33,7 +38,7 @@ function ProjectMenu() {
   return (
     <div className="popover-anchor project-head" ref={ref}>
       <button className="project-name" onClick={() => setOpen((o) => !o)} title="Project menu">
-        {project.name} <span className="chev">▾</span>
+        {project.name} {isEditor ? <span className="badge">shared with you</span> : meta?.memberCount ? <span className="badge">shared</span> : null} <span className="chev">▾</span>
       </button>
       {open && (
         <div className="menu">
@@ -51,6 +56,11 @@ function ProjectMenu() {
           >
             Rename…
           </button>
+          {user && (
+            <button className="menu-item" onClick={() => (setShareOpen(true), setOpen(false))}>
+              Share…
+            </button>
+          )}
           <button className="menu-item" onClick={() => (fileRef.current?.click(), setOpen(false))}>
             Import…
           </button>
@@ -61,14 +71,15 @@ function ProjectMenu() {
           <button
             className="menu-item danger"
             onClick={() => {
-              if (confirm(`Delete project "${project.name}"? This cannot be undone.`)) deleteProject(project.id)
+              if (confirm(isEditor ? `Leave "${project.name}"? It stays with its owner.` : `Delete project "${project.name}"? This cannot be undone.`)) deleteProject(project.id)
               setOpen(false)
             }}
           >
-            Delete project
+            {isEditor ? 'Leave project' : 'Delete project'}
           </button>
         </div>
       )}
+      {shareOpen && <ShareDialog projectId={project.id} onClose={() => setShareOpen(false)} />}
       <input
         ref={fileRef}
         type="file"

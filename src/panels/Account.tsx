@@ -3,7 +3,7 @@ import { useEditor, type SyncStatus } from '../model/store'
 import { signInUrl } from '../sync/api'
 import { GoogleMark } from '../pages/Login'
 
-const SYNC_LABEL: Record<SyncStatus, string> = { offline: 'Local only', idle: 'Signed in', syncing: 'Saving…', synced: 'Saved to your account', error: 'Sync failed, retrying on next change' }
+const SYNC_LABEL: Record<SyncStatus, string> = { offline: 'Local only', idle: 'Signed in', syncing: 'Saving…', synced: 'Saved to your account', error: 'Sync failed, retrying on next change', conflict: 'A project changed elsewhere: needs your decision' }
 
 export function AccountButton() {
   const user = useEditor((s) => s.user)
@@ -11,6 +11,8 @@ export function AccountButton() {
   const syncStatus = useEditor((s) => s.syncStatus)
   const signOut = useEditor((s) => s.signOut)
   const syncNow = useEditor((s) => s.syncNow)
+  const conflicts = useEditor((s) => s.conflicts)
+  const setConflictHidden = useEditor((s) => s.setConflictHidden)
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -39,6 +41,11 @@ export function AccountButton() {
         <div className="menu right">
           <div className="menu-title">{user.email}</div>
           <div className="menu-item muted">{SYNC_LABEL[syncStatus]}</div>
+          {conflicts.length > 0 && (
+            <button className="menu-item warn" onClick={() => (setConflictHidden(false), setOpen(false))}>
+              Resolve “{conflicts[0].name}”…
+            </button>
+          )}
           <button className="menu-item" onClick={() => (syncNow(), setOpen(false))}>
             Sync now
           </button>

@@ -40,6 +40,15 @@ export function Projects() {
               <div className="project-card-body">
                 <strong>{p.name}</strong>
                 <span className="muted small">Updated {new Date(p.updatedAt).toLocaleString()}</span>
+                {p.role === 'editor' ? (
+                  <span className="muted small">
+                    <span className="badge">shared</span> by {p.owner?.name || p.owner?.email}
+                  </span>
+                ) : p.memberCount ? (
+                  <span className="muted small">
+                    <span className="badge">shared</span> with {p.memberCount} {p.memberCount === 1 ? 'person' : 'people'}
+                  </span>
+                ) : null}
               </div>
               <div className="project-card-actions" onClick={(e) => e.stopPropagation()}>
                 <button
@@ -56,9 +65,9 @@ export function Projects() {
                 </button>
                 <button
                   className="icon-btn"
-                  title="Delete"
+                  title={p.role === 'editor' ? 'Leave' : 'Delete'}
                   onClick={() => {
-                    if (confirm(`Delete project "${p.name}"? This cannot be undone.`)) deleteProject(p.id)
+                    if (confirm(p.role === 'editor' ? `Leave "${p.name}"? It stays with its owner.` : `Delete project "${p.name}"? This cannot be undone.`)) deleteProject(p.id)
                   }}
                 >
                   ✕

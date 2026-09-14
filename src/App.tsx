@@ -10,6 +10,7 @@ import { useEditor } from './model/store'
 import { Landing } from './pages/Landing'
 import { Login } from './pages/Login'
 import { navigate, useRoute } from './router'
+import { ConflictDialog, Notice } from './panels/Conflict'
 
 const Scene3D = lazy(() => import('./three/Scene3D').then((m) => ({ default: m.Scene3D })))
 
@@ -32,6 +33,8 @@ function EditorApp() {
         {prefsOpen && <PreferencesPanel />}
       </div>
       <Inspector />
+      <ConflictDialog />
+      <Notice />
     </div>
   )
 }
@@ -60,7 +63,14 @@ export function App() {
   if (checking) return <div className="loading">Loading…</div>
   if (path === '/home') return <Landing />
   if (path === '/login') return canEdit ? null : <Login />
-  if (path === '/projects') return canEdit ? <Projects /> : null
+  if (path === '/projects')
+    return canEdit ? (
+      <>
+        <Projects />
+        <ConflictDialog />
+        <Notice />
+      </>
+    ) : null
   if (path === '/') return canEdit ? <EditorApp /> : <Landing />
   return null
 }

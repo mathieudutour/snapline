@@ -10,7 +10,7 @@ import type { Units } from './units'
 import { CUSTOM_CATEGORY, type CatalogItem } from '../furniture/catalog'
 import { deleteModelBlobs, getModelBlobs, loadCustomModelMeta, newModelKey, parseModelFile, putModelBlobs, registerModelUrls, saveCustomModelMeta, unregisterModelUrls, type CustomModel } from '../furniture/customModels'
 import { renderModelIcons } from '../furniture/renderIcon'
-import { deleteRemoteModel, deleteRemoteProject, fetchMe, getRemoteModelFile, getRemoteProject, listRemoteModels, listRemoteProjects, putRemoteModelFile, putRemoteModelMeta, putRemoteProject, signOut as apiSignOut, type AccountUser } from '../sync/api'
+import { ConflictError, deleteRemoteModel, deleteRemoteProject, fetchMe, getRemoteModelFile, getRemoteProject, listRemoteModels, listRemoteProjects, putRemoteModelFile, putRemoteModelMeta, putRemoteProject, signOut as apiSignOut, type AccountUser, type Person, type RemoteProjectMeta } from '../sync/api'
 
 export type Tool = 'select' | 'wall' | 'door' | 'window' | 'furniture' | 'pan'
 export type ViewMode = 'plan' | '3d' | 'walk'
@@ -22,7 +22,20 @@ interface Snapshot {
   activeFloorId: string
 }
 
-export type SyncStatus = 'offline' | 'idle' | 'syncing' | 'synced' | 'error'
+export type SyncStatus = 'offline' | 'idle' | 'syncing' | 'synced' | 'error' | 'conflict'
+
+/** a project edited here and, in the meantime, saved by someone else (or by you on another device) */
+export interface SyncConflict {
+  projectId: string
+  name: string
+  /** this device's version, with the unsaved edits */
+  local: Project
+  remote: Project
+  remoteVersion: number
+  remoteUpdatedAt: number
+  updatedBy: Person | null
+}
+export type ConflictChoice = 'overwrite' | 'duplicate' | 'theirs'
 
 export interface EditorState {
   /** signed-in account; null when signed out, undefined until checked */
@@ -34,6 +47,17 @@ export interface EditorState {
   initAccount: () => Promise<void>
   signOut: () => Promise<void>
   syncNow: () => Promise<void>
+  /** projects whose account copy diverged from the local edits; the first one is shown in a dialog */
+  conflicts: SyncConflict[]
+  /** true while the user chose "decide later" on the current conflict */
+  conflictHidden: boolean
+  setConflictHidden: (v: boolean) => void
+  resolveConflict: (projectId: string, choice: ConflictChoice) => Promise<void>
+  /** short transient message (e.g. "updated by …") */
+  notice: string | null
+  setNotice: (n: string | null) => void
+  /** refresh sharing info of a project after inviting or removing people */
+  refreshProjectMeta: (id: string) => Promise<void>
 
   /** the current project; `plan` mirrors the active floor's plan */
   project: Project
@@ -214,11 +238,29 @@ function saveProjectNow(project: Project) {
   }
 }
 
-function updateIndex(project: Project, list: ProjectMeta[]): ProjectMeta[] {
-  const meta = { id: project.id, name: project.name, updatedAt: project.updatedAt }
-  const next = list.some((p) => p.id === project.id) ? list.map((p) => (p.id === project.id ? meta : p)) : [...list, meta]
+/** counts local edits so a push can tell whether more edits happened while it was in flight */
+let editSeq = 0
+/** record a project in the index; `edited` marks it as carrying local changes not yet saved to the account */
+function updateIndex(project: Project, list: ProjectMeta[], edited = false): ProjectMeta[] {
+  if (edited) editSeq++
+  const prev = list.find((p) => p.id === project.id)
+  const meta: ProjectMeta = { ...prev, id: project.id, name: project.name, updatedAt: project.updatedAt, dirty: edited || prev?.dirty }
+  const next = prev ? list.map((p) => (p.id === project.id ? meta : p)) : [...list, meta]
   writeIndex({ activeId: project.id, list: next })
   return next
+}
+
+function patchMeta(list: ProjectMeta[], id: string, patch: Partial<ProjectMeta>): ProjectMeta[] {
+  return list.map((p) => (p.id === id ? { ...p, ...patch } : p))
+}
+
+function metaFromRemote(r: RemoteProjectMeta): Pick<ProjectMeta, 'role' | 'owner' | 'updatedBy' | 'memberCount'> {
+  return { role: r.role, owner: r.owner, updatedBy: r.updatedBy, memberCount: r.memberCount }
+}
+
+export function personLabel(p: Person | null | undefined): string {
+  if (!p) return 'someone'
+  return p.name ? `${p.name} (${p.email})` : p.email
 }
 
 export function normalizePlan(raw: Partial<Plan>): Plan {
@@ -438,7 +480,7 @@ export const useEditor = create<EditorState>((set, get) => {
       undoStack: [...undoStack, { project, activeFloorId: prevFloor }].slice(-MAX_UNDO),
       redoStack: [],
       selection: [],
-      projects: updateIndex(withSolved, get().projects),
+      projects: updateIndex(withSolved, get().projects, true),
       ...extra,
     })
     scheduleSave(withSolved)
@@ -446,7 +488,7 @@ export const useEditor = create<EditorState>((set, get) => {
   const restore = (snapshot: Snapshot) => {
     const solvedFloor = solvePlan(activePlan(snapshot.project, snapshot.activeFloorId))
     const project = withFloorPlan(snapshot.project, snapshot.activeFloorId, solvedFloor.plan)
-    set({ project, activeFloorId: snapshot.activeFloorId, plan: solvedFloor.plan, report: solvedFloor.report, selection: [], projects: updateIndex(project, get().projects) })
+    set({ project, activeFloorId: snapshot.activeFloorId, plan: solvedFloor.plan, report: solvedFloor.report, selection: [], projects: updateIndex(project, get().projects, true) })
     scheduleSave(project)
   }
   const openProjectState = (project: Project) => {
@@ -465,6 +507,15 @@ export const useEditor = create<EditorState>((set, get) => {
       fitVersion: get().fitVersion + 1,
       placing: null,
     })
+    saveProjectNow(withSolved)
+  }
+  /** swap in a newer account copy of the open project without losing the view or the active floor */
+  const replaceOpenProject = (project: Project) => {
+    const { activeFloorId } = get()
+    const floorId = project.floors.some((f) => f.id === activeFloorId) ? activeFloorId : project.floors[0].id
+    const solvedFloor = solvePlan(activePlan(project, floorId))
+    const withSolved = withFloorPlan(project, floorId, solvedFloor.plan)
+    set({ project: withSolved, activeFloorId: floorId, plan: solvedFloor.plan, report: solvedFloor.report, undoStack: [], redoStack: [], selection: [], projects: updateIndex(withSolved, get().projects), placing: null })
     saveProjectNow(withSolved)
   }
 
@@ -500,48 +551,151 @@ export const useEditor = create<EditorState>((set, get) => {
     for (const m of local) if (!remoteKeys.has(m.key)) await uploadModel(m)
   }
 
-  const push = async (project: Project) => {
+  const metaOf = (id: string) => get().projects.find((p) => p.id === id)
+  const setMeta = (id: string, patch: Partial<ProjectMeta>) => {
+    const list = patchMeta(get().projects, id, patch)
+    writeIndex({ activeId: get().project.id, list })
+    set({ projects: list })
+  }
+  const addConflict = (c: SyncConflict) => {
+    if (get().conflicts.some((x) => x.projectId === c.projectId)) set({ conflicts: get().conflicts.map((x) => (x.projectId === c.projectId ? c : x)), syncStatus: 'conflict' })
+    else set({ conflicts: [...get().conflicts, c], conflictHidden: false, syncStatus: 'conflict' })
+  }
+  const dropConflict = (projectId: string) => {
+    const conflicts = get().conflicts.filter((c) => c.projectId !== projectId)
+    set({ conflicts, syncStatus: conflicts.length ? 'conflict' : 'synced' })
+  }
+
+  /** save one project to the account on top of the version this device last synced */
+  const push = async (project: Project, force = false) => {
     if (!get().user) return
+    if (!force && get().conflicts.some((c) => c.projectId === project.id)) return // paused until the user decides
+    const meta = metaOf(project.id)
+    const seqAtStart = editSeq
     set({ syncStatus: 'syncing' })
     try {
-      await putRemoteProject(project)
-      set({ syncStatus: 'synced' })
-    } catch {
-      set({ syncStatus: 'error' })
+      const r = await putRemoteProject(project, meta?.syncedVersion ?? 0, force)
+      // edits made while the request was in flight keep the project dirty; the pending timer pushes them next
+      const stillEditing = editSeq !== seqAtStart
+      setMeta(project.id, { syncedVersion: r.version, dirty: stillEditing, role: meta?.role ?? 'owner', updatedBy: get().user ? { email: get().user!.email, name: get().user!.name } : null })
+      if (force) dropConflict(project.id)
+      else set({ syncStatus: get().conflicts.length ? 'conflict' : 'synced' })
+    } catch (e) {
+      if (e instanceof ConflictError) {
+        const remote = normalizeProject(e.remote.project, normalizePlan)
+        addConflict({ projectId: project.id, name: project.name, local: project, remote, remoteVersion: e.remote.version, remoteUpdatedAt: e.remote.updatedAt, updatedBy: e.remote.updatedBy })
+      } else set({ syncStatus: 'error' })
     }
   }
   pushProject = (project) => void push(project)
 
-  /** merge the account's projects with the local ones: newer copy wins, missing ones are copied both ways */
-  const mergeWithRemote = async () => {
-    set({ syncStatus: 'syncing' })
+  /** copy the account's version of a project into local storage (and into the editor when it is open) */
+  const download = async (r: RemoteProjectMeta) => {
+    const remote = await getRemoteProject(r.id)
+    const project = normalizeProject(remote.project, normalizePlan)
+    saveProjectNow(project)
+    const meta: ProjectMeta = { id: project.id, name: project.name, updatedAt: project.updatedAt, syncedVersion: remote.version, dirty: false, ...metaFromRemote(r) }
+    const list = get().projects.some((p) => p.id === project.id) ? get().projects.map((p) => (p.id === project.id ? meta : p)) : [...get().projects, meta]
+    set({ projects: list })
+    writeIndex({ activeId: get().project.id, list })
+    if (project.id === get().project.id) replaceOpenProject(project)
+    return project
+  }
+
+  let merging = false
+  /**
+   * Reconcile the account's projects with the local ones using versions:
+   * new remote projects are downloaded, local edits on the synced version are pushed,
+   * a newer remote copy replaces an unedited local one, and a newer remote copy on top of local edits is a conflict.
+   * `quiet` (periodic polling) leaves the status indicator alone when there is nothing to do.
+   */
+  const mergeWithRemote = async (quiet = false) => {
+    if (merging) return
+    merging = true
+    if (!quiet) set({ syncStatus: 'syncing' })
     try {
       const remote = await listRemoteProjects()
       const remoteById = new Map(remote.map((r) => [r.id, r]))
-      let list = get().projects
-      const localIds = new Set(list.map((p) => p.id))
+      const notices: string[] = []
       for (const r of remote) {
-        const local = list.find((p) => p.id === r.id)
-        const localProject = local ? loadProject(r.id) : null
-        if (!localProject || localProject.updatedAt < r.updatedAt) {
-          const { project } = await getRemoteProject(r.id)
-          const normalized = normalizeProject(project, normalizePlan)
-          saveProjectNow(normalized)
-          list = list.some((p) => p.id === normalized.id) ? list.map((p) => (p.id === normalized.id ? { id: normalized.id, name: normalized.name, updatedAt: normalized.updatedAt } : p)) : [...list, { id: normalized.id, name: normalized.name, updatedAt: normalized.updatedAt }]
-          if (normalized.id === get().project.id) openProjectState(normalized)
+        const meta = metaOf(r.id)
+        const local = meta ? loadProject(r.id) : null
+        if (!meta || !local) {
+          await download(r)
+          continue
+        }
+        setMeta(r.id, metaFromRemote(r))
+        if (meta.syncedVersion === undefined) {
+          // synced before versions existed: keep the newer copy, as before
+          if (local.updatedAt < r.updatedAt) await download(r)
+          else await push(local, true)
+          continue
+        }
+        const editingHere = r.id === get().project.id && get().dragSnapshot
+        if (r.version > meta.syncedVersion) {
+          if (meta.dirty) {
+            const remoteProject = await getRemoteProject(r.id)
+            addConflict({ projectId: r.id, name: local.name, local, remote: normalizeProject(remoteProject.project, normalizePlan), remoteVersion: r.version, remoteUpdatedAt: r.updatedAt, updatedBy: r.updatedBy })
+          } else if (!editingHere) {
+            await download(r)
+            if (quiet) notices.push(`“${r.name}” was updated by ${personLabel(r.updatedBy)}`)
+          }
+        } else if (meta.dirty && !get().conflicts.some((c) => c.projectId === r.id)) await push(local)
+      }
+      for (const meta of [...get().projects]) {
+        if (remoteById.has(meta.id)) continue
+        const local = loadProject(meta.id)
+        if (!local) continue
+        if (meta.syncedVersion === undefined) {
+          await push(local) // never on the account yet
+        } else if (meta.dirty && meta.role !== 'editor') {
+          setMeta(meta.id, { syncedVersion: undefined })
+          await push(local) // deleted elsewhere but edited here: keep it
+        } else {
+          // deleted by its owner, or you were removed from it
+          removeLocalProject(meta.id)
+          notices.push(meta.role === 'editor' ? `“${meta.name}” is no longer shared with you` : `“${meta.name}” was deleted on another device`)
         }
       }
-      for (const id of localIds) {
-        const local = loadProject(id)
-        if (!local) continue
-        const r = remoteById.get(id)
-        if (!r || r.updatedAt < local.updatedAt) await putRemoteProject(local)
-      }
-      writeIndex({ activeId: get().project.id, list })
-      set({ projects: list, syncStatus: 'synced' })
+      if (notices.length) set({ notice: notices.join(' · ') })
+      if (get().syncStatus !== 'error' || !quiet) set({ syncStatus: get().conflicts.length ? 'conflict' : 'synced' })
     } catch {
-      set({ syncStatus: 'error' })
+      if (!quiet) set({ syncStatus: 'error' })
+    } finally {
+      merging = false
     }
+  }
+
+  const removeLocalProject = (id: string) => {
+    const list = get().projects.filter((p) => p.id !== id)
+    if (hasStorage()) {
+      try {
+        localStorage.removeItem(projectKey(id))
+      } catch {
+        // ignore
+      }
+    }
+    if (id === get().project.id) {
+      const nextId = list[0]?.id
+      const next = (nextId && loadProject(nextId)) || newProject('Project 1')
+      set({ projects: list })
+      openProjectState(next)
+    } else {
+      set({ projects: list })
+      writeIndex({ activeId: get().project.id, list })
+    }
+  }
+
+  let pollTimer: ReturnType<typeof setInterval> | null = null
+  /** look for changes made elsewhere every 30 s and whenever the tab comes back into view */
+  const startPolling = () => {
+    if (pollTimer || typeof window === 'undefined') return
+    const poll = () => {
+      if (get().user && document.visibilityState === 'visible') void mergeWithRemote(true)
+    }
+    pollTimer = setInterval(poll, 30_000)
+    window.addEventListener('focus', poll)
+    document.addEventListener('visibilitychange', poll)
   }
 
   return {
@@ -555,6 +709,7 @@ export const useEditor = create<EditorState>((set, get) => {
         if (user) {
           await mergeWithRemote()
           await syncModels().catch(() => set({ syncStatus: 'error' }))
+          startPolling()
         }
       } catch {
         // no worker behind the app (plain vite dev) or network down: work locally
@@ -573,6 +728,46 @@ export const useEditor = create<EditorState>((set, get) => {
         await mergeWithRemote()
         await syncModels().catch(() => set({ syncStatus: 'error' }))
       }
+    },
+    conflicts: [],
+    conflictHidden: false,
+    setConflictHidden: (conflictHidden) => set({ conflictHidden }),
+    resolveConflict: async (projectId, choice) => {
+      const c = get().conflicts.find((x) => x.projectId === projectId)
+      if (!c) return
+      // edits may have continued since the conflict was detected: resolve with the latest local copy
+      const local = (get().project.id === projectId ? get().project : loadProject(projectId)) ?? c.local
+      const takeTheirs = () => {
+        saveProjectNow(c.remote)
+        setMeta(projectId, { syncedVersion: c.remoteVersion, dirty: false, updatedBy: c.updatedBy, name: c.remote.name, updatedAt: c.remote.updatedAt })
+        if (get().project.id === projectId) replaceOpenProject(c.remote)
+      }
+      if (choice === 'overwrite') {
+        await push(local, true)
+        return
+      }
+      if (choice === 'theirs') {
+        takeTheirs()
+        dropConflict(projectId)
+        return
+      }
+      // duplicate: your edits continue in a project of your own, the shared one takes their version
+      const copy: Project = { ...local, id: newId('prj'), name: `${local.name} (my copy)`, createdAt: Date.now(), updatedAt: Date.now() }
+      saveProjectNow(copy)
+      set({ projects: [...get().projects, { id: copy.id, name: copy.name, updatedAt: copy.updatedAt, dirty: true, role: 'owner' }] })
+      const wasOpen = get().project.id === projectId
+      takeTheirs()
+      dropConflict(projectId)
+      if (wasOpen) openProjectState(copy)
+      else writeIndex({ activeId: get().project.id, list: get().projects })
+      await push(copy)
+    },
+    notice: null,
+    setNotice: (notice) => set({ notice }),
+    refreshProjectMeta: async (id) => {
+      const remote = await listRemoteProjects()
+      const r = remote.find((p) => p.id === id)
+      if (r) setMeta(id, metaFromRemote(r))
     },
 
     project: initialProject,
@@ -699,7 +894,7 @@ export const useEditor = create<EditorState>((set, get) => {
         return !!solvedPlan.openings[s.id]
       })
       const nextProject = withFloorPlan(project, activeFloorId, solvedPlan)
-      set({ project: nextProject, plan: solvedPlan, report, undoStack, redoStack: [], selection, projects: updateIndex(nextProject, get().projects) })
+      set({ project: nextProject, plan: solvedPlan, report, undoStack, redoStack: [], selection, projects: updateIndex(nextProject, get().projects, true) })
       scheduleSave(nextProject)
     },
 
@@ -733,7 +928,7 @@ export const useEditor = create<EditorState>((set, get) => {
         JSON.stringify(before.points) !== JSON.stringify(plan.points) || JSON.stringify(before.openings) !== JSON.stringify(plan.openings) || JSON.stringify(before.furniture) !== JSON.stringify(plan.furniture)
       if (changed) {
         const project = get().project
-        set({ undoStack: [...get().undoStack, snapshot].slice(-MAX_UNDO), redoStack: [], dragSnapshot: null, projects: updateIndex(project, get().projects) })
+        set({ undoStack: [...get().undoStack, snapshot].slice(-MAX_UNDO), redoStack: [], dragSnapshot: null, projects: updateIndex(project, get().projects, true) })
         scheduleSave(project)
       } else set({ dragSnapshot: null })
     },
@@ -1058,26 +1253,11 @@ export const useEditor = create<EditorState>((set, get) => {
       const project = loadProject(id)
       if (project) openProjectState(project)
     },
+    /** owners delete the project for everyone; invited editors leave it */
     deleteProject: (id) => {
-      const { projects, project } = get()
-      const list = projects.filter((p) => p.id !== id)
       if (get().user) void deleteRemoteProject(id).catch(() => set({ syncStatus: 'error' }))
-      if (hasStorage()) {
-        try {
-          localStorage.removeItem(projectKey(id))
-        } catch {
-          // ignore
-        }
-      }
-      if (id === project.id) {
-        const nextId = list[0]?.id
-        const next = (nextId && loadProject(nextId)) || newProject('Project 1')
-        set({ projects: list })
-        openProjectState(next)
-      } else {
-        set({ projects: list })
-        writeIndex({ activeId: project.id, list })
-      }
+      dropConflict(id)
+      removeLocalProject(id)
     },
     importProject: (raw) => {
       const project = normalizeProject(raw, normalizePlan)

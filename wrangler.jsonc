@@ -17,6 +17,7 @@
 			"binding": "DB",
 			"database_name": "snapline",
 			"database_id": "84b05d25-936a-4946-8008-c6dbeb2bb55c",
+			"migrations_dir": "worker/migrations",
 			"remote": true
 		}
 	],

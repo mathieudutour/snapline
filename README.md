@@ -44,7 +44,7 @@ npm run build      # production bundle in dist/
 Pushes to `main` run `.github/workflows/deploy.yml`: typecheck, tests and build, then a deploy to Cloudflare Workers with static assets, a D1 database for accounts and projects, and an R2 bucket for imported models.
 
 1. Create a Cloudflare API token with the Workers Scripts, Workers KV/D1 and R2 edit permissions, and add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as GitHub Actions secrets.
-2. Create a D1 database called `snapline` and put its id in `wrangler.jsonc`.
+2. Create a D1 database called `snapline` and put its id in `wrangler.jsonc`. The workflow applies the migrations in `worker/migrations`.
 3. Create a Google OAuth client (web application) and add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` as secrets. Register `https://<your worker>.workers.dev/auth/google/callback` as an authorised redirect URI.
 4. Enable R2 once in the Cloudflare dashboard (R2 → Get started; it asks for a payment method but the free tier covers this app). The workflow creates the `snapline-models` bucket itself. Until R2 is enabled the workflow deploys without the bucket binding and imported models stay in the browser they were imported in.
 
@@ -75,6 +75,8 @@ canvas in the middle with a floating toolbar at the bottom, and an inspector for
 | Roof | With nothing selected, pick the roof type, pitch, ridge direction, overhang and colour in the inspector. |
 | Projects | The project name at the top of the left panel opens a menu (rename, import, export, delete); the Projects rail tab lists all projects. |
 | Preferences | The Prefs rail tab: metric (m or cm) or imperial (feet and inches), grid snap, auto-lock, ghost of the floor below. |
+| Sharing | Project menu → Share… invites people by the email of their Google account; they see the project in their list and can edit everything. Owners remove people or delete the project; invited editors can leave it. |
+| Diverging edits | Saves carry the version they started from. If someone else saved in between while you had unsaved edits, a dialog asks whether to overwrite their version, keep both (your edits become a copy of your own), or discard yours. Projects you have not edited pick up other people's changes automatically (every 30 s and when the tab regains focus). |
 | 3D / walkthrough | Switch with 2D / 3D / Walk in the inspector header. In 3D tick "Cut above" to look inside; the walkthrough runs on the floor selected in the Floors list. |
 
 ## Furniture catalogue
@@ -107,7 +109,7 @@ src/panels     toolbar and side panel
 src/three      3D scene builder, orbit view, walkthrough and collisions
 src/furniture  catalogue metadata and asset URLs
 src/sync       API client for the account and project sync
-worker         Cloudflare Worker: Google sign-in, sessions, projects and models API, D1 schema, R2 files
+worker         Cloudflare Worker: Google sign-in, sessions, projects, sharing and models API, D1 migrations, R2 files
 public/furniture  generated GLB models, thumbnails, plan symbols and credits
 scripts        catalogue import and icon rendering
 ```

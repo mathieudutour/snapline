@@ -169,4 +169,77 @@ describe('worker app', () => {
     const up = await handle(new Request(`${ORIGIN}/api/models/${key}/glb`, { method: 'PUT', headers: { ...auth, 'Content-Type': 'model/gltf-binary' }, body: new Uint8Array([1]) }))
     expect(up.status).toBe(503)
   })
+
+  it('shares a project with an email and lets both sides save on the same version chain', async () => {
+    const cb = await signIn()
+    const token = parseCookies(setCookieHeaders(cb).find((c) => c.startsWith(SESSION_COOKIE))!.split(';')[0])[SESSION_COOKIE]
+    const auth = { Cookie: `${SESSION_COOKIE}=${token}`, Origin: ORIGIN, 'Content-Type': 'application/json' }
+    const project = { id: 'prj1', name: 'House', floors: [{ id: 'f', name: 'Ground', plan: {} }], roof: { type: 'none' } }
+    const created = await body(await handle(new Request(`${ORIGIN}/api/projects/prj1`, { method: 'PUT', headers: auth, body: JSON.stringify({ project, baseVersion: 0 }) })))
+    expect(created.version).toBe(1)
+    // only the owner can invite, and only valid addresses
+    expect((await handle(new Request(`${ORIGIN}/api/projects/prj1/members`, { method: 'POST', headers: auth, body: JSON.stringify({ email: 'nope' }) }))).status).toBe(400)
+    const invited = await body(await handle(new Request(`${ORIGIN}/api/projects/prj1/members`, { method: 'POST', headers: auth, body: JSON.stringify({ email: ' Other@Example.com ' }) })))
+    expect(invited.members.map((m: { email: string }) => m.email)).toEqual(['other@example.com'])
+    // the invitee signs in and sees the project as an editor
+    resetJwksCache()
+    const cb2 = await signIn({ sub: 'google-sub-2', email: 'other@example.com', name: 'Other' })
+    const token2 = parseCookies(setCookieHeaders(cb2).find((c) => c.startsWith(SESSION_COOKIE))!.split(';')[0])[SESSION_COOKIE]
+    const auth2 = { ...auth, Cookie: `${SESSION_COOKIE}=${token2}` }
+    const list2 = await body(await handle(new Request(`${ORIGIN}/api/projects`, { headers: auth2 })))
+    expect(list2.projects).toHaveLength(1)
+    expect(list2.projects[0].role).toBe('editor')
+    expect(list2.projects[0].owner.email).toBe('mathieu@example.com')
+    expect((await handle(new Request(`${ORIGIN}/api/projects/prj1/members`, { method: 'POST', headers: auth2, body: JSON.stringify({ email: 'third@example.com' }) }))).status).toBe(403)
+    // the editor saves on top of version 1 → version 2, recorded as theirs
+    const saved = await body(await handle(new Request(`${ORIGIN}/api/projects/prj1`, { method: 'PUT', headers: auth2, body: JSON.stringify({ project: { ...project, name: 'House v2' }, baseVersion: 1 }) })))
+    expect(saved.version).toBe(2)
+    const owner = await body(await handle(new Request(`${ORIGIN}/api/projects/prj1`, { headers: auth })))
+    expect(owner.project.name).toBe('House v2')
+    expect(owner.updatedBy.email).toBe('other@example.com')
+    const members = await body(await handle(new Request(`${ORIGIN}/api/projects/prj1/members`, { headers: auth })))
+    expect(members.members[0].name).toBe('Other')
+    expect(members.role).toBe('owner')
+    // the editor leaves; the project is still there for the owner but gone for them
+    expect((await handle(new Request(`${ORIGIN}/api/projects/prj1`, { method: 'DELETE', headers: auth2 }))).status).toBe(200)
+    expect((await handle(new Request(`${ORIGIN}/api/projects/prj1`, { headers: auth2 }))).status).toBe(404)
+    expect((await handle(new Request(`${ORIGIN}/api/projects/prj1`, { headers: auth }))).status).toBe(200)
+    // removing by the owner and self-only removal for members
+    await handle(new Request(`${ORIGIN}/api/projects/prj1/members`, { method: 'POST', headers: auth, body: JSON.stringify({ email: 'other@example.com' }) }))
+    await handle(new Request(`${ORIGIN}/api/projects/prj1/members`, { method: 'POST', headers: auth, body: JSON.stringify({ email: 'third@example.com' }) }))
+    expect((await handle(new Request(`${ORIGIN}/api/projects/prj1/members/third%40example.com`, { method: 'DELETE', headers: auth2 }))).status).toBe(403)
+    expect((await handle(new Request(`${ORIGIN}/api/projects/prj1/members/third%40example.com`, { method: 'DELETE', headers: auth }))).status).toBe(200)
+    const after = await body(await handle(new Request(`${ORIGIN}/api/projects/prj1/members`, { headers: auth })))
+    expect(after.members.map((m: { email: string }) => m.email)).toEqual(['other@example.com'])
+  })
+
+  it('rejects a save based on a stale version and accepts a forced overwrite', async () => {
+    const cb = await signIn()
+    const token = parseCookies(setCookieHeaders(cb).find((c) => c.startsWith(SESSION_COOKIE))!.split(';')[0])[SESSION_COOKIE]
+    const auth = { Cookie: `${SESSION_COOKIE}=${token}`, Origin: ORIGIN, 'Content-Type': 'application/json' }
+    const project = { id: 'prj1', name: 'House', floors: [{ id: 'f', name: 'Ground', plan: {} }], roof: { type: 'none' } }
+    await handle(new Request(`${ORIGIN}/api/projects/prj1`, { method: 'PUT', headers: auth, body: JSON.stringify({ project, baseVersion: 0 }) }))
+    const v2 = await body(await handle(new Request(`${ORIGIN}/api/projects/prj1`, { method: 'PUT', headers: auth, body: JSON.stringify({ project: { ...project, name: 'Device A' }, baseVersion: 1 }) })))
+    expect(v2.version).toBe(2)
+    // device B still thinks it is on version 1
+    const stale = await handle(new Request(`${ORIGIN}/api/projects/prj1`, { method: 'PUT', headers: auth, body: JSON.stringify({ project: { ...project, name: 'Device B' }, baseVersion: 1 }) }))
+    expect(stale.status).toBe(409)
+    const conflict = await body(stale)
+    expect(conflict.conflict).toBe(true)
+    expect(conflict.version).toBe(2)
+    expect(conflict.project.name).toBe('Device A')
+    expect(conflict.updatedBy.email).toBe('mathieu@example.com')
+    // nothing was written
+    expect((await body(await handle(new Request(`${ORIGIN}/api/projects/prj1`, { headers: auth })))).project.name).toBe('Device A')
+    // the user chooses to overwrite
+    const forced = await body(await handle(new Request(`${ORIGIN}/api/projects/prj1`, { method: 'PUT', headers: auth, body: JSON.stringify({ project: { ...project, name: 'Device B' }, baseVersion: 1, force: true }) })))
+    expect(forced.version).toBe(3)
+    expect((await body(await handle(new Request(`${ORIGIN}/api/projects/prj1`, { headers: auth })))).project.name).toBe('Device B')
+    // a project id that belongs to someone else cannot be created over
+    resetJwksCache()
+    const cb2 = await signIn({ sub: 'google-sub-2', email: 'other@example.com' })
+    const token2 = parseCookies(setCookieHeaders(cb2).find((c) => c.startsWith(SESSION_COOKIE))!.split(';')[0])[SESSION_COOKIE]
+    const hijack = await handle(new Request(`${ORIGIN}/api/projects/prj1`, { method: 'PUT', headers: { ...auth, Cookie: `${SESSION_COOKIE}=${token2}` }, body: JSON.stringify({ project, baseVersion: 0 }) }))
+    expect(hijack.status).toBe(403)
+  })
 })

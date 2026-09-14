@@ -78,12 +78,12 @@ jobs:
         if: steps.r2.outputs.enabled != 'true'
         run: node scripts/without-r2.mjs
 
-      - name: Apply D1 schema (idempotent)
+      - name: Apply D1 migrations
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: d1 execute snapline --remote --file worker/schema.sql
+          command: d1 migrations apply snapline --remote
 
       - name: Deploy worker, assets and secrets
         id: deploy

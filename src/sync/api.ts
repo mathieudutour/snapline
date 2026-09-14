@@ -7,18 +7,51 @@ export interface AccountUser {
   picture: string
 }
 
+export interface Person {
+  email: string
+  name: string
+}
+
+export type ProjectRole = 'owner' | 'editor'
+
 export interface RemoteProjectMeta {
   id: string
   name: string
   updatedAt: number
+  version: number
+  role: ProjectRole
+  owner: Person
+  updatedBy: Person | null
+  memberCount: number
 }
 
-class ApiError extends Error {
+export interface RemoteProject {
+  project: Project
+  updatedAt: number
+  version: number
+  updatedBy: Person | null
+  role: ProjectRole
+}
+
+export interface ProjectMember {
+  email: string
+  name: string | null
+  createdAt: number
+}
+
+export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
   ) {
     super(message)
+  }
+}
+
+/** the account copy moved on since this device last synced: the server refused the save and sent back the current version */
+export class ConflictError extends Error {
+  constructor(public remote: { project: Project; version: number; updatedAt: number; updatedBy: Person | null }) {
+    super('project changed elsewhere')
   }
 }
 
@@ -46,17 +79,40 @@ export async function listRemoteProjects(): Promise<RemoteProjectMeta[]> {
   return (await call<{ projects: RemoteProjectMeta[] }>('/api/projects')).projects
 }
 
-export async function getRemoteProject(id: string): Promise<{ project: Project; updatedAt: number }> {
+export async function getRemoteProject(id: string): Promise<RemoteProject> {
   return call(`/api/projects/${id}`)
 }
 
-export async function putRemoteProject(project: Project): Promise<number> {
-  const r = await call<{ updatedAt: number }>(`/api/projects/${project.id}`, { method: 'PUT', body: JSON.stringify({ project }) })
-  return r.updatedAt
+/**
+ * Save a project on top of `baseVersion` (the version this device last synced, 0 for a new project).
+ * Throws ConflictError when someone saved a newer version in between, unless `force` is set.
+ */
+export async function putRemoteProject(project: Project, baseVersion: number, force = false): Promise<{ version: number; updatedAt: number }> {
+  const res = await fetch(`/api/projects/${project.id}`, { method: 'PUT', body: JSON.stringify({ project, baseVersion, force }), headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' })
+  if (res.status === 409) {
+    const data = (await res.json()) as { conflict?: boolean; project: Project; version: number; updatedAt: number; updatedBy: Person | null }
+    if (data.conflict) throw new ConflictError(data)
+  }
+  if (!res.ok) throw new ApiError(res.status, `PUT /api/projects/${project.id} → ${res.status}`)
+  return (await res.json()) as { version: number; updatedAt: number }
 }
 
+/** owners delete the project; invited editors just leave it */
 export async function deleteRemoteProject(id: string): Promise<void> {
   await call(`/api/projects/${id}`, { method: 'DELETE' })
+}
+
+// ---- sharing ----
+export async function listMembers(id: string): Promise<{ owner: Person; role: ProjectRole; members: ProjectMember[] }> {
+  return call(`/api/projects/${id}/members`)
+}
+
+export async function addMember(id: string, email: string): Promise<ProjectMember[]> {
+  return (await call<{ members: ProjectMember[] }>(`/api/projects/${id}/members`, { method: 'POST', body: JSON.stringify({ email }) })).members
+}
+
+export async function removeMember(id: string, email: string): Promise<void> {
+  await call(`/api/projects/${id}/members/${encodeURIComponent(email)}`, { method: 'DELETE' })
 }
 
 // ---- custom 3D models (metadata in D1, files in R2) ----
