@@ -21,6 +21,8 @@ export interface SnapOptions {
   free?: boolean
   /** force the direction from `from` onto a multiple of 45° (Shift held) */
   constrainAngle?: boolean
+  /** positions that snap and align like points but belong to another floor */
+  extraPoints?: Vec2[]
 }
 
 export function snapPosition(plan: Plan, raw: Vec2, opts: SnapOptions): SnapResult {
@@ -59,6 +61,9 @@ export function snapPosition(plan: Plan, raw: Vec2, opts: SnapOptions): SnapResu
     return { pos: { x: p.x, y: p.y }, pointId: p.id, guides, angleSnapped: false }
   }
   if (opts.free) return { pos: raw, guides, angleSnapped: false }
+  for (const p of opts.extraPoints ?? []) {
+    if (Math.hypot(p.x - raw.x, p.y - raw.y) < thr) return { pos: { x: p.x, y: p.y }, guides: [{ axis: 'x', value: p.x }, { axis: 'y', value: p.y }], angleSnapped: false }
+  }
 
   // 2. onto a wall segment
   let bestWall: { id: string; t: number; d: number; point: Vec2 } | null = null
@@ -104,10 +109,10 @@ export function snapPosition(plan: Plan, raw: Vec2, opts: SnapOptions): SnapResu
     }
   }
   // 4. alignment with existing points
+  const alignSources: Vec2[] = [...Object.values(plan.points).filter((p) => !opts.excludePoints?.has(p.id)), ...(opts.extraPoints ?? [])]
   if (!lockX) {
     let best: { x: number; d: number } | null = null
-    for (const p of Object.values(plan.points)) {
-      if (opts.excludePoints?.has(p.id)) continue
+    for (const p of alignSources) {
       const d = Math.abs(p.x - pos.x)
       if (d < thr && (!best || d < best.d)) best = { x: p.x, d }
     }
@@ -122,8 +127,7 @@ export function snapPosition(plan: Plan, raw: Vec2, opts: SnapOptions): SnapResu
   }
   if (!lockY) {
     let best: { y: number; d: number } | null = null
-    for (const p of Object.values(plan.points)) {
-      if (opts.excludePoints?.has(p.id)) continue
+    for (const p of alignSources) {
       const d = Math.abs(p.y - pos.y)
       if (d < thr && (!best || d < best.d)) best = { y: p.y, d }
     }

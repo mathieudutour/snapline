@@ -6,17 +6,51 @@ import { CATALOG_BY_KEY, modelUrl } from '../furniture/catalog'
 import type { Furniture } from '../model/types'
 import * as THREE from 'three'
 import { useEditor } from '../model/store'
-import { buildScene, type OpeningMeshData, type SceneData } from './buildScene'
+import { floorElevation, floorHeight, projectTopElevation } from '../model/project'
+import { buildRoofGeometry, buildScene, type OpeningMeshData, type SceneData } from './buildScene'
+import type { Plan } from '../model/types'
 import { resolveCollisions } from './collision'
 
 const WALL_COLOR = '#f2efe9'
 const FLOOR_COLORS = ['#d9c2a3', '#cdb693', '#e0cbb0', '#c9b596']
 
-function useSceneData(): SceneData {
-  const plan = useEditor((s) => s.plan)
-  const data = useMemo(() => buildScene(plan), [plan])
-  useEffect(() => () => data.dispose(), [data])
-  return data
+interface FloorScene {
+  id: string
+  index: number
+  plan: Plan
+  elevation: number
+  height: number
+  data: SceneData
+}
+
+function useFloorScenes(): FloorScene[] {
+  const project = useEditor((s) => s.project)
+  const scenes = useMemo(
+    () =>
+      project.floors.map((f, index) => ({
+        id: f.id,
+        index,
+        plan: f.plan,
+        elevation: floorElevation(project, f.id),
+        height: floorHeight(f),
+        data: buildScene(f.plan, { bandBelow: index > 0 ? project.slabThickness : 0 }),
+      })),
+    [project],
+  )
+  useEffect(() => () => scenes.forEach((s) => s.data.dispose()), [scenes])
+  return scenes
+}
+
+function RoofMesh({ top }: { top: FloorScene }) {
+  const project = useEditor((s) => s.project)
+  const geometry = useMemo(() => buildRoofGeometry(top.plan, project.roof, projectTopElevation(project)), [top.plan, project])
+  useEffect(() => () => geometry?.dispose(), [geometry])
+  if (!geometry) return null
+  return (
+    <mesh geometry={geometry} castShadow receiveShadow>
+      <meshStandardMaterial color={project.roof.color} roughness={0.85} side={THREE.DoubleSide} />
+    </mesh>
+  )
 }
 
 function DoorMesh({ o }: { o: OpeningMeshData }) {
@@ -119,8 +153,7 @@ function FurniturePlaceholder({ piece }: { piece: Furniture }) {
   )
 }
 
-function FurnitureMeshes() {
-  const furniture = useEditor((s) => s.plan.furniture)
+function FurnitureMeshes({ furniture }: { furniture: Plan['furniture'] }) {
   return (
     <group>
       {Object.values(furniture ?? {}).map((piece) => (
@@ -155,7 +188,6 @@ function PlanMeshes({ data, showCeilings }: { data: SceneData; showCeilings: boo
         </group>
       ))}
       {data.openings.map((o) => (o.opening.kind === 'door' ? <DoorMesh key={o.id} o={o} /> : <WindowMesh key={o.id} o={o} />))}
-      <FurnitureMeshes />
     </group>
   )
 }
@@ -189,6 +221,8 @@ function Lights({ center, radius }: { center: { x: number; y: number }; radius: 
         shadow-camera-bottom={-d}
         shadow-camera-near={0.5}
         shadow-camera-far={d * 4}
+        shadow-bias={-0.0004}
+        shadow-normalBias={0.03}
         target-position={[center.x, 0, center.y]}
       />
       <ambientLight intensity={0.25} />
@@ -196,11 +230,11 @@ function Lights({ center, radius }: { center: { x: number; y: number }; radius: 
   )
 }
 
-function WalkController({ data, locked }: { data: SceneData; locked: boolean }) {
+function WalkController({ data, locked, elevation }: { data: SceneData; locked: boolean; elevation: number }) {
   const { camera } = useThree()
   const keys = useRef<Set<string>>(new Set())
   const velocity = useRef(new THREE.Vector3())
-  const eye = 1.65
+  const eye = elevation + 1.65
   useEffect(() => {
     camera.position.set(data.spawn.x, eye, data.spawn.y)
     // look towards the plan centre if we are not in it
@@ -246,7 +280,7 @@ function WalkController({ data, locked }: { data: SceneData; locked: boolean }) 
   return null
 }
 
-function FrameOrbit({ data }: { data: SceneData }) {
+function FrameOrbit({ data }: { data: { center: { x: number; y: number }; radius: number } }) {
   const { camera } = useThree()
   const done = useRef(false)
   useEffect(() => {
@@ -259,26 +293,53 @@ function FrameOrbit({ data }: { data: SceneData }) {
 }
 
 export function Scene3D({ walk }: { walk: boolean }) {
-  const data = useSceneData()
+  const scenes = useFloorScenes()
+  const activeFloorId = useEditor((s) => s.activeFloorId)
+  const cutAboveActive = useEditor((s) => s.cutAboveActive)
+  const setCutAboveActive = useEditor((s) => s.setCutAboveActive)
+  const roofType = useEditor((s) => s.project.roof.type)
   const [locked, setLocked] = useState(false)
   const controlsRef = useRef<{ lock: () => void; unlock: () => void } | null>(null)
   useEffect(() => {
     if (!walk) setLocked(false)
   }, [walk])
+  const active = scenes.find((s) => s.id === activeFloorId) ?? scenes[0]
+  const top = scenes[scenes.length - 1]
+  const visible = scenes.filter((s) => !cutAboveActive || s.index <= active.index)
+  const showRoof = !cutAboveActive && roofType !== 'none'
+  const bounds = useMemo(() => {
+    let radius = 4
+    let cx = 0
+    let cy = 0
+    let n = 0
+    for (const s of scenes) {
+      radius = Math.max(radius, s.data.radius)
+      cx += s.data.center.x
+      cy += s.data.center.y
+      n++
+    }
+    return { center: { x: cx / (n || 1), y: cy / (n || 1) }, radius: radius + (top ? top.elevation / 3 : 0) }
+  }, [scenes, top])
   return (
     <div className="scene3d">
       <Canvas shadows="percentage" camera={{ fov: walk ? 75 : 50, near: 0.05, far: 500 }} gl={{ antialias: true }} onCreated={({ gl }) => gl.setClearColor('#dfe7f0')}>
-        <Sky sunPosition={[data.center.x + data.radius, data.radius * 1.6 + 6, data.center.y + data.radius * 0.6]} turbidity={6} rayleigh={1.5} distance={400} />
-        <Lights center={data.center} radius={data.radius} />
-        <Ground center={data.center} radius={data.radius} />
-        <PlanMeshes data={data} showCeilings={walk} />
+        <Sky sunPosition={[bounds.center.x + bounds.radius, bounds.radius * 1.6 + 6, bounds.center.y + bounds.radius * 0.6]} turbidity={6} rayleigh={1.5} distance={400} />
+        <Lights center={bounds.center} radius={bounds.radius} />
+        <Ground center={bounds.center} radius={bounds.radius} />
+        {visible.map((s) => (
+          <group key={s.id} position={[0, s.elevation, 0]}>
+            <PlanMeshes data={s.data} showCeilings={walk || s.index < scenes.length - 1 || showRoof} />
+            <FurnitureMeshes furniture={s.plan.furniture} />
+          </group>
+        ))}
+        {showRoof && top && <RoofMesh top={top} />}
         {walk ? (
           <>
             <PointerLockControls ref={controlsRef as never} onLock={() => setLocked(true)} onUnlock={() => setLocked(false)} />
-            <WalkController data={data} locked={locked} />
+            <WalkController key={active.id} data={active.data} locked={locked} elevation={active.elevation} />
           </>
         ) : (
-          <FrameOrbit data={data} />
+          <FrameOrbit data={bounds} />
         )}
       </Canvas>
       {walk && !locked && (
@@ -286,12 +347,21 @@ export function Scene3D({ walk }: { walk: boolean }) {
           <div className="card">
             <h2>Walk through your plan</h2>
             <p>Click to start. Move with <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> or the arrow keys, look around with the mouse, hold <kbd>Shift</kbd> to run.</p>
-            <p>Press <kbd>Esc</kbd> to release the mouse.</p>
+            <p>Press <kbd>Esc</kbd> to release the mouse. Pick another floor in the strip at the top left.</p>
           </div>
         </div>
       )}
       {walk && locked && <div className="crosshair" />}
-      {!walk && <div className="scene-hint">Drag to orbit · right-drag to pan · scroll to zoom</div>}
+      {!walk && (
+        <div className="scene-hint">
+          Drag to orbit · right-drag to pan · scroll to zoom
+          {scenes.length > 1 || roofType !== 'none' ? (
+            <label className="toggle" style={{ marginLeft: 12 }}>
+              <input type="checkbox" checked={cutAboveActive} onChange={(e) => setCutAboveActive(e.target.checked)} /> Cut above current floor
+            </label>
+          ) : null}
+        </div>
+      )}
     </div>
   )
 }

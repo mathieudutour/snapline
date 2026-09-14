@@ -3,7 +3,7 @@ import type { Furniture, Opening, Plan, Vec2, Wall } from '../model/types'
 import { furnitureCorners, localToPlan, snapFurnitureToWall } from '../model/furniture'
 import { CATALOG_BY_KEY, planIconUrl } from '../furniture/catalog'
 import { add, dist, dot, findRooms, normalize, perp, planBounds, pointInPolygon, projectOnSegment, scale, sub, wallLength, wallPolygon, wallsAtPoint } from '../model/geometry'
-import { isSelected, useEditor, type SelectionItem } from '../model/store'
+import { floorBelow, isSelected, useEditor, type SelectionItem } from '../model/store'
 import { constraintsReferencing } from '../model/constraints'
 import { formatArea, formatLength, parseLength } from '../model/units'
 import { snapPosition, type SnapResult } from './snapping'
@@ -68,6 +68,9 @@ export function Editor2D() {
   const fitVersion = useEditor((s) => s.fitVersion)
   const placing = useEditor((s) => s.placing)
   const autoHV = useEditor((s) => s.autoHV)
+  const showFloorBelow = useEditor((s) => s.showFloorBelow)
+  const below = useEditor((s) => floorBelow(s))
+  const belowPoints = useMemo(() => (showFloorBelow && below ? Object.values(below.points).map((p) => ({ x: p.x, y: p.y })) : []), [showFloorBelow, below])
   const showShortcuts = useEditor((s) => s.showShortcuts)
   const dragRef = useRef<DragState | null>(null)
 
@@ -248,6 +251,14 @@ export function Editor2D() {
         fitBounds(selectionBounds() ?? planBounds(st.plan))
         return
       }
+      if (e.key === 'PageUp' || e.key === 'PageDown') {
+        e.preventDefault()
+        const floors = st.project.floors
+        const idx = floors.findIndex((f) => f.id === st.activeFloorId)
+        const next = floors[idx + (e.key === 'PageUp' ? 1 : -1)]
+        if (next) st.setActiveFloor(next.id)
+        return
+      }
       if (e.key === '?' || (e.shiftKey && e.key === '/')) {
         st.toggleShortcuts()
         return
@@ -360,8 +371,8 @@ export function Editor2D() {
   // ---- pointer handling ----
   const computeSnap = useCallback(
     (raw: Vec2, opts: { from?: Vec2; excludePoints?: Set<string>; excludeWalls?: Set<string> } = {}) =>
-      snapPosition(plan, raw, { threshold, gridSize: snapGrid ? gridSize : null, free: ctrl, constrainAngle: shift, ...opts }),
-    [plan, threshold, snapGrid, gridSize, shift, ctrl],
+      snapPosition(plan, raw, { threshold, gridSize: snapGrid ? gridSize : null, free: ctrl, constrainAngle: shift, extraPoints: belowPoints, ...opts }),
+    [plan, threshold, snapGrid, gridSize, shift, ctrl, belowPoints],
   )
 
   const hoveredWallForOpening = useMemo(() => {
@@ -702,6 +713,15 @@ export function Editor2D() {
           <line x1={visibleMin.x} y1={0} x2={visibleMax.x} y2={0} stroke="#c4c4c4" strokeWidth={px * 1.5} />
           <line x1={0} y1={visibleMin.y} x2={0} y2={visibleMax.y} stroke="#c4c4c4" strokeWidth={px * 1.5} />
 
+          {/* ghost of the floor below */}
+          {showFloorBelow && below && (
+            <g style={{ pointerEvents: 'none' }} opacity={0.18}>
+              {Object.values(below.walls).map((w) => (
+                <polygon key={w.id} points={wallPolygon(below, w).map((p) => `${p.x},${p.y}`).join(' ')} fill="#1d3a8a" />
+              ))}
+            </g>
+          )}
+
           {/* rooms */}
           {rooms.map((r) => (
             <g key={r.id} style={{ pointerEvents: 'none' }}>
@@ -1016,6 +1036,7 @@ const SHORTCUTS: [string, string][] = [
   ['Delete', 'Delete selection'],
   ['Ctrl / ⌘ + Z', 'Undo'],
   ['Ctrl / ⌘ + Shift + Z', 'Redo'],
+  ['PageUp / PageDown', 'Floor above / below'],
   ['?', 'This panel'],
 ]
 

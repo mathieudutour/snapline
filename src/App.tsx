@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { Editor2D } from './editor/Editor2D'
 import { Toolbar } from './panels/Toolbar'
 import { Sidebar } from './panels/Sidebar'
+import { FloorStrip } from './panels/FloorStrip'
 import { useEditor } from './model/store'
 
 const Scene3D = lazy(() => import('./three/Scene3D').then((m) => ({ default: m.Scene3D })))
@@ -13,6 +14,7 @@ export function App() {
       <Toolbar />
       <div className="main">
         <div className="canvas-area">
+          <FloorStrip />
           {mode === 'plan' ? (
             <Editor2D />
           ) : (

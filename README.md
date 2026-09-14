@@ -1,6 +1,7 @@
 # Snapline
 
 A web app for drawing floor plans where your measurements are **remembered as constraints**.
+A project holds several floors and an optional roof, and you can keep several projects in the browser.
 
 Most simple floor-plan tools let you type a wall length, apply it once, and forget it: the next time
 you nudge a corner the value silently drifts and you have to re-check everything. Snapline treats every
@@ -23,7 +24,11 @@ editing, and tells you when two rules cannot both hold.
 - **Rooms** are detected automatically from closed wall loops, with their floor area.
 - **3D view** with mitred wall corners, cut-out doors and windows, and open door leaves.
 - **First-person walkthrough** with mouse look, WASD movement and wall collisions (doors are walkable).
-- Undo / redo, autosave in the browser, JSON import / export, metres or centimetres.
+- **Projects, floors and roofs**: a project has any number of stacked floors (each with its own plan and
+  floor height) and an optional flat, gable or hip roof with pitch and overhang, fitted to the top floor's
+  outline. While drawing an upper floor the floor below shows as a ghost and its corners snap.
+  Several projects can be kept in the browser and switched from the toolbar.
+- Undo / redo (whole project), autosave in the browser, JSON import / export, metres or centimetres.
 
 ## Running it
 
@@ -52,7 +57,10 @@ Esc to go back to the Select tool. Press `?` in the app for the full list.
 | Furniture | `F`, pick a piece in the panel, click to place. `R` rotates. Dropping a piece against a wall snaps its back to the wall and locks the gap. Drag the handle to rotate, or set sides and gaps in the panel. |
 | Relate two walls | Shift-click two walls, then choose parallel / perpendicular / equal / angle in the side panel. |
 | Anchor a corner | Select a corner and click "Anchor in place" so the plan does not drift. |
-| 3D / walkthrough | Use the tabs at the top. In the walkthrough click to capture the mouse, move with WASD or arrows, Shift to run, Esc to release. |
+| Floors | Use the strip at the top left of the canvas: switch, add, duplicate, rename (double-click) or remove floors; PageUp / PageDown switch floors. With nothing selected the side panel edits the floor's name and height. |
+| Roof | With nothing selected, pick the roof type, pitch, ridge direction, overhang and colour in the side panel. |
+| Projects | Click the project name in the toolbar to switch, create, rename, import, export or delete projects. Old single-plan saves are migrated automatically. |
+| 3D / walkthrough | Use the tabs at the top. All floors and the roof are shown; tick "Cut above current floor" to look inside. In the walkthrough click to capture the mouse, move with WASD or arrows, Shift to run, Esc to release. The walkthrough runs on the floor selected in the strip. |
 
 ## How the solver works
 
@@ -90,6 +98,7 @@ and its textures resized and converted to WebP, giving about 115 KB per model on
 
 ```
 src/model      plan types, geometry (mitres, room detection), solver, constraints, store
+               project.ts: floors, roof footprint and outline detection, migration
 src/editor     2D SVG editor, snapping, dimension labels
 src/panels     toolbar and side panel
 src/three      3D scene builder, orbit view, walkthrough and collisions

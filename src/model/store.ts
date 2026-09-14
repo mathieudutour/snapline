@@ -4,14 +4,26 @@ import { CATALOG_BY_KEY } from '../furniture/catalog'
 import { emptyPlan, newId } from './types'
 import { constraintsReferencing, solvePlan, type DragTarget, type FurnitureDrag, type SolveReport } from './constraints'
 import { dist, projectOnSegment, wallLength, wallsAtPoint } from './geometry'
-import { examplePlan } from './example'
+import { exampleProject } from './example'
+import { defaultFloorName, floorElevation, newProject, normalizeProject, type Floor, type Project, type ProjectMeta, type Roof } from './project'
 
 export type Tool = 'select' | 'wall' | 'door' | 'window' | 'furniture' | 'pan'
 export type ViewMode = 'plan' | '3d' | 'walk'
 
 export type SelectionItem = { kind: 'point' | 'wall' | 'opening' | 'furniture'; id: string }
 
+interface Snapshot {
+  project: Project
+  activeFloorId: string
+}
+
 export interface EditorState {
+  /** the current project; `plan` mirrors the active floor's plan */
+  project: Project
+  activeFloorId: string
+  projects: ProjectMeta[]
+  showFloorBelow: boolean
+  cutAboveActive: boolean
   plan: Plan
   report: SolveReport
   selection: SelectionItem[]
@@ -20,9 +32,9 @@ export interface EditorState {
   snapGrid: boolean
   gridSize: number
   autoHV: boolean
-  undoStack: Plan[]
-  redoStack: Plan[]
-  dragSnapshot: Plan | null
+  undoStack: Snapshot[]
+  redoStack: Snapshot[]
+  dragSnapshot: Snapshot | null
   lastSaved: number
   /** bumped whenever a whole new plan is loaded so the editor zooms to fit */
   fitVersion: number
@@ -67,22 +79,89 @@ export interface EditorState {
 
   undo: () => void
   redo: () => void
-  resetPlan: (plan?: Plan) => void
+
+  // floors, roof and projects
+  setShowFloorBelow: (v: boolean) => void
+  setCutAboveActive: (v: boolean) => void
+  setActiveFloor: (id: string) => void
+  addFloor: () => void
+  duplicateFloor: (id: string) => void
+  removeFloor: (id: string) => void
+  renameFloor: (id: string, name: string) => void
+  setRoof: (patch: Partial<Roof>) => void
+  setSlabThickness: (v: number) => void
+  renameProject: (name: string) => void
+  newProject: () => void
+  openProject: (id: string) => void
+  deleteProject: (id: string) => void
+  importProject: (raw: unknown) => void
   loadExample: () => void
 }
 
-const STORAGE_KEY = 'snapline.plan.v1'
+const LEGACY_KEY = 'snapline.plan.v1'
+const INDEX_KEY = 'snapline.projects.v2'
+const projectKey = (id: string) => `snapline.project.${id}`
 
-function loadSaved(): Plan | null {
+interface ProjectIndex {
+  activeId: string | null
+  list: ProjectMeta[]
+}
+
+const hasStorage = () => typeof localStorage !== 'undefined'
+
+function readJson<T>(key: string): T | null {
+  if (!hasStorage()) return null
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    if (parsed && parsed.points && parsed.walls) return normalizePlan(parsed)
+    const raw = localStorage.getItem(key)
+    return raw ? (JSON.parse(raw) as T) : null
+  } catch {
+    return null
+  }
+}
+
+function loadIndex(): ProjectIndex {
+  const idx = readJson<ProjectIndex>(INDEX_KEY)
+  if (idx && Array.isArray(idx.list)) return idx
+  // migrate a v1 single plan into a project
+  const legacy = readJson<Partial<Plan>>(LEGACY_KEY)
+  if (legacy && legacy.points && legacy.walls) {
+    const project = newProject('My home', normalizePlan(legacy))
+    saveProjectNow(project)
+    const index = { activeId: project.id, list: [{ id: project.id, name: project.name, updatedAt: project.updatedAt }] }
+    writeIndex(index)
+    return index
+  }
+  return { activeId: null, list: [] }
+}
+
+function writeIndex(index: ProjectIndex) {
+  if (!hasStorage()) return
+  try {
+    localStorage.setItem(INDEX_KEY, JSON.stringify(index))
   } catch {
     // ignore
   }
-  return null
+}
+
+function loadProject(id: string): Project | null {
+  const raw = readJson<unknown>(projectKey(id))
+  return raw ? normalizeProject(raw, normalizePlan) : null
+}
+
+function saveProjectNow(project: Project) {
+  if (!hasStorage()) return
+  try {
+    localStorage.setItem(projectKey(project.id), JSON.stringify(project))
+  } catch {
+    // ignore quota errors
+  }
+}
+
+function updateIndex(project: Project, list: ProjectMeta[]): ProjectMeta[] {
+  const meta = { id: project.id, name: project.name, updatedAt: project.updatedAt }
+  const next = list.some((p) => p.id === project.id) ? list.map((p) => (p.id === project.id ? meta : p)) : [...list, meta]
+  writeIndex({ activeId: project.id, list: next })
+  return next
 }
 
 export function normalizePlan(raw: Partial<Plan>): Plan {
@@ -98,16 +177,46 @@ export function normalizePlan(raw: Partial<Plan>): Plan {
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
-function scheduleSave(plan: Plan) {
-  if (typeof localStorage === 'undefined') return
+function scheduleSave(project: Project) {
+  if (!hasStorage()) return
   if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(plan))
-    } catch {
-      // ignore quota errors
+  saveTimer = setTimeout(() => saveProjectNow(project), 300)
+}
+
+function withFloorPlan(project: Project, floorId: string, plan: Plan): Project {
+  return { ...project, updatedAt: Date.now(), floors: project.floors.map((f) => (f.id === floorId ? { ...f, plan } : f)) }
+}
+
+function activePlan(project: Project, floorId: string): Plan {
+  return (project.floors.find((f) => f.id === floorId) ?? project.floors[0]).plan
+}
+
+/** re-key every entity of a plan so a duplicated floor does not share ids with its source */
+function clonePlanWithNewIds(plan: Plan): Plan {
+  const map = new Map<string, string>()
+  const fresh = (id: string, prefix: string) => {
+    if (!map.has(id)) map.set(id, newId(prefix))
+    return map.get(id)!
+  }
+  const points: Plan['points'] = {}
+  for (const p of Object.values(plan.points)) points[fresh(p.id, 'p')] = { ...p, id: fresh(p.id, 'p') }
+  const walls: Plan['walls'] = {}
+  for (const w of Object.values(plan.walls)) walls[fresh(w.id, 'w')] = { ...w, id: fresh(w.id, 'w'), a: fresh(w.a, 'p'), b: fresh(w.b, 'p') }
+  const openings: Plan['openings'] = {}
+  for (const o of Object.values(plan.openings)) openings[fresh(o.id, 'o')] = { ...o, id: fresh(o.id, 'o'), wallId: fresh(o.wallId, 'w') }
+  const furniture: Plan['furniture'] = {}
+  for (const f of Object.values(plan.furniture)) furniture[fresh(f.id, 'f')] = { ...f, id: fresh(f.id, 'f') }
+  const constraints: Plan['constraints'] = {}
+  for (const c of Object.values(plan.constraints)) {
+    const id = fresh(c.id, 'c')
+    const remap = (obj: Record<string, unknown>) => {
+      const out: Record<string, unknown> = { ...obj, id }
+      for (const k of ['wallId', 'wallA', 'wallB', 'pointId', 'pointA', 'pointB', 'openingId', 'furnitureId']) if (typeof out[k] === 'string') out[k] = map.get(out[k] as string) ?? out[k]
+      return out
     }
-  }, 300)
+    constraints[id] = remap(c as unknown as Record<string, unknown>) as unknown as Constraint
+  }
+  return { ...plan, points, walls, openings, furniture, constraints }
 }
 
 const MAX_UNDO = 100
@@ -228,9 +337,74 @@ export function splitWall(plan: Plan, wallId: string, t: number): { plan: Plan; 
 }
 
 export const useEditor = create<EditorState>((set, get) => {
-  const initial = (typeof localStorage !== 'undefined' && loadSaved()) || examplePlan()
-  const solved = solvePlan(initial)
+  const index = loadIndex()
+  let initialProject = (index.activeId && loadProject(index.activeId)) || null
+  let projects = index.list
+  if (!initialProject) {
+    initialProject = exampleProject()
+    saveProjectNow(initialProject)
+    projects = updateIndex(initialProject, projects)
+  }
+  const initialFloorId = initialProject.floors[0].id
+  const solved = solvePlan(activePlan(initialProject, initialFloorId))
+  initialProject = withFloorPlan(initialProject, initialFloorId, solved.plan)
+
+  /** replace the active floor's plan (no undo entry) */
+  const applyPlan = (plan: Plan, report: SolveReport) => {
+    const { project, activeFloorId } = get()
+    const nextProject = withFloorPlan(project, activeFloorId, plan)
+    set({ project: nextProject, plan, report })
+    return nextProject
+  }
+  /** structural project change with an undo entry; re-solves the active floor */
+  const commitProject = (nextProject: Project, activeFloorId = get().activeFloorId, extra: Partial<EditorState> = {}) => {
+    const { project, activeFloorId: prevFloor, undoStack } = get()
+    const solvedFloor = solvePlan(activePlan(nextProject, activeFloorId))
+    const withSolved = withFloorPlan(nextProject, activeFloorId, solvedFloor.plan)
+    set({
+      project: withSolved,
+      activeFloorId,
+      plan: solvedFloor.plan,
+      report: solvedFloor.report,
+      undoStack: [...undoStack, { project, activeFloorId: prevFloor }].slice(-MAX_UNDO),
+      redoStack: [],
+      selection: [],
+      projects: updateIndex(withSolved, get().projects),
+      ...extra,
+    })
+    scheduleSave(withSolved)
+  }
+  const restore = (snapshot: Snapshot) => {
+    const solvedFloor = solvePlan(activePlan(snapshot.project, snapshot.activeFloorId))
+    const project = withFloorPlan(snapshot.project, snapshot.activeFloorId, solvedFloor.plan)
+    set({ project, activeFloorId: snapshot.activeFloorId, plan: solvedFloor.plan, report: solvedFloor.report, selection: [], projects: updateIndex(project, get().projects) })
+    scheduleSave(project)
+  }
+  const openProjectState = (project: Project) => {
+    const floorId = project.floors[0].id
+    const solvedFloor = solvePlan(activePlan(project, floorId))
+    const withSolved = withFloorPlan(project, floorId, solvedFloor.plan)
+    set({
+      project: withSolved,
+      activeFloorId: floorId,
+      plan: solvedFloor.plan,
+      report: solvedFloor.report,
+      undoStack: [],
+      redoStack: [],
+      selection: [],
+      projects: updateIndex(withSolved, get().projects),
+      fitVersion: get().fitVersion + 1,
+      placing: null,
+    })
+    saveProjectNow(withSolved)
+  }
+
   return {
+    project: initialProject,
+    activeFloorId: initialFloorId,
+    projects,
+    showFloorBelow: true,
+    cutAboveActive: false,
     plan: solved.plan,
     report: solved.report,
     selection: [],
@@ -273,23 +447,24 @@ export const useEditor = create<EditorState>((set, get) => {
     clearSelection: () => set({ selection: [] }),
 
     commit: (plan) => {
-      const prev = get().plan
+      const { project, activeFloorId } = get()
       const { plan: solvedPlan, report } = solvePlan(plan)
-      const undoStack = [...get().undoStack, prev].slice(-MAX_UNDO)
+      const undoStack = [...get().undoStack, { project, activeFloorId }].slice(-MAX_UNDO)
       const selection = get().selection.filter((s) => {
         if (s.kind === 'point') return !!solvedPlan.points[s.id]
         if (s.kind === 'wall') return !!solvedPlan.walls[s.id]
         if (s.kind === 'furniture') return !!solvedPlan.furniture[s.id]
         return !!solvedPlan.openings[s.id]
       })
-      set({ plan: solvedPlan, report, undoStack, redoStack: [], selection })
-      scheduleSave(solvedPlan)
+      const nextProject = withFloorPlan(project, activeFloorId, solvedPlan)
+      set({ project: nextProject, plan: solvedPlan, report, undoStack, redoStack: [], selection, projects: updateIndex(nextProject, get().projects) })
+      scheduleSave(nextProject)
     },
 
-    beginDrag: () => set({ dragSnapshot: get().plan }),
+    beginDrag: () => set({ dragSnapshot: { project: get().project, activeFloorId: get().activeFloorId } }),
     dragTo: (drags) => {
       const { plan: solvedPlan, report } = solvePlan(get().plan, drags)
-      set({ plan: solvedPlan, report })
+      applyPlan(solvedPlan, report)
     },
     dragOpening: (openingId, offset) => {
       const plan = get().plan
@@ -301,21 +476,23 @@ export const useEditor = create<EditorState>((set, get) => {
       const next = { ...plan, openings: { ...plan.openings, [openingId]: { ...o, offset: clamped } } }
       const { plan: solvedPlan, report } = solvePlan(next)
       // keep the user's requested offset unless a constraint overrides it
-      set({ plan: solvedPlan, report })
+      applyPlan(solvedPlan, report)
     },
     dragFurniture: (drags) => {
       const { plan: solvedPlan, report } = solvePlan(get().plan, [], drags)
-      set({ plan: solvedPlan, report })
+      applyPlan(solvedPlan, report)
     },
     endDrag: () => {
       const snapshot = get().dragSnapshot
       if (!snapshot) return
       const plan = get().plan
+      const before = activePlan(snapshot.project, snapshot.activeFloorId)
       const changed =
-        JSON.stringify(snapshot.points) !== JSON.stringify(plan.points) || JSON.stringify(snapshot.openings) !== JSON.stringify(plan.openings) || JSON.stringify(snapshot.furniture) !== JSON.stringify(plan.furniture)
+        JSON.stringify(before.points) !== JSON.stringify(plan.points) || JSON.stringify(before.openings) !== JSON.stringify(plan.openings) || JSON.stringify(before.furniture) !== JSON.stringify(plan.furniture)
       if (changed) {
-        set({ undoStack: [...get().undoStack, snapshot].slice(-MAX_UNDO), redoStack: [], dragSnapshot: null })
-        scheduleSave(plan)
+        const project = get().project
+        set({ undoStack: [...get().undoStack, snapshot].slice(-MAX_UNDO), redoStack: [], dragSnapshot: null, projects: updateIndex(project, get().projects) })
+        scheduleSave(project)
       } else set({ dragSnapshot: null })
     },
 
@@ -560,31 +737,122 @@ export const useEditor = create<EditorState>((set, get) => {
     },
 
     undo: () => {
-      const { undoStack, plan } = get()
+      const { undoStack, project, activeFloorId } = get()
       if (undoStack.length === 0) return
       const prev = undoStack[undoStack.length - 1]
-      const solved = solvePlan(prev)
-      set({ plan: solved.plan, report: solved.report, undoStack: undoStack.slice(0, -1), redoStack: [...get().redoStack, plan], selection: [] })
-      scheduleSave(solved.plan)
+      set({ undoStack: undoStack.slice(0, -1), redoStack: [...get().redoStack, { project, activeFloorId }] })
+      restore(prev)
     },
     redo: () => {
-      const { redoStack, plan } = get()
+      const { redoStack, project, activeFloorId } = get()
       if (redoStack.length === 0) return
       const next = redoStack[redoStack.length - 1]
-      const solved = solvePlan(next)
-      set({ plan: solved.plan, report: solved.report, redoStack: redoStack.slice(0, -1), undoStack: [...get().undoStack, plan], selection: [] })
-      scheduleSave(solved.plan)
+      set({ redoStack: redoStack.slice(0, -1), undoStack: [...get().undoStack, { project, activeFloorId }] })
+      restore(next)
     },
-    resetPlan: (plan) => {
-      const next = plan ? normalizePlan(plan) : emptyPlan()
-      const solved = solvePlan(next)
-      set({ plan: solved.plan, report: solved.report, undoStack: [...get().undoStack, get().plan].slice(-MAX_UNDO), redoStack: [], selection: [], fitVersion: get().fitVersion + 1 })
-      scheduleSave(solved.plan)
+
+    setShowFloorBelow: (showFloorBelow) => set({ showFloorBelow }),
+    setCutAboveActive: (cutAboveActive) => set({ cutAboveActive }),
+    setActiveFloor: (id) => {
+      const { project, activeFloorId } = get()
+      if (id === activeFloorId || !project.floors.some((f) => f.id === id)) return
+      const solvedFloor = solvePlan(activePlan(project, id))
+      const withSolved = withFloorPlan(project, id, solvedFloor.plan)
+      set({ project: withSolved, activeFloorId: id, plan: solvedFloor.plan, report: solvedFloor.report, selection: [], placing: null })
     },
-    loadExample: () => get().resetPlan(examplePlan()),
+    addFloor: () => {
+      const { project } = get()
+      const below = project.floors[project.floors.length - 1]
+      const plan: Plan = { ...emptyPlan(), settings: { ...below.plan.settings } }
+      const floor: Floor = { id: newId('fl'), name: defaultFloorName(project.floors.length), plan }
+      commitProject({ ...project, floors: [...project.floors, floor] }, floor.id)
+    },
+    duplicateFloor: (id) => {
+      const { project } = get()
+      const idx = project.floors.findIndex((f) => f.id === id)
+      if (idx < 0) return
+      const src = project.floors[idx]
+      const floor: Floor = { id: newId('fl'), name: defaultFloorName(idx + 1), plan: clonePlanWithNewIds(src.plan) }
+      const floors = [...project.floors]
+      floors.splice(idx + 1, 0, floor)
+      // renumber default names of the floors above
+      const renamed = floors.map((f, i) => (i > idx + 1 && /^(Ground floor|\d+(st|nd|rd|th) floor)$/.test(f.name) ? { ...f, name: defaultFloorName(i) } : f))
+      commitProject({ ...project, floors: renamed }, floor.id)
+    },
+    removeFloor: (id) => {
+      const { project, activeFloorId } = get()
+      if (project.floors.length <= 1) return
+      const idx = project.floors.findIndex((f) => f.id === id)
+      if (idx < 0) return
+      const floors = project.floors.filter((f) => f.id !== id)
+      const nextActive = activeFloorId === id ? floors[Math.max(0, idx - 1)].id : activeFloorId
+      commitProject({ ...project, floors }, nextActive)
+    },
+    renameFloor: (id, name) => {
+      const { project } = get()
+      commitProject({ ...project, floors: project.floors.map((f) => (f.id === id ? { ...f, name } : f)) })
+    },
+    setRoof: (patch) => {
+      const { project } = get()
+      commitProject({ ...project, roof: { ...project.roof, ...patch } })
+    },
+    setSlabThickness: (v) => {
+      const { project } = get()
+      commitProject({ ...project, slabThickness: Math.max(0, v) })
+    },
+    renameProject: (name) => {
+      const { project } = get()
+      commitProject({ ...project, name: name.trim() || project.name })
+    },
+    newProject: () => {
+      const n = get().projects.length + 1
+      openProjectState(newProject(`Project ${n}`))
+    },
+    openProject: (id) => {
+      if (id === get().project.id) return
+      const project = loadProject(id)
+      if (project) openProjectState(project)
+    },
+    deleteProject: (id) => {
+      const { projects, project } = get()
+      const list = projects.filter((p) => p.id !== id)
+      if (hasStorage()) {
+        try {
+          localStorage.removeItem(projectKey(id))
+        } catch {
+          // ignore
+        }
+      }
+      if (id === project.id) {
+        const nextId = list[0]?.id
+        const next = (nextId && loadProject(nextId)) || newProject('Project 1')
+        set({ projects: list })
+        openProjectState(next)
+      } else {
+        set({ projects: list })
+        writeIndex({ activeId: project.id, list })
+      }
+    },
+    importProject: (raw) => {
+      const project = normalizeProject(raw, normalizePlan)
+      // imported projects get a fresh id so they never clobber an existing one
+      openProjectState({ ...project, id: newId('prj') })
+    },
+    loadExample: () => openProjectState(exampleProject()),
   }
 })
 
 export function isSelected(selection: SelectionItem[], kind: SelectionItem['kind'], id: string): boolean {
   return selection.some((s) => s.kind === kind && s.id === id)
+}
+
+/** finished-floor elevation of the active floor */
+export function activeFloorElevation(state: Pick<EditorState, 'project' | 'activeFloorId'>): number {
+  return floorElevation(state.project, state.activeFloorId)
+}
+
+/** plan of the floor directly below the active one, if any */
+export function floorBelow(state: Pick<EditorState, 'project' | 'activeFloorId'>): Plan | null {
+  const idx = state.project.floors.findIndex((f) => f.id === state.activeFloorId)
+  return idx > 0 ? state.project.floors[idx - 1].plan : null
 }

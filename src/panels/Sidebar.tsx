@@ -373,13 +373,72 @@ function CataloguePanel() {
 function SettingsProps() {
   const settings = useEditor((s) => s.plan.settings)
   const setSettings = useEditor((s) => s.setSettings)
+  const project = useEditor((s) => s.project)
+  const activeFloorId = useEditor((s) => s.activeFloorId)
+  const renameFloor = useEditor((s) => s.renameFloor)
+  const setRoof = useEditor((s) => s.setRoof)
+  const setSlabThickness = useEditor((s) => s.setSlabThickness)
+  const floor = project.floors.find((f) => f.id === activeFloorId)
+  const roof = project.roof
+  const [name, setName] = useState(floor?.name ?? '')
+  useEffect(() => setName(floor?.name ?? ''), [floor?.name])
   return (
-    <div className="props">
-      <h3>Defaults for new walls</h3>
-      <LengthField label="Thickness" units={settings.units} value={settings.wallThickness} onChange={(v) => setSettings({ wallThickness: v })} />
-      <LengthField label="Height" units={settings.units} value={settings.wallHeight} onChange={(v) => setSettings({ wallHeight: v })} />
-      <p className="muted small">Select a wall, corner, door or window to edit it. Select two walls (Shift+click) to relate them.</p>
-    </div>
+    <>
+      <div className="props">
+        <h3>Floor</h3>
+        <label className="field">
+          <span>Name</span>
+          <span className="field-input">
+            <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => floor && name.trim() && name !== floor.name && renameFloor(floor.id, name.trim())} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
+          </span>
+        </label>
+        <LengthField label="Floor height" units={settings.units} value={settings.wallHeight} onChange={(v) => setSettings({ wallHeight: v })} />
+        <LengthField label="Wall thickness" units={settings.units} value={settings.wallThickness} onChange={(v) => setSettings({ wallThickness: v })} />
+        <p className="muted small">Floor height is the default height of new walls on this floor and sets where the floor above starts.</p>
+      </div>
+      <div className="props">
+        <h3>Roof</h3>
+        <label className="field">
+          <span>Type</span>
+          <select value={roof.type} onChange={(e) => setRoof({ type: e.target.value as typeof roof.type })}>
+            <option value="none">None</option>
+            <option value="flat">Flat</option>
+            <option value="gable">Gable</option>
+            <option value="hip">Hip</option>
+          </select>
+        </label>
+        {(roof.type === 'gable' || roof.type === 'hip') && (
+          <>
+            <label className="field">
+              <span>Pitch</span>
+              <span className="field-input">
+                <input type="number" min={5} max={70} value={roof.pitch} onChange={(e) => setRoof({ pitch: Math.min(70, Math.max(5, Number(e.target.value) || 0)) })} />
+                <em>°</em>
+              </span>
+            </label>
+            <label className="field">
+              <span>Ridge</span>
+              <select value={roof.ridge} onChange={(e) => setRoof({ ridge: e.target.value as typeof roof.ridge })}>
+                <option value="long">Along the long side</option>
+                <option value="short">Along the short side</option>
+              </select>
+            </label>
+          </>
+        )}
+        {roof.type !== 'none' && (
+          <>
+            <LengthField label="Overhang" units={settings.units} value={roof.overhang} onChange={(v) => setRoof({ overhang: Math.max(0, v) })} />
+            {roof.type === 'flat' && <LengthField label="Thickness" units={settings.units} value={roof.thickness} onChange={(v) => setRoof({ thickness: Math.max(0.05, v) })} />}
+            <label className="field">
+              <span>Colour</span>
+              <input type="color" value={roof.color} onChange={(e) => setRoof({ color: e.target.value })} />
+            </label>
+          </>
+        )}
+        <LengthField label="Slab between floors" units={settings.units} value={project.slabThickness} onChange={setSlabThickness} />
+        <p className="muted small">The roof covers the top floor's outline, aligned with its longest wall. Select a wall, corner, door, window or piece of furniture to edit it.</p>
+      </div>
+    </>
   )
 }
 

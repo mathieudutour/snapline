@@ -1,6 +1,5 @@
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useEditor, type Tool, type ViewMode } from '../model/store'
-import { normalizePlan } from '../model/store'
 
 const TOOLS: { id: Tool; label: string; key: string; icon: string }[] = [
   { id: 'select', label: 'Select', key: 'V', icon: '↖' },
@@ -32,28 +31,44 @@ export function Toolbar() {
   const redo = useEditor((s) => s.redo)
   const units = useEditor((s) => s.plan.settings.units)
   const setUnits = useEditor((s) => s.setUnits)
-  const resetPlan = useEditor((s) => s.resetPlan)
   const loadExample = useEditor((s) => s.loadExample)
+  const project = useEditor((s) => s.project)
+  const projects = useEditor((s) => s.projects)
+  const newProject = useEditor((s) => s.newProject)
+  const openProject = useEditor((s) => s.openProject)
+  const deleteProject = useEditor((s) => s.deleteProject)
+  const renameProject = useEditor((s) => s.renameProject)
+  const importProject = useEditor((s) => s.importProject)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!menuOpen) return
+    const close = (e: PointerEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false)
+    }
+    window.addEventListener('pointerdown', close)
+    return () => window.removeEventListener('pointerdown', close)
+  }, [menuOpen])
   const violations = useEditor((s) => s.report.violated.size)
   const toggleShortcuts = useEditor((s) => s.toggleShortcuts)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const exportJson = () => {
-    const plan = useEditor.getState().plan
-    const blob = new Blob([JSON.stringify({ version: 1, ...plan }, null, 2)], { type: 'application/json' })
+    const current = useEditor.getState().project
+    const blob = new Blob([JSON.stringify({ version: 2, ...current }, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = 'floorplan.json'
+    a.download = `${current.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'project'}.snapline.json`
     a.click()
     URL.revokeObjectURL(url)
   }
   const importJson = (file: File) => {
     file.text().then((text) => {
       try {
-        resetPlan(normalizePlan(JSON.parse(text)))
+        importProject(JSON.parse(text))
       } catch {
-        alert('Could not read this file as a Snapline plan.')
+        alert('Could not read this file as a Snapline project.')
       }
     })
   }
@@ -114,17 +129,53 @@ export function Toolbar() {
           )}
         </div>
       )}
-      <div className="seg">
-        <button
-          onClick={() => {
-            if (confirm('Start a new empty plan? The current plan will be kept in undo history.')) resetPlan()
-          }}
-        >
-          New
+      <div className="project-menu" ref={menuRef}>
+        <button className="project-name" onClick={() => setMenuOpen((o) => !o)} title="Projects">
+          📁 {project.name} ▾
         </button>
-        <button onClick={loadExample}>Example</button>
-        <button onClick={() => fileRef.current?.click()}>Import</button>
-        <button onClick={exportJson}>Export</button>
+        {menuOpen && (
+          <div className="menu">
+            <div className="menu-title">Projects</div>
+            {projects.map((p) => (
+              <button key={p.id} className={p.id === project.id ? 'menu-item on' : 'menu-item'} onClick={() => (openProject(p.id), setMenuOpen(false))}>
+                {p.name}
+              </button>
+            ))}
+            <div className="menu-sep" />
+            <button className="menu-item" onClick={() => (newProject(), setMenuOpen(false))}>
+              New project
+            </button>
+            <button
+              className="menu-item"
+              onClick={() => {
+                const name = prompt('Project name', project.name)
+                if (name) renameProject(name)
+                setMenuOpen(false)
+              }}
+            >
+              Rename…
+            </button>
+            <button className="menu-item" onClick={() => (loadExample(), setMenuOpen(false))}>
+              Load example house
+            </button>
+            <button className="menu-item" onClick={() => (fileRef.current?.click(), setMenuOpen(false))}>
+              Import…
+            </button>
+            <button className="menu-item" onClick={() => (exportJson(), setMenuOpen(false))}>
+              Export
+            </button>
+            <div className="menu-sep" />
+            <button
+              className="menu-item danger"
+              onClick={() => {
+                if (confirm(`Delete project "${project.name}"? This cannot be undone.`)) deleteProject(project.id)
+                setMenuOpen(false)
+              }}
+            >
+              Delete project
+            </button>
+          </div>
+        )}
       </div>
       <div className="seg">
         <button onClick={() => toggleShortcuts()} title="Keyboard shortcuts (?)">

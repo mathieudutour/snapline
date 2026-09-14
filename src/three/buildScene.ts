@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { Opening, Plan, Vec2, Wall } from '../model/types'
 import { add, clipPolygonToRange, findRooms, normalize, polygonArea, scale, sub, wallLength, wallPolygon, planBounds } from '../model/geometry'
+import { roofFootprint, type Roof } from '../model/project'
 
 export interface WallMeshData {
   id: string
@@ -103,7 +104,7 @@ function prismGeometry(poly: Vec2[], y0: number, y1: number): { positions: numbe
   return { positions, normals }
 }
 
-function wallGeometry(plan: Plan, wall: Wall): THREE.BufferGeometry {
+function wallGeometry(plan: Plan, wall: Wall, bandBelow = 0): THREE.BufferGeometry {
   const poly = wallPolygon(plan, wall)
   const a = plan.points[wall.a]
   const b = plan.points[wall.b]
@@ -128,6 +129,8 @@ function wallGeometry(plan: Plan, wall: Wall): THREE.BufferGeometry {
     cursor = Math.max(cursor, s1)
   }
   if (L - cursor > 1e-4) pieces.push({ s0: cursor, s1: L, y0: 0, y1: H })
+  // solid band covering the slab edge between this floor and the one below
+  if (bandBelow > 1e-4) pieces.push({ s0: 0, s1: L, y0: -bandBelow, y1: 0 })
   const positions: number[] = []
   const normals: number[] = []
   for (const piece of pieces) {
@@ -163,13 +166,13 @@ function floorGeometry(polygon: Vec2[], ceiling: boolean): THREE.BufferGeometry 
   return geometry
 }
 
-export function buildScene(plan: Plan): SceneData {
+export function buildScene(plan: Plan, options: { bandBelow?: number } = {}): SceneData {
   const walls: WallMeshData[] = []
   const blockers: Blocker[] = []
   let maxHeight = 2.5
   for (const wall of Object.values(plan.walls)) {
     if (!plan.points[wall.a] || !plan.points[wall.b]) continue
-    walls.push({ id: wall.id, geometry: wallGeometry(plan, wall) })
+    walls.push({ id: wall.id, geometry: wallGeometry(plan, wall, options.bandBelow ?? 0) })
     maxHeight = Math.max(maxHeight, wall.height)
     const a = plan.points[wall.a]
     const b = plan.points[wall.b]
@@ -236,4 +239,94 @@ export function buildScene(plan: Plan): SceneData {
       }
     },
   }
+}
+
+/**
+ * Roof shell over the footprint of `plan`, its eaves at `eaveY` (world y). Gable and hip roofs are a
+ * closed shell (two slopes, two ends, underside); a flat roof is a slab. Returns null when there is
+ * nothing to cover.
+ */
+export function buildRoofGeometry(plan: Plan, roof: Roof, wallTopY: number): THREE.BufferGeometry | null {
+  if (roof.type === 'none') return null
+  const rect = roofFootprint(plan)
+  if (!rect) return null
+  const u = { x: rect.ux, y: rect.uy }
+  const v = { x: -u.y, y: u.x }
+  const hl = rect.long / 2 + roof.overhang
+  const hs = rect.short / 2 + roof.overhang
+  const at = (a: number, b: number, y: number) => new THREE.Vector3(rect.cx + u.x * a + v.x * b, y, rect.cy + u.y * a + v.y * b)
+  const positions: number[] = []
+  const normals: number[] = []
+  const tri = (p: THREE.Vector3, q: THREE.Vector3, r: THREE.Vector3, expected: THREE.Vector3) => {
+    const n = new THREE.Vector3().subVectors(q, p).cross(new THREE.Vector3().subVectors(r, p))
+    if (n.lengthSq() < 1e-14) return
+    n.normalize()
+    let b = q
+    let c = r
+    if (n.dot(expected) < 0) {
+      b = r
+      c = q
+      n.negate()
+    }
+    positions.push(p.x, p.y, p.z, b.x, b.y, b.z, c.x, c.y, c.z)
+    normals.push(n.x, n.y, n.z, n.x, n.y, n.z, n.x, n.y, n.z)
+  }
+  const quad = (p: THREE.Vector3, q: THREE.Vector3, r: THREE.Vector3, s: THREE.Vector3, expected: THREE.Vector3) => {
+    tri(p, q, r, expected)
+    tri(p, r, s, expected)
+  }
+  const up = new THREE.Vector3(0, 1, 0)
+  const down = new THREE.Vector3(0, -1, 0)
+  if (roof.type === 'flat') {
+    const y0 = wallTopY
+    const y1 = wallTopY + roof.thickness
+    const c = [at(-hl, -hs, 0), at(hl, -hs, 0), at(hl, hs, 0), at(-hl, hs, 0)]
+    const top = c.map((p) => new THREE.Vector3(p.x, y1, p.z))
+    const bottom = c.map((p) => new THREE.Vector3(p.x, y0, p.z))
+    quad(top[0], top[1], top[2], top[3], up)
+    quad(bottom[0], bottom[1], bottom[2], bottom[3], down)
+    for (let i = 0; i < 4; i++) {
+      const j = (i + 1) % 4
+      const mid = new THREE.Vector3().addVectors(bottom[i], bottom[j]).multiplyScalar(0.5).sub(new THREE.Vector3(rect.cx, y0, rect.cy)).setY(0)
+      quad(bottom[i], bottom[j], top[j], top[i], mid)
+    }
+  } else {
+    // ridge along P (half extent hp), slopes rise across Q (half extent hq)
+    const alongLong = roof.ridge === 'long'
+    const hp = alongLong ? hl : hs
+    const hq = alongLong ? hs : hl
+    const P = (p: number, q: number, y: number) => (alongLong ? at(p, q, y) : at(q, p, y))
+    const tan = Math.tan((roof.pitch * Math.PI) / 180)
+    // the slope passes through the wall top at the wall face, so the eave sits lower by the overhang
+    const eaveY = wallTopY - roof.overhang * tan
+    const rise = hq * tan
+    const rl = roof.type === 'gable' ? hp : Math.max(0, hp - hq)
+    const B1 = P(-hp, -hq, eaveY)
+    const B2 = P(hp, -hq, eaveY)
+    const B3 = P(hp, hq, eaveY)
+    const B4 = P(-hp, hq, eaveY)
+    const R1 = P(-rl, 0, eaveY + rise)
+    const R2 = P(rl, 0, eaveY + rise)
+    quad(B1, B2, R2, R1, up)
+    quad(B4, B3, R2, R1, up)
+    const endDir = (sign: number) => new THREE.Vector3().subVectors(P(sign, 0, 0), P(0, 0, 0)).normalize().add(new THREE.Vector3(0, 0.3, 0))
+    tri(B1, R1, B4, endDir(-1))
+    tri(B2, R2, B3, endDir(1))
+    // soffit: a flat ring under the overhang only, so room ceilings stay visible from inside
+    const o = Math.min(roof.overhang, hp, hq)
+    if (o > 1e-4) {
+      const I1 = P(-hp + o, -hq + o, eaveY)
+      const I2 = P(hp - o, -hq + o, eaveY)
+      const I3 = P(hp - o, hq - o, eaveY)
+      const I4 = P(-hp + o, hq - o, eaveY)
+      quad(B1, B2, I2, I1, down)
+      quad(B2, B3, I3, I2, down)
+      quad(B3, B4, I4, I3, down)
+      quad(B4, B1, I1, I4, down)
+    }
+  }
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3))
+  return geometry
 }

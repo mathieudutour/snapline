@@ -116,3 +116,75 @@ export function examplePlan(): Plan {
   }
   return plan
 }
+
+import { DEFAULT_ROOF, newProject, type Project } from './project'
+import { newId } from './types'
+
+/** Two-floor house with a gable roof: the furnished apartment below and bedrooms above. */
+export function exampleProject(): Project {
+  const project = newProject('Example house', examplePlan())
+  const upper = emptyPlan()
+  upper.settings.wallHeight = 2.4
+  const pts: Record<string, [number, number]> = { q1: [0, 0], q2: [9, 0], q3: [9, 6.5], q4: [0, 6.5], q5: [4.5, 0], q6: [4.5, 6.5], q7: [4.5, 3.5], q8: [9, 3.5] }
+  for (const [id, [x, y]] of Object.entries(pts)) upper.points[id] = { id, x, y }
+  const walls: [string, string, string, number][] = [
+    ['u1', 'q1', 'q5', 0.25],
+    ['u2', 'q5', 'q2', 0.25],
+    ['u3', 'q2', 'q8', 0.25],
+    ['u4', 'q8', 'q3', 0.25],
+    ['u5', 'q3', 'q6', 0.25],
+    ['u6', 'q6', 'q4', 0.25],
+    ['u7', 'q4', 'q1', 0.25],
+    ['u8', 'q5', 'q7', 0.12],
+    ['u9', 'q7', 'q6', 0.12],
+    ['u10', 'q7', 'q8', 0.12],
+  ]
+  for (const [id, a, b, thickness] of walls) upper.walls[id] = { id, a, b, thickness, height: upper.settings.wallHeight } as Wall
+  const openings: Opening[] = [
+    { id: 'v1', kind: 'window', wallId: 'u1', offset: 1.5, width: 1.4, height: 1.3, sill: 0.9, hingeB: false, swingRight: false },
+    { id: 'v2', kind: 'window', wallId: 'u2', offset: 1.5, width: 1.4, height: 1.3, sill: 0.9, hingeB: false, swingRight: false },
+    { id: 'v3', kind: 'window', wallId: 'u7', offset: 1.8, width: 1.2, height: 1.3, sill: 0.9, hingeB: false, swingRight: false },
+    { id: 'v4', kind: 'window', wallId: 'u3', offset: 1.2, width: 1.2, height: 1.3, sill: 0.9, hingeB: false, swingRight: false },
+    { id: 'v5', kind: 'window', wallId: 'u5', offset: 1.5, width: 1.2, height: 1.3, sill: 0.9, hingeB: false, swingRight: false },
+    { id: 'v6', kind: 'door', wallId: 'u8', offset: 1.0, width: 0.8, height: 2.1, sill: 0, hingeB: false, swingRight: true },
+    { id: 'v7', kind: 'door', wallId: 'u9', offset: 0.8, width: 0.8, height: 2.1, sill: 0, hingeB: true, swingRight: true },
+    { id: 'v8', kind: 'door', wallId: 'u10', offset: 0.6, width: 0.8, height: 2.1, sill: 0, hingeB: false, swingRight: false },
+  ]
+  for (const o of openings) upper.openings[o.id] = o
+  const constraints: Constraint[] = [
+    ...(['u1', 'u2', 'u5', 'u6', 'u10'] as const).map((wallId) => ({ id: newId('c'), type: 'horizontal' as const, wallId })),
+    ...(['u3', 'u4', 'u7', 'u8', 'u9'] as const).map((wallId) => ({ id: newId('c'), type: 'vertical' as const, wallId })),
+    { id: newId('c'), type: 'length', wallId: 'u1', value: 4.5 },
+    { id: newId('c'), type: 'length', wallId: 'u2', value: 4.5 },
+    { id: newId('c'), type: 'length', wallId: 'u3', value: 3.5 },
+    { id: newId('c'), type: 'length', wallId: 'u4', value: 3 },
+    { id: newId('c'), type: 'fixed', pointId: 'q1', x: 0, y: 0 },
+  ]
+  for (const c of constraints) upper.constraints[c.id] = c
+  const HALF = Math.PI / 2
+  const furniture: [string, number, number, number, string | null][] = [
+    ['sc-bed1', 1.7, 2.0, HALF, 'u8'],
+    ['by-bedsidetable', 4.19, 0.7, HALF, 'u8'],
+    ['by-wardrobe2', 1.2, 6.075, Math.PI, 'u6'],
+    ['by-juniorbed', 5.66, 1.5, -HALF, 'u8'],
+    ['by-biurko3', 7.6, 0.425, 0, 'u2'],
+    ['kl-office-chair', 7.6, 1.15, Math.PI, null],
+    ['by-wardrobe', 8.42, 2.4, HALF, 'u3'],
+    ['by-bath-jay-hardy', 8.4, 5.5, HALF, 'u4'],
+    ['b0-washbasin', 6.0, 3.85, 0, 'u10'],
+    ['b0-toiletsunit', 7.6, 3.965, 0, 'u10'],
+  ]
+  for (const [key, x, y, angle, wallId] of furniture) {
+    const item = CATALOG_BY_KEY[key]
+    if (!item) continue
+    const id = newId('f')
+    upper.furniture[id] = { id, catalogKey: key, name: item.name, x, y, angle, width: item.width, depth: item.depth, height: item.height, elevation: item.elevation }
+    if (wallId) {
+      const cid = newId('c')
+      upper.constraints[cid] = { id: cid, type: 'furnitureWallGap', furnitureId: id, wallId, side: 'back', value: 0 }
+    }
+  }
+  project.floors.push({ id: newId('fl'), name: '1st floor', plan: upper })
+  project.roof = { ...DEFAULT_ROOF, type: 'gable', pitch: 35, overhang: 0.45 }
+  return project
+}
