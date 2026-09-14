@@ -7,7 +7,7 @@ import { dist, projectOnSegment, wallLength, wallsAtPoint, type WallSide } from 
 import { exampleProject } from './example'
 import { defaultFloorName, floorElevation, newProject, normalizeProject, type Floor, type Project, type ProjectMeta, type Roof } from './project'
 import type { Units } from './units'
-import { applyOps, floorsTouched, type Op, type Peer, type Presence } from './collab'
+import { applyOps, diffProjects, floorsTouched, type Op, type Peer, type Presence } from './collab'
 import { CUSTOM_CATEGORY, type CatalogItem } from '../furniture/catalog'
 import { deleteModelBlobs, getModelBlobs, loadCustomModelMeta, newModelKey, parseModelFile, putModelBlobs, registerModelUrls, saveCustomModelMeta, unregisterModelUrls, type CustomModel } from '../furniture/customModels'
 import { renderModelIcons } from '../furniture/renderIcon'
@@ -595,8 +595,29 @@ export const useEditor = create<EditorState>((set, get) => {
     set({ conflicts, syncStatus: conflicts.length ? 'conflict' : 'synced' })
   }
 
+  /** the same content on both sides (timestamps aside) is not a divergence, whatever the versions say */
+  const sameContent = (a: Project, b: Project) => diffProjects(a, b).length === 0
+  /** one save at a time per project: a second request would race the first one and trip the version check */
+  const pushing = new Map<string, Promise<void>>()
+  const pushAgain = new Set<string>()
   /** save one project to the account on top of the version this device last synced */
-  const push = async (project: Project, force = false) => {
+  const push = (project: Project, force = false): Promise<void> => {
+    const inFlight = pushing.get(project.id)
+    if (inFlight) {
+      pushAgain.add(project.id) // run once more with the latest copy when this one is done
+      return inFlight
+    }
+    const run = pushNow(project, force).finally(() => {
+      pushing.delete(project.id)
+      if (pushAgain.delete(project.id)) {
+        const latest = get().project.id === project.id ? get().project : loadProject(project.id)
+        if (latest && metaOf(project.id)?.dirty) void push(latest)
+      }
+    })
+    pushing.set(project.id, run)
+    return run
+  }
+  const pushNow = async (project: Project, force: boolean) => {
     if (!get().user) return
     if (!force && get().conflicts.some((c) => c.projectId === project.id)) return // paused until the user decides
     if (!force && get().live.status === 'on' && project.id === get().project.id) return // the live room saves for us
@@ -613,6 +634,12 @@ export const useEditor = create<EditorState>((set, get) => {
     } catch (e) {
       if (e instanceof ConflictError) {
         const remote = normalizeProject(e.remote.project, normalizePlan)
+        if (sameContent(remote, project)) {
+          // the account already holds exactly this (e.g. an earlier save of ours landed): just adopt the version
+          setMeta(project.id, { syncedVersion: e.remote.version, dirty: editSeq !== seqAtStart, updatedBy: e.remote.updatedBy })
+          set({ syncStatus: get().conflicts.length ? 'conflict' : 'synced' })
+          return
+        }
         addConflict({ projectId: project.id, name: project.name, local: project, remote, remoteVersion: e.remote.version, remoteUpdatedAt: e.remote.updatedAt, updatedBy: e.remote.updatedBy })
       } else set({ syncStatus: 'error' })
     }
@@ -644,6 +671,8 @@ export const useEditor = create<EditorState>((set, get) => {
     merging = true
     if (!quiet) set({ syncStatus: 'syncing' })
     try {
+      // a save in flight would make the versions below stale
+      await Promise.all([...pushing.values()])
       const remote = await listRemoteProjects()
       const remoteById = new Map(remote.map((r) => [r.id, r]))
       const notices: string[] = []
@@ -661,11 +690,16 @@ export const useEditor = create<EditorState>((set, get) => {
           else await push(local, true)
           continue
         }
-        const editingHere = r.id === get().project.id && get().dragSnapshot
+        const isOpen = r.id === get().project.id
+        if (isOpen && get().live.status === 'on') continue // the live room keeps this one in sync
+        const editingHere = isOpen && get().dragSnapshot
         if (r.version > meta.syncedVersion) {
           if (meta.dirty) {
             const remoteProject = await getRemoteProject(r.id)
-            addConflict({ projectId: r.id, name: local.name, local, remote: normalizeProject(remoteProject.project, normalizePlan), remoteVersion: r.version, remoteUpdatedAt: r.updatedAt, updatedBy: r.updatedBy })
+            const remote = normalizeProject(remoteProject.project, normalizePlan)
+            const current = (isOpen ? get().project : local) ?? local
+            if (sameContent(remote, current)) setMeta(r.id, { syncedVersion: r.version, dirty: false })
+            else addConflict({ projectId: r.id, name: local.name, local: current, remote, remoteVersion: r.version, remoteUpdatedAt: r.updatedAt, updatedBy: r.updatedBy })
           } else if (!editingHere) {
             await download(r)
             if (quiet) notices.push(`“${r.name}” was updated by ${personLabel(r.updatedBy)}`)

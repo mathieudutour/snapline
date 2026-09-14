@@ -13,7 +13,7 @@ export function ConflictDialog() {
   const user = useEditor((s) => s.user)
   const [busy, setBusy] = useState<ConflictChoice | null>(null)
   if (!conflict || hidden) return null
-  const who = conflict.updatedBy && user && conflict.updatedBy.email === user.email ? 'you, on another device' : personLabel(conflict.updatedBy)
+  const who = conflict.updatedBy && user && conflict.updatedBy.email === user.email ? 'you, from another device or an earlier session' : personLabel(conflict.updatedBy)
   const when = new Date(conflict.remoteUpdatedAt).toLocaleString()
   const pick = async (choice: ConflictChoice) => {
     setBusy(choice)
