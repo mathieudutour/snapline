@@ -404,7 +404,7 @@ export function Scene3D({ walk }: { walk: boolean }) {
           <div className="card">
             <h2>Walk through your plan</h2>
             <p>Click to start. Move with <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> or the arrow keys, look around with the mouse, hold <kbd>Shift</kbd> to run.</p>
-            <p>Press <kbd>Esc</kbd> to release the mouse. Pick another floor in the Floors list on the left.</p>
+            <p>Press <kbd>Esc</kbd> to release the mouse. Pick another floor in the panel on the right.</p>
           </div>
         </div>
       )}
