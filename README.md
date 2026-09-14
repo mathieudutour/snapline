@@ -149,6 +149,17 @@ npm run build && npm run dev:worker   # http://localhost:8787 serves the built a
 Or run `npm run dev` (Vite with hot reload) alongside `npm run dev:worker`: Vite proxies `/api` and
 `/auth` to the Worker. Without a Worker the app simply stays in local-only mode.
 
+### Pages
+
+| Path | Signed out | Signed in |
+| --- | --- | --- |
+| `/` | landing page | the editor |
+| `/home` | landing page | landing page (like GitHub's `/home`) |
+| `/login` | sign-in page | redirects to the editor |
+
+When the app is served without the Worker (plain `vite dev` or `vite preview`) there is no account
+backend, so `/` opens the editor in local-only mode.
+
 ### How sync works
 
 Projects are always saved in the browser. When signed in, every change is also pushed to the account a

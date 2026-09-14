@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useEditor, type SyncStatus, type Tool, type ViewMode } from '../model/store'
 import { signInUrl, type AccountUser } from '../sync/api'
+import { onLinkClick } from '../router'
 
 const TOOLS: { id: Tool; label: string; key: string; icon: string }[] = [
   { id: 'select', label: 'Select', key: 'V', icon: '↖' },
@@ -80,9 +81,9 @@ export function Toolbar() {
 
   return (
     <div className="toolbar">
-      <div className="brand">
+      <a className="brand" href="/home" onClick={onLinkClick} title="About Snapline">
         <span className="brand-mark">◫</span> Snapline
-      </div>
+      </a>
       <div className="seg">
         {MODES.map((m) => (
           <button key={m.id} className={mode === m.id ? 'active' : ''} onClick={() => setMode(m.id)}>
@@ -216,7 +217,8 @@ function AccountButton({ user, syncStatus, onSignOut, onSync }: { user: AccountU
     window.addEventListener('pointerdown', close)
     return () => window.removeEventListener('pointerdown', close)
   }, [open])
-  if (user === undefined) return null
+  const apiAvailable = useEditor((s) => s.apiAvailable)
+  if (user === undefined || apiAvailable === false) return null
   if (!user) {
     return (
       <a className="button signin" href={signInUrl()} title="Sign in to save projects to your account and use them on other devices">

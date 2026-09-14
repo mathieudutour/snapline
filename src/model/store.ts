@@ -23,6 +23,8 @@ export type SyncStatus = 'offline' | 'idle' | 'syncing' | 'synced' | 'error'
 export interface EditorState {
   /** signed-in account; null when signed out, undefined until checked */
   user: AccountUser | null | undefined
+  /** false when no Worker answers (plain `vite dev`): the editor then runs in local-only mode */
+  apiAvailable: boolean | undefined
   syncStatus: SyncStatus
   /** check the session cookie and, when signed in, merge local and remote projects */
   initAccount: () => Promise<void>
@@ -463,15 +465,16 @@ export const useEditor = create<EditorState>((set, get) => {
 
   return {
     user: undefined,
+    apiAvailable: undefined,
     syncStatus: 'offline',
     initAccount: async () => {
       try {
         const user = await fetchMe()
-        set({ user, syncStatus: user ? 'idle' : 'offline' })
+        set({ user, apiAvailable: true, syncStatus: user ? 'idle' : 'offline' })
         if (user) await mergeWithRemote()
       } catch {
         // no worker behind the app (plain vite dev) or network down: work locally
-        set({ user: null, syncStatus: 'offline' })
+        set({ user: null, apiAvailable: false, syncStatus: 'offline' })
       }
     },
     signOut: async () => {

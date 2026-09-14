@@ -34,8 +34,8 @@ export async function fetchMe(): Promise<AccountUser | null> {
   return r.user
 }
 
-export function signInUrl(): string {
-  return `/auth/google?return=${encodeURIComponent(location.pathname + location.search)}`
+export function signInUrl(returnTo = '/'): string {
+  return `/auth/google?return=${encodeURIComponent(returnTo)}`
 }
 
 export async function signOut(): Promise<void> {

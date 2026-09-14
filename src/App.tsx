@@ -1,13 +1,16 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { Editor2D } from './editor/Editor2D'
 import { Toolbar } from './panels/Toolbar'
 import { Sidebar } from './panels/Sidebar'
 import { FloorStrip } from './panels/FloorStrip'
 import { useEditor } from './model/store'
+import { Landing } from './pages/Landing'
+import { Login } from './pages/Login'
+import { navigate, useRoute } from './router'
 
 const Scene3D = lazy(() => import('./three/Scene3D').then((m) => ({ default: m.Scene3D })))
 
-export function App() {
+function EditorApp() {
   const mode = useEditor((s) => s.mode)
   return (
     <div className="app">
@@ -27,4 +30,30 @@ export function App() {
       </div>
     </div>
   )
+}
+
+/**
+ * Routes, GitHub-style:
+ *   /       editor when signed in (or when there is no backend, in local-only mode), landing page otherwise
+ *   /home   landing page, always
+ *   /login  sign-in page (sends signed-in users to the editor)
+ */
+export function App() {
+  const path = useRoute()
+  const user = useEditor((s) => s.user)
+  const apiAvailable = useEditor((s) => s.apiAvailable)
+  const checking = user === undefined
+  const canEdit = !!user || apiAvailable === false
+
+  useEffect(() => {
+    if (checking) return
+    if (path === '/login' && canEdit) navigate('/', true)
+    else if (path !== '/' && path !== '/home' && path !== '/login') navigate(canEdit ? '/' : '/home', true)
+  }, [path, checking, canEdit])
+
+  if (checking) return <div className="loading">Loading…</div>
+  if (path === '/home') return <Landing />
+  if (path === '/login') return canEdit ? null : <Login />
+  if (path === '/') return canEdit ? <EditorApp /> : <Landing />
+  return null
 }
