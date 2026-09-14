@@ -205,7 +205,7 @@ function PlanMeshes({ data, showCeilings }: { data: SceneData; showCeilings: boo
             <meshStandardMaterial color={FLOOR_COLORS[i % FLOOR_COLORS.length]} roughness={0.8} />
           </mesh>
           {showCeilings && (
-            <mesh geometry={f.ceiling} position={[0, f.height - 0.005, 0]}>
+            <mesh geometry={f.ceiling} position={[0, f.height - 0.005, 0]} castShadow receiveShadow>
               <meshStandardMaterial color="#fbfbfb" roughness={1} />
             </mesh>
           )}
@@ -230,20 +230,21 @@ function Ground({ center, radius }: { center: { x: number; y: number }; radius: 
 }
 
 /** direction to the sun and how bright it is: from the site and the chosen moment, or a pleasant default */
-function useSun(radius: number): { dir: [number, number, number]; intensity: number; color: string; sky: number; position: SunPosition | null } {
+function useSun(radius: number): { dir: [number, number, number]; intensity: number; color: string; sky: number; position: SunPosition | null; fill: number } {
   const site = useEditor((s) => s.project.site)
   const sun = useEditor((s) => s.sun)
   return useMemo(() => {
-    if (!site) return { dir: [radius, radius * 1.6 + 6, radius * 0.6].map((v) => v / Math.hypot(radius, radius * 1.6 + 6, radius * 0.6)) as [number, number, number], intensity: 1.6, color: '#ffffff', sky: 1, position: null }
+    if (!site) return { dir: [radius, radius * 1.6 + 6, radius * 0.6].map((v) => v / Math.hypot(radius, radius * 1.6 + 6, radius * 0.6)) as [number, number, number], intensity: 1.6, color: '#ffffff', sky: 1, position: null, fill: 1 }
     const position = sunPosition(site, SEASON_DAY[sun.season], sun.hour)
     const dir = sunVector(position, site.north)
     const up = Math.max(0, Math.sin((position.elevation * Math.PI) / 180))
     // dim and warm near the horizon, off at night
-    const intensity = position.elevation <= 0 ? 0 : 0.4 + 1.6 * Math.min(1, up * 1.5)
+    // a strong sun and a softer fill: rooms are lit mostly by what comes through the windows
+    const intensity = position.elevation <= 0 ? 0 : 0.6 + 2.2 * Math.min(1, up * 1.5)
     const warmth = Math.min(1, Math.max(0, 1 - position.elevation / 25))
     const color = `rgb(255, ${Math.round(255 - 70 * warmth)}, ${Math.round(255 - 130 * warmth)})`
     const sky = position.elevation <= -6 ? 0.15 : position.elevation <= 0 ? 0.15 + (0.35 * (position.elevation + 6)) / 6 : 0.5 + 0.5 * Math.min(1, up * 2)
-    return { dir, intensity, color, sky, position }
+    return { dir, intensity, color, sky, position, fill: 0.7 }
   }, [site, sun, radius])
 }
 
@@ -253,7 +254,7 @@ function Lights({ center, radius }: { center: { x: number; y: number }; radius: 
   const dist = radius * 3 + 10
   return (
     <>
-      <hemisphereLight args={['#ffffff', '#8a7f6a', 0.7 * sun.sky]} />
+      <hemisphereLight args={['#ffffff', '#8a7f6a', 0.7 * sun.sky * sun.fill]} />
       <directionalLight
         position={[center.x + sun.dir[0] * dist, Math.max(0.5, sun.dir[1] * dist), center.y + sun.dir[2] * dist]}
         intensity={sun.intensity}
@@ -270,7 +271,7 @@ function Lights({ center, radius }: { center: { x: number; y: number }; radius: 
         shadow-normalBias={0.03}
         target-position={[center.x, 0, center.y]}
       />
-      <ambientLight intensity={0.25 * Math.max(0.5, sun.sky)} />
+      <ambientLight intensity={0.25 * Math.max(0.5, sun.sky) * sun.fill} />
     </>
   )
 }
