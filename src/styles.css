@@ -1072,6 +1072,7 @@ button.account .avatar {
 .inspector-head {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
@@ -1504,4 +1505,33 @@ button.danger {
 }
 .peers.connecting .live-dot {
   background: #f0a020;
+}
+fieldset.plain {
+  border: none;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+fieldset.plain:disabled {
+  opacity: 0.85;
+}
+.view-only {
+  padding: 0 8px;
+}
+.link-share {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.link-share .row {
+  margin-top: 6px;
+}
+.peers .peer.viewer {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.8);
+  opacity: 0.85;
+}
+.loading .button {
+  display: inline-block;
+  margin-top: 10px;
 }

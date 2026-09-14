@@ -40,13 +40,14 @@ export function Projects() {
               <div className="project-card-body">
                 <strong>{p.name}</strong>
                 <span className="muted small">Updated {new Date(p.updatedAt).toLocaleString()}</span>
-                {p.role === 'editor' ? (
+                {p.role === 'editor' || p.role === 'viewer' ? (
                   <span className="muted small">
-                    <span className="badge">shared</span> by {p.owner?.name || p.owner?.email}
+                    <span className="badge">{p.role === 'viewer' ? 'view only' : 'shared'}</span> by {p.owner?.name || p.owner?.email}
                   </span>
-                ) : p.memberCount ? (
+                ) : p.memberCount || p.viewToken ? (
                   <span className="muted small">
-                    <span className="badge">shared</span> with {p.memberCount} {p.memberCount === 1 ? 'person' : 'people'}
+                    <span className="badge">shared</span> {p.memberCount ? `with ${p.memberCount} ${p.memberCount === 1 ? 'person' : 'people'}` : ''}
+                    {p.viewToken ? `${p.memberCount ? ' and' : ''} by link` : ''}
                   </span>
                 ) : null}
               </div>
@@ -54,6 +55,7 @@ export function Projects() {
                 <button
                   className="icon-btn"
                   title="Rename"
+                  hidden={p.role === 'viewer'}
                   onClick={() => {
                     const name = prompt('Project name', p.name)
                     if (!name) return
@@ -65,9 +67,9 @@ export function Projects() {
                 </button>
                 <button
                   className="icon-btn"
-                  title={p.role === 'editor' ? 'Leave' : 'Delete'}
+                  title={p.role === 'editor' || p.role === 'viewer' ? 'Leave' : 'Delete'}
                   onClick={() => {
-                    if (confirm(p.role === 'editor' ? `Leave "${p.name}"? It stays with its owner.` : `Delete project "${p.name}"? This cannot be undone.`)) deleteProject(p.id)
+                    if (confirm(p.role === 'editor' || p.role === 'viewer' ? `Leave "${p.name}"? It stays with its owner.` : `Delete project "${p.name}"? This cannot be undone.`)) deleteProject(p.id)
                   }}
                 >
                   ✕

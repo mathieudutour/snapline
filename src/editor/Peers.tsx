@@ -50,7 +50,7 @@ export function PeerAvatars() {
   return (
     <div className={`peers ${live.status}`} title={live.status === 'on' ? (live.peers.length ? `Editing live with ${live.peers.map((p) => p.name || p.email).join(', ')}` : 'Live: nobody else is here right now') : 'Connecting to the live session…'}>
       {live.peers.slice(0, 4).map((p) => (
-        <span key={p.id} className="peer" style={{ background: p.color }}>
+        <span key={p.id} className={`peer ${p.role}`} style={{ background: p.color }} title={`${p.name || p.email}${p.role === 'viewer' ? ' (viewing)' : ''}`}>
           {(p.name || p.email).slice(0, 1).toUpperCase()}
         </span>
       ))}

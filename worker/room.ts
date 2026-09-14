@@ -90,6 +90,7 @@ export class RoomCore<C> {
     const state = await this.ensureLoaded()
     if (!state) return
     if (msg.t === 'ops') {
+      if (from.role === 'viewer') return // read-only peers can look but not touch
       if (!Array.isArray(msg.ops) || msg.ops.length === 0) return
       state.project = applyOps(state.project, msg.ops as Op[])
       state.dirty = true

@@ -21,7 +21,7 @@ function makeRoom(project = newProject('Shared')) {
   const room = new RoomCore<Conn>(project.id, transport, persistence)
   const join = async (id: string, userId = 'u1') => {
     const conn: Conn = { id, inbox: [] }
-    const peer: Peer = { id, userId, name: id, email: `${id}@x`, color: room.colorFor(conns.map((c) => c.peer)) }
+    const peer: Peer = { id, userId, name: id, email: `${id}@x`, color: room.colorFor(conns.map((c) => c.peer)), role: userId === 'viewer' ? 'viewer' : 'editor' }
     conns.push({ conn, peer })
     await room.join(conn, peer)
     return { conn, peer }
@@ -56,6 +56,12 @@ describe('live room', () => {
     expect(c.conn.inbox[0]).toMatchObject({ t: 'welcome', version: 4, presence: { b: { floorId } } })
     room.leave('b')
     expect(a.conn.inbox.at(-1)).toEqual({ t: 'leave', id: 'b' })
+    // a viewer's operations are ignored, its presence is relayed
+    const v = await join('v', 'viewer')
+    await room.message(v.peer, JSON.stringify({ t: 'ops', ops: [{ k: 'project', v: { name: 'Hacked' } }] }))
+    expect(room.state!.project.name).not.toBe('Hacked')
+    await room.message(v.peer, JSON.stringify({ t: 'presence', p: { floorId, cursor: { x: 1, y: 1 }, selection: [] } }))
+    expect(a.conn.inbox.at(-1)).toMatchObject({ t: 'presence', from: 'v' })
   })
 
   it('refuses to join a project that does not exist and resets peers after an outside save', async () => {

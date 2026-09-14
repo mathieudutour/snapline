@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useEditor } from '../model/store'
-import { addMember, listMembers, removeMember, type Person, type ProjectMember, type ProjectRole } from '../sync/api'
+import { addMember, listMembers, removeMember, setViewLink, viewLinkUrl, type MemberRole, type Person, type ProjectMember, type ProjectRole } from '../sync/api'
+
+const ROLE_LABEL: Record<MemberRole, string> = { editor: 'Can edit', viewer: 'Can view' }
 
 /**
- * Share a project with other Google accounts by email. Everyone invited can edit; there is no
- * live collaboration, so diverging edits are caught at save time (see ConflictDialog).
+ * Share a project: invite Google accounts by email as editors or read-only viewers, or turn on a
+ * link that lets anyone view it. Everyone in the project sees the others' cursors and edits live.
  */
 export function ShareDialog({ projectId, onClose }: { projectId: string; onClose: () => void }) {
   const user = useEditor((s) => s.user)
@@ -15,8 +17,11 @@ export function ShareDialog({ projectId, onClose }: { projectId: string; onClose
   const [role, setRole] = useState<ProjectRole>('owner')
   const [members, setMembers] = useState<ProjectMember[] | null>(null)
   const [email, setEmail] = useState('')
+  const [inviteRole, setInviteRole] = useState<MemberRole>('editor')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const linkToken = project?.viewToken ?? null
 
   useEffect(() => {
     let live = true
@@ -39,12 +44,20 @@ export function ShareDialog({ projectId, onClose }: { projectId: string; onClose
     setBusy(true)
     setError(null)
     try {
-      setMembers(await addMember(projectId, value))
+      setMembers(await addMember(projectId, value, inviteRole))
       setEmail('')
       void refreshProjectMeta(projectId)
     } catch (e) {
       const status = (e as { status?: number }).status
       setError(status === 400 ? 'Enter the Google account email of the person to invite.' : 'Could not share the project. Try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const changeRole = async (m: ProjectMember, next: MemberRole) => {
+    setBusy(true)
+    try {
+      setMembers(await addMember(projectId, m.email, next))
     } finally {
       setBusy(false)
     }
@@ -57,6 +70,28 @@ export function ShareDialog({ projectId, onClose }: { projectId: string; onClose
       void refreshProjectMeta(projectId)
     } finally {
       setBusy(false)
+    }
+  }
+  const toggleLink = async (on: boolean) => {
+    setBusy(true)
+    setError(null)
+    try {
+      await setViewLink(projectId, on)
+      await refreshProjectMeta(projectId)
+    } catch {
+      setError('Could not change the link. Try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const copy = async () => {
+    if (!linkToken) return
+    try {
+      await navigator.clipboard.writeText(viewLinkUrl(linkToken))
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // clipboard blocked: the field is selectable
     }
   }
 
@@ -72,7 +107,7 @@ export function ShareDialog({ projectId, onClose }: { projectId: string; onClose
         <div className="props">
           {role === 'owner' ? (
             <>
-              <p className="muted small">People you invite sign in with Google using that email and then see this project in their list. Everyone edits the same plan live: you see each other's cursors and changes as they happen. Edits made while offline are merged when you reconnect.</p>
+              <p className="muted small">People you invite sign in with Google using that email and then see this project in their list. Editors change the plan live with you; viewers only look. Edits made while offline are merged when you reconnect.</p>
               <form
                 className="row"
                 onSubmit={(e) => {
@@ -81,6 +116,10 @@ export function ShareDialog({ projectId, onClose }: { projectId: string; onClose
                 }}
               >
                 <input className="grow" type="email" placeholder="name@example.com" value={email} onChange={(e) => setEmail(e.target.value)} disabled={busy} autoFocus />
+                <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as MemberRole)} disabled={busy} title="What they can do">
+                  <option value="editor">{ROLE_LABEL.editor}</option>
+                  <option value="viewer">{ROLE_LABEL.viewer}</option>
+                </select>
                 <button className="button primary" type="submit" disabled={busy || !email.trim()}>
                   Invite
                 </button>
@@ -88,7 +127,8 @@ export function ShareDialog({ projectId, onClose }: { projectId: string; onClose
             </>
           ) : (
             <p className="muted small">
-              Shared with you by <b>{owner ? owner.name || owner.email : '…'}</b>. Everyone edits the same plan live: you see each other's cursors and changes as they happen.
+              Shared with you by <b>{owner ? owner.name || owner.email : '…'}</b>.{' '}
+              {role === 'viewer' ? 'You can look at the plan and follow the edits live, but not change it.' : "Everyone edits the same plan live: you see each other's cursors and changes as they happen."}
             </p>
           )}
           <ul className="member-list">
@@ -111,18 +151,41 @@ export function ShareDialog({ projectId, onClose }: { projectId: string; onClose
                   {!m.name && <span className="muted small"> · not signed in yet</span>}
                 </span>
                 {role === 'owner' ? (
-                  <button className="icon-btn" title="Remove" disabled={busy} onClick={() => void remove(m)}>
-                    ✕
-                  </button>
+                  <>
+                    <select className="small" value={m.role} onChange={(e) => void changeRole(m, e.target.value as MemberRole)} disabled={busy}>
+                      <option value="editor">{ROLE_LABEL.editor}</option>
+                      <option value="viewer">{ROLE_LABEL.viewer}</option>
+                    </select>
+                    <button className="icon-btn" title="Remove" disabled={busy} onClick={() => void remove(m)}>
+                      ✕
+                    </button>
+                  </>
                 ) : (
-                  user?.email.toLowerCase() === m.email && <span className="muted small">You</span>
+                  <span className="muted small">
+                    {ROLE_LABEL[m.role]}
+                    {user?.email.toLowerCase() === m.email ? ' · you' : ''}
+                  </span>
                 )}
               </li>
             ))}
             {members && members.length === 0 && <li className="muted small">Not shared with anyone yet.</li>}
           </ul>
+          {role === 'owner' && (
+            <div className="link-share">
+              <label className="toggle block">
+                <input type="checkbox" checked={!!linkToken} disabled={busy} onChange={(e) => void toggleLink(e.target.checked)} /> Anyone with the link can view
+              </label>
+              {linkToken && (
+                <div className="row">
+                  <input className="grow" readOnly value={viewLinkUrl(linkToken)} onFocus={(e) => e.target.select()} />
+                  <button onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</button>
+                </div>
+              )}
+              <p className="muted small">People with the link follow the plan live without an account and cannot change it. Turn the link off to revoke it.</p>
+            </div>
+          )}
           {error && <p className="warn small">{error}</p>}
-          {role === 'editor' && (
+          {role !== 'owner' && (
             <div className="row end">
               <button
                 className="danger"

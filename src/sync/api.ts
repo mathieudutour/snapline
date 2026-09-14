@@ -12,7 +12,8 @@ export interface Person {
   name: string
 }
 
-export type ProjectRole = 'owner' | 'editor'
+export type ProjectRole = 'owner' | 'editor' | 'viewer'
+export type MemberRole = 'editor' | 'viewer'
 
 export interface RemoteProjectMeta {
   id: string
@@ -23,6 +24,8 @@ export interface RemoteProjectMeta {
   owner: Person
   updatedBy: Person | null
   memberCount: number
+  /** "anyone with the link can view" token; only sent to the owner */
+  viewToken: string | null
 }
 
 export interface RemoteProject {
@@ -36,6 +39,7 @@ export interface RemoteProject {
 export interface ProjectMember {
   email: string
   name: string | null
+  role: MemberRole
   createdAt: number
 }
 
@@ -107,8 +111,23 @@ export async function listMembers(id: string): Promise<{ owner: Person; role: Pr
   return call(`/api/projects/${id}/members`)
 }
 
-export async function addMember(id: string, email: string): Promise<ProjectMember[]> {
-  return (await call<{ members: ProjectMember[] }>(`/api/projects/${id}/members`, { method: 'POST', body: JSON.stringify({ email }) })).members
+/** invite, or change the role of an existing member */
+export async function addMember(id: string, email: string, role: MemberRole): Promise<ProjectMember[]> {
+  return (await call<{ members: ProjectMember[] }>(`/api/projects/${id}/members`, { method: 'POST', body: JSON.stringify({ email, role }) })).members
+}
+
+// ---- "anyone with the link can view" ----
+export async function setViewLink(id: string, on: boolean): Promise<string | null> {
+  return (await call<{ token: string | null }>(`/api/projects/${id}/link`, { method: on ? 'POST' : 'DELETE' })).token
+}
+
+export function viewLinkUrl(token: string): string {
+  return `${location.origin}/view/${token}`
+}
+
+/** project behind a view link; works signed out */
+export async function getViewedProject(token: string): Promise<{ project: Project; version: number; updatedAt: number; owner: Person }> {
+  return call(`/api/view/${token}`)
 }
 
 export async function removeMember(id: string, email: string): Promise<void> {

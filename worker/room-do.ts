@@ -80,6 +80,7 @@ export class ProjectRoom extends DurableObject<RoomEnv> {
       userId: request.headers.get('X-User-Id') ?? '',
       name: decodeURIComponent(request.headers.get('X-User-Name') ?? ''),
       email: request.headers.get('X-User-Email') ?? '',
+      role: request.headers.get('X-Role') === 'viewer' ? 'viewer' : 'editor',
       color: this.core.colorFor(this.ctx.getWebSockets().map((ws) => ws.deserializeAttachment() as Peer)),
     }
     const pair = new WebSocketPair()

@@ -25,12 +25,13 @@ export default {
         objects: env.MODELS ? new R2Objects(env.MODELS) : undefined,
         google: { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET },
         secureCookies: url.protocol === 'https:',
-        live: (req, { projectId, user }) => {
+        live: (req, { projectId, user, role }) => {
           const headers = new Headers(req.headers)
           headers.set('X-Project-Id', projectId)
           headers.set('X-User-Id', user.id)
           headers.set('X-User-Email', user.email)
           headers.set('X-User-Name', encodeURIComponent(user.name))
+          headers.set('X-Role', role)
           return env.ROOM.getByName(projectId).fetch(new Request(req.url, { method: 'GET', headers }))
         },
         onProjectSaved: (projectId, project, version) => env.ROOM.getByName(projectId).externalSave(project as unknown as Project, version),

@@ -1,4 +1,4 @@
-import { useEditor, type Tool } from '../model/store'
+import { isReadOnly, useEditor, type Tool } from '../model/store'
 
 const TOOLS: { id: Tool; label: string; key: string; icon: string }[] = [
   { id: 'select', label: 'Select', key: 'V', icon: 'M5 3l14 8-6 2-3 6z' },
@@ -17,7 +17,23 @@ export function BottomBar() {
   const canRedo = useEditor((s) => s.redoStack.length > 0)
   const undo = useEditor((s) => s.undo)
   const redo = useEditor((s) => s.redo)
+  const readOnly = useEditor(isReadOnly)
   if (mode !== 'plan') return null
+  if (readOnly)
+    return (
+      <div className="bottom-bar">
+        {TOOLS.filter((t) => t.id === 'select' || t.id === 'pan').map((t) => (
+          <button key={t.id} className={tool === t.id ? 'active' : ''} onClick={() => setTool(t.id)} title={`${t.label} (${t.key})`}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d={t.icon} />
+            </svg>
+            <span className="tool-key">{t.key}</span>
+          </button>
+        ))}
+        <span className="bar-sep" />
+        <span className="muted small view-only">View only</span>
+      </div>
+    )
   return (
     <div className="bottom-bar">
       {TOOLS.map((t) => (

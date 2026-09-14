@@ -17,6 +17,8 @@ export class LiveConnection {
 
   constructor(
     readonly projectId: string,
+    /** path of the WebSocket endpoint */
+    readonly url: string,
     private handlers: LiveHandlers,
   ) {
     this.open()
@@ -28,7 +30,7 @@ export class LiveConnection {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
     let ws: WebSocket
     try {
-      ws = new WebSocket(`${proto}://${location.host}/api/projects/${this.projectId}/live`)
+      ws = new WebSocket(`${proto}://${location.host}${this.url}`)
     } catch {
       this.retry()
       return

@@ -1,4 +1,4 @@
-import { useEditor, type ViewMode } from '../model/store'
+import { isReadOnly, useEditor, type ViewMode } from '../model/store'
 import { SelectionInspector } from './Sidebar'
 import { AccountButton } from './Account'
 import { PeerAvatars } from '../editor/Peers'
@@ -20,6 +20,7 @@ export function Inspector() {
   const violations = useEditor((s) => s.report.violated.size)
   const canUndo = useEditor((s) => s.undoStack.length > 0)
   const undo = useEditor((s) => s.undo)
+  const readOnly = useEditor(isReadOnly)
   return (
     <aside className="inspector">
       <div className="inspector-head">
@@ -49,7 +50,12 @@ export function Inspector() {
             )}
           </div>
         )}
-        {mode === 'plan' && <SelectionInspector />}
+        {mode === 'plan' && readOnly && <p className="props muted small">View only: you can look around, switch floors and open the 3D views, but not change the plan.</p>}
+        {mode === 'plan' && (
+          <fieldset className="plain" disabled={readOnly}>
+            <SelectionInspector />
+          </fieldset>
+        )}
         {mode === '3d' && (
           <div className="props">
             <h3>3D view</h3>

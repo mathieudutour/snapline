@@ -2,7 +2,7 @@
  * Keeps the editor connected to the live room of the open project whenever it is shared,
  * turns local edits into operations for the room, and applies what the others send.
  */
-import { useEditor, type EditorState } from '../model/store'
+import { isReadOnly, useEditor, type EditorState } from '../model/store'
 import { diffProjects, type Op, type Presence, type ServerMessage } from '../model/collab'
 import { normalizeProject } from '../model/project'
 import { normalizePlan } from '../model/store'
@@ -24,20 +24,25 @@ let started = false
 /** connecting/disconnecting updates the store, which re-enters the subscription below */
 let switching = false
 
-/** a project takes part in live collaboration when it is shared with at least one other person */
-function eligible(s: EditorState): string | null {
+/** a project takes part in live collaboration when it is shared with at least one other person (or viewed through a link) */
+function eligible(s: EditorState): { id: string; url: string; key: string } | null {
+  if (s.viewLink) return { id: s.project.id, url: `/api/view/${s.viewLink.token}/live`, key: `view:${s.viewLink.token}` }
   if (!s.user || s.apiAvailable === false) return null
   const meta = s.projects.find((p) => p.id === s.project.id)
   if (!meta) return null
-  if (meta.role === 'editor' || (meta.memberCount ?? 0) > 0) return meta.id
+  // the role is part of the identity: a viewer promoted to editor needs a fresh socket to be allowed to send
+  if (meta.role === 'editor' || meta.role === 'viewer' || (meta.memberCount ?? 0) > 0) return { id: meta.id, url: `/api/projects/${meta.id}/live`, key: `${meta.id}:${meta.role ?? 'owner'}` }
   return null
 }
+/** identity of the current connection (project + role) */
+let connKey: string | null = null
 
 function disconnect() {
   switching = true
   try {
     conn?.close()
     conn = null
+    connKey = null
     baseline = null
     pendingOps = []
     if (sendTimer) clearTimeout(sendTimer)
@@ -48,19 +53,20 @@ function disconnect() {
   }
 }
 
-function connect(projectId: string) {
+function connect(projectId: string, url: string, key: string) {
   disconnect()
   switching = true
   try {
-    openConnection(projectId)
+    openConnection(projectId, url)
+    connKey = key
   } finally {
     switching = false
   }
 }
 
-function openConnection(projectId: string) {
+function openConnection(projectId: string, url: string) {
   const store = useEditor.getState()
-  conn = new LiveConnection(projectId, {
+  conn = new LiveConnection(projectId, url, {
     onStatus: (status) => {
       const s = useEditor.getState()
       if (status !== 'on') s.setLive({ status, peers: status === 'off' ? [] : s.live.peers, presence: status === 'off' ? {} : s.live.presence })
@@ -140,7 +146,7 @@ function scheduleSend() {
 
 function flushOps() {
   const s = useEditor.getState()
-  if (!conn || !baseline || s.live.status !== 'on' || s.project.id !== conn.projectId) return
+  if (!conn || !baseline || s.live.status !== 'on' || s.project.id !== conn.projectId || isReadOnly(s)) return
   if (s.conflicts.some((c) => c.projectId === conn!.projectId)) return // paused until resolved
   const ops = diffProjects(baseline, s.project)
   if (ops.length === 0) return
@@ -174,9 +180,9 @@ export function startLiveCollaboration() {
   started = true
   useEditor.subscribe((s, prev) => {
     if (switching) return
-    const id = eligible(s)
-    if (id !== (conn?.projectId ?? null)) {
-      if (id) connect(id)
+    const target = eligible(s)
+    if ((target?.key ?? null) !== connKey) {
+      if (target) connect(target.id, target.url, target.key)
       else if (conn) disconnect()
       return
     }
@@ -191,6 +197,6 @@ export function startLiveCollaboration() {
     if (s.project !== prev.project && s.project.id === conn.projectId) scheduleSend() // edits and drags alike
     if (s.selection !== prev.selection || s.activeFloorId !== prev.activeFloorId || s.mode !== prev.mode) schedulePresence()
   })
-  const id = eligible(useEditor.getState())
-  if (id) connect(id)
+  const target = eligible(useEditor.getState())
+  if (target) connect(target.id, target.url, target.key)
 }

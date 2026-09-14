@@ -11,10 +11,11 @@ import { Landing } from './pages/Landing'
 import { Login } from './pages/Login'
 import { navigate, useRoute } from './router'
 import { ConflictDialog, Notice } from './panels/Conflict'
+import { ViewLinkPage } from './pages/ViewLink'
 
 const Scene3D = lazy(() => import('./three/Scene3D').then((m) => ({ default: m.Scene3D })))
 
-function EditorApp() {
+export function EditorApp() {
   const mode = useEditor((s) => s.mode)
   const prefsOpen = useEditor((s) => s.prefsOpen)
   return (
@@ -45,6 +46,7 @@ function EditorApp() {
  *   /home   landing page, always
  *   /login  sign-in page (sends signed-in users to the editor)
  *   /projects  list of projects
+ *   /view/<token>  read-only view of a project shared by link (no account needed)
  */
 export function App() {
   const path = useRoute()
@@ -53,13 +55,16 @@ export function App() {
   const checking = user === undefined
   const canEdit = !!user || apiAvailable === false
 
+  const viewToken = /^\/view\/([A-Za-z0-9_-]{8,64})$/.exec(path)?.[1] ?? null
+
   useEffect(() => {
-    if (checking) return
+    if (checking || viewToken) return
     if (path === '/login' && canEdit) navigate('/', true)
     else if (path === '/projects' && !canEdit) navigate('/login', true)
     else if (path !== '/' && path !== '/home' && path !== '/login' && path !== '/projects') navigate(canEdit ? '/' : '/home', true)
-  }, [path, checking, canEdit])
+  }, [path, checking, canEdit, viewToken])
 
+  if (viewToken) return <ViewLinkPage token={viewToken} />
   if (checking) return <div className="loading">Loading…</div>
   if (path === '/home') return <Landing />
   if (path === '/login') return canEdit ? null : <Login />

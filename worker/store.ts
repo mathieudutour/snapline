@@ -32,12 +32,19 @@ export interface ProjectMeta {
   updatedBy: { email: string; name: string } | null
   /** number of people the project is shared with */
   memberCount: number
+  /** the caller's membership role when not the owner */
+  memberRole: MemberRole | null
+  /** set when "anyone with the link can view" is on */
+  viewToken: string | null
 }
+
+export type MemberRole = 'editor' | 'viewer'
 
 export interface ProjectMember {
   email: string
   /** display name when the invitee has signed in before */
   name: string | null
+  role: MemberRole
   createdAt: number
 }
 
@@ -84,8 +91,12 @@ export interface Store {
   putProject(row: ProjectRow, expectedVersion: number | null): Promise<boolean>
   deleteProject(ownerId: string, id: string): Promise<void>
   listMembers(projectId: string): Promise<ProjectMember[]>
-  addMember(projectId: string, email: string, invitedBy: string): Promise<void>
+  /** insert or update the role */
+  addMember(projectId: string, email: string, invitedBy: string, role: MemberRole): Promise<void>
   removeMember(projectId: string, email: string): Promise<void>
+  setViewToken(projectId: string, token: string | null): Promise<void>
+  /** project behind a view link, with its owner */
+  getProjectByViewToken(token: string): Promise<(ProjectRow & { owner: { email: string; name: string } }) | null>
 }
 
 export const normalizeEmail = (e: string) => e.trim().toLowerCase()
@@ -130,8 +141,9 @@ export class D1Store implements Store {
     await this.db.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(tokenHash).run()
   }
 
-  private static PROJECT_META = `SELECT p.id, p.name, p.updated_at, p.version, p.user_id, o.email AS owner_email, o.name AS owner_name, ub.email AS updated_by_email, ub.name AS updated_by_name,
-      (SELECT COUNT(*) FROM project_members m WHERE m.project_id = p.id) AS member_count
+  private static PROJECT_META = `SELECT p.id, p.name, p.updated_at, p.version, p.user_id, p.view_token, o.email AS owner_email, o.name AS owner_name, ub.email AS updated_by_email, ub.name AS updated_by_name,
+      (SELECT COUNT(*) FROM project_members m WHERE m.project_id = p.id) AS member_count,
+      (SELECT role FROM project_members m WHERE m.project_id = p.id AND m.email = ?2) AS member_role
       FROM projects p JOIN users o ON o.id = p.user_id LEFT JOIN users ub ON ub.id = p.updated_by`
   private static ACCESS = `(p.user_id = ?1 OR p.id IN (SELECT project_id FROM project_members WHERE email = ?2))`
 
@@ -145,6 +157,8 @@ export class D1Store implements Store {
       owner: { email: r.owner_email as string, name: (r.owner_name as string) ?? '' },
       updatedBy: r.updated_by_email ? { email: r.updated_by_email as string, name: (r.updated_by_name as string) ?? '' } : null,
       memberCount: (r.member_count as number) ?? 0,
+      memberRole: (r.member_role as MemberRole | null) ?? null,
+      viewToken: (r.view_token as string | null) ?? null,
     }
   }
 
@@ -188,16 +202,27 @@ export class D1Store implements Store {
 
   async listMembers(projectId: string): Promise<ProjectMember[]> {
     const { results } = await this.db
-      .prepare('SELECT m.email, m.created_at, (SELECT name FROM users u WHERE lower(u.email) = m.email LIMIT 1) AS name FROM project_members m WHERE m.project_id = ? ORDER BY m.created_at')
+      .prepare('SELECT m.email, m.role, m.created_at, (SELECT name FROM users u WHERE lower(u.email) = m.email LIMIT 1) AS name FROM project_members m WHERE m.project_id = ? ORDER BY m.created_at')
       .bind(projectId)
       .all<Record<string, unknown>>()
-    return results.map((r) => ({ email: r.email as string, name: (r.name as string | null) ?? null, createdAt: r.created_at as number }))
+    return results.map((r) => ({ email: r.email as string, name: (r.name as string | null) ?? null, role: ((r.role as string) === 'viewer' ? 'viewer' : 'editor') as MemberRole, createdAt: r.created_at as number }))
   }
-  async addMember(projectId: string, email: string, invitedBy: string): Promise<void> {
-    await this.db.prepare('INSERT OR IGNORE INTO project_members (project_id, email, invited_by, created_at) VALUES (?, ?, ?, ?)').bind(projectId, normalizeEmail(email), invitedBy, Date.now()).run()
+  async addMember(projectId: string, email: string, invitedBy: string, role: MemberRole): Promise<void> {
+    await this.db
+      .prepare('INSERT INTO project_members (project_id, email, invited_by, created_at, role) VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, email) DO UPDATE SET role = excluded.role')
+      .bind(projectId, normalizeEmail(email), invitedBy, Date.now(), role)
+      .run()
   }
   async removeMember(projectId: string, email: string): Promise<void> {
     await this.db.prepare('DELETE FROM project_members WHERE project_id = ? AND email = ?').bind(projectId, normalizeEmail(email)).run()
+  }
+  async setViewToken(projectId: string, token: string | null): Promise<void> {
+    await this.db.prepare('UPDATE projects SET view_token = ? WHERE id = ?').bind(token, projectId).run()
+  }
+  async getProjectByViewToken(token: string) {
+    const r = await this.db.prepare('SELECT p.*, o.email AS owner_email, o.name AS owner_name FROM projects p JOIN users o ON o.id = p.user_id WHERE p.view_token = ?').bind(token).first<Record<string, unknown>>()
+    if (!r) return null
+    return { id: r.id as string, userId: r.user_id as string, name: r.name as string, data: r.data as string, updatedAt: r.updated_at as number, createdAt: r.created_at as number, version: (r.version as number) ?? 1, updatedBy: (r.updated_by as string) ?? '', owner: { email: r.owner_email as string, name: (r.owner_name as string) ?? '' } }
   }
 
   private modelRow(r: Record<string, unknown>): ModelRow {
@@ -301,7 +326,8 @@ export class MemoryStore implements Store {
   async deleteSession(tokenHash: string) {
     this.sessions.delete(tokenHash)
   }
-  members = new Map<string, { email: string; invitedBy: string; createdAt: number }[]>()
+  members = new Map<string, { email: string; invitedBy: string; createdAt: number; role: MemberRole }[]>()
+  viewTokens = new Map<string, string>()
 
   private canAccess(p: ProjectRow, access: Access) {
     return p.userId === access.userId || (this.members.get(p.id) ?? []).some((m) => m.email === normalizeEmail(access.email))
@@ -309,17 +335,21 @@ export class MemoryStore implements Store {
   private meta(p: ProjectRow): ProjectMeta {
     const owner = this.users.get(p.userId)
     const ub = this.users.get(p.updatedBy)
-    return { id: p.id, name: p.name, updatedAt: p.updatedAt, version: p.version, ownerId: p.userId, owner: { email: owner?.email ?? '', name: owner?.name ?? '' }, updatedBy: ub ? { email: ub.email, name: ub.name } : null, memberCount: (this.members.get(p.id) ?? []).length }
+    return { id: p.id, name: p.name, updatedAt: p.updatedAt, version: p.version, ownerId: p.userId, owner: { email: owner?.email ?? '', name: owner?.name ?? '' }, updatedBy: ub ? { email: ub.email, name: ub.name } : null, memberCount: (this.members.get(p.id) ?? []).length, memberRole: null, viewToken: this.viewTokens.get(p.id) ?? null }
+  }
+  private metaFor(p: ProjectRow, access: Access): ProjectMeta {
+    const m = (this.members.get(p.id) ?? []).find((x) => x.email === normalizeEmail(access.email))
+    return { ...this.meta(p), memberRole: m?.role ?? null }
   }
   async listProjects(access: Access) {
     return [...this.projects.values()]
       .filter((p) => this.canAccess(p, access))
       .sort((a, b) => b.updatedAt - a.updatedAt)
-      .map((p) => this.meta(p))
+      .map((p) => this.metaFor(p, access))
   }
   async getProjectMeta(access: Access, id: string) {
     const p = this.projects.get(id)
-    return p && this.canAccess(p, access) ? this.meta(p) : null
+    return p && this.canAccess(p, access) ? this.metaFor(p, access) : null
   }
   async getProject(access: Access, id: string) {
     const p = this.projects.get(id)
@@ -344,12 +374,28 @@ export class MemoryStore implements Store {
     }
   }
   async listMembers(projectId: string) {
-    return (this.members.get(projectId) ?? []).map((m) => ({ email: m.email, name: [...this.users.values()].find((u) => normalizeEmail(u.email) === m.email)?.name ?? null, createdAt: m.createdAt }))
+    return (this.members.get(projectId) ?? []).map((m) => ({ email: m.email, name: [...this.users.values()].find((u) => normalizeEmail(u.email) === m.email)?.name ?? null, role: m.role, createdAt: m.createdAt }))
   }
-  async addMember(projectId: string, email: string, invitedBy: string) {
+  async addMember(projectId: string, email: string, invitedBy: string, role: MemberRole) {
     const list = this.members.get(projectId) ?? []
-    if (!list.some((m) => m.email === normalizeEmail(email))) list.push({ email: normalizeEmail(email), invitedBy, createdAt: Date.now() })
+    const existing = list.find((m) => m.email === normalizeEmail(email))
+    if (existing) existing.role = role
+    else list.push({ email: normalizeEmail(email), invitedBy, createdAt: Date.now(), role })
     this.members.set(projectId, list)
+  }
+  async setViewToken(projectId: string, token: string | null) {
+    if (token) this.viewTokens.set(projectId, token)
+    else this.viewTokens.delete(projectId)
+  }
+  async getProjectByViewToken(token: string) {
+    for (const [id, t] of this.viewTokens) {
+      if (t !== token) continue
+      const p = this.projects.get(id)
+      if (!p) return null
+      const owner = this.users.get(p.userId)
+      return { ...p, owner: { email: owner?.email ?? '', name: owner?.name ?? '' } }
+    }
+    return null
   }
   async removeMember(projectId: string, email: string) {
     this.members.set(projectId, (this.members.get(projectId) ?? []).filter((m) => m.email !== normalizeEmail(email)))

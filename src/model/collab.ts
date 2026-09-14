@@ -130,6 +130,8 @@ export interface Peer {
   name: string
   email: string
   color: string
+  /** viewers receive everything but their operations are ignored */
+  role: 'editor' | 'viewer'
 }
 export interface Presence {
   floorId: string | null

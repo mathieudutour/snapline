@@ -11,7 +11,7 @@ import { applyOps, floorsTouched, type Op, type Peer, type Presence } from './co
 import { CUSTOM_CATEGORY, type CatalogItem } from '../furniture/catalog'
 import { deleteModelBlobs, getModelBlobs, loadCustomModelMeta, newModelKey, parseModelFile, putModelBlobs, registerModelUrls, saveCustomModelMeta, unregisterModelUrls, type CustomModel } from '../furniture/customModels'
 import { renderModelIcons } from '../furniture/renderIcon'
-import { ConflictError, deleteRemoteModel, deleteRemoteProject, fetchMe, getRemoteModelFile, getRemoteProject, listRemoteModels, listRemoteProjects, putRemoteModelFile, putRemoteModelMeta, putRemoteProject, signOut as apiSignOut, type AccountUser, type Person, type RemoteProjectMeta } from '../sync/api'
+import { ConflictError, deleteRemoteModel, deleteRemoteProject, fetchMe, getRemoteModelFile, getRemoteProject, getViewedProject, listRemoteModels, listRemoteProjects, putRemoteModelFile, putRemoteModelMeta, putRemoteProject, signOut as apiSignOut, type AccountUser, type Person, type RemoteProjectMeta } from '../sync/api'
 
 export type Tool = 'select' | 'wall' | 'door' | 'window' | 'furniture' | 'pan'
 export type ViewMode = 'plan' | '3d' | 'walk'
@@ -70,6 +70,12 @@ export interface EditorState {
   refreshProjectMeta: (id: string) => Promise<void>
   live: LiveState
   setLive: (patch: Partial<LiveState>) => void
+  /** set while looking at a project through an "anyone with the link can view" link */
+  viewLink: { token: string; owner: Person } | null
+  /** load the project behind a view link into the editor, read-only, without touching the local project list */
+  openViewLink: (token: string) => Promise<void>
+  /** leave view-link mode and go back to the local projects */
+  closeViewLink: () => void
   /** apply operations received from the room; the caller holds them back while a drag is in progress */
   applyRemoteOps: (ops: Op[]) => void
   /** take the room's copy of a project as the local one (no undo entry, keeps the view) */
@@ -274,8 +280,8 @@ function patchMeta(list: ProjectMeta[], id: string, patch: Partial<ProjectMeta>)
   return list.map((p) => (p.id === id ? { ...p, ...patch } : p))
 }
 
-function metaFromRemote(r: RemoteProjectMeta): Pick<ProjectMeta, 'role' | 'owner' | 'updatedBy' | 'memberCount'> {
-  return { role: r.role, owner: r.owner, updatedBy: r.updatedBy, memberCount: r.memberCount }
+function metaFromRemote(r: RemoteProjectMeta): Pick<ProjectMeta, 'role' | 'owner' | 'updatedBy' | 'memberCount' | 'viewToken'> {
+  return { role: r.role, owner: r.owner, updatedBy: r.updatedBy, memberCount: r.memberCount, viewToken: r.viewToken }
 }
 
 export function personLabel(p: Person | null | undefined): string {
@@ -487,8 +493,10 @@ export const useEditor = create<EditorState>((set, get) => {
     set({ project: nextProject, plan, report })
     return nextProject
   }
+  const readOnly = () => isReadOnly(get())
   /** structural project change with an undo entry; re-solves the active floor */
   const commitProject = (nextProject: Project, activeFloorId = get().activeFloorId, extra: Partial<EditorState> = {}) => {
+    if (readOnly()) return
     const { project, activeFloorId: prevFloor, undoStack } = get()
     const solvedFloor = solvePlan(activePlan(nextProject, activeFloorId))
     const withSolved = withFloorPlan(nextProject, activeFloorId, solvedFloor.plan)
@@ -506,6 +514,7 @@ export const useEditor = create<EditorState>((set, get) => {
     scheduleSave(withSolved)
   }
   const restore = (snapshot: Snapshot) => {
+    if (readOnly()) return
     const solvedFloor = solvePlan(activePlan(snapshot.project, snapshot.activeFloorId))
     const project = withFloorPlan(snapshot.project, snapshot.activeFloorId, solvedFloor.plan)
     set({ project, activeFloorId: snapshot.activeFloorId, plan: solvedFloor.plan, report: solvedFloor.report, selection: [], projects: updateIndex(project, get().projects, true) })
@@ -535,8 +544,8 @@ export const useEditor = create<EditorState>((set, get) => {
     const floorId = project.floors.some((f) => f.id === activeFloorId) ? activeFloorId : project.floors[0].id
     const solvedFloor = solvePlan(activePlan(project, floorId))
     const withSolved = withFloorPlan(project, floorId, solvedFloor.plan)
-    set({ project: withSolved, activeFloorId: floorId, plan: solvedFloor.plan, report: solvedFloor.report, undoStack: [], redoStack: [], selection: [], projects: updateIndex(withSolved, get().projects), placing: null })
-    saveProjectNow(withSolved)
+    set({ project: withSolved, activeFloorId: floorId, plan: solvedFloor.plan, report: solvedFloor.report, undoStack: [], redoStack: [], selection: [], projects: get().viewLink ? get().projects : updateIndex(withSolved, get().projects), placing: null })
+    if (!get().viewLink) saveProjectNow(withSolved)
   }
 
   const saveModels = (list: CustomModel[]) => {
@@ -811,16 +820,33 @@ export const useEditor = create<EditorState>((set, get) => {
         selection: get().selection.filter(exists),
         undoStack: undoStack.map((u) => ({ ...u, project: applyOps(u.project, ops) })),
         redoStack: redoStack.map((u) => ({ ...u, project: applyOps(u.project, ops) })),
-        projects: updateIndex(next, get().projects),
+        projects: get().viewLink ? get().projects : updateIndex(next, get().projects),
       })
-      saveProjectNow(next)
+      if (!get().viewLink) saveProjectNow(next)
     },
     adoptRoomProject: (project, version) => {
-      saveProjectNow(project)
-      setMeta(project.id, { syncedVersion: version, dirty: false, name: project.name, updatedAt: project.updatedAt })
+      if (!get().viewLink) {
+        saveProjectNow(project)
+        setMeta(project.id, { syncedVersion: version, dirty: false, name: project.name, updatedAt: project.updatedAt })
+      }
       if (get().project.id === project.id) replaceOpenProject(project)
     },
+    viewLink: null,
+    openViewLink: async (token) => {
+      const r = await getViewedProject(token)
+      const project = normalizeProject(r.project, normalizePlan)
+      const floorId = project.floors[0].id
+      const solvedFloor = solvePlan(activePlan(project, floorId))
+      set({ viewLink: { token, owner: r.owner }, project: withFloorPlan(project, floorId, solvedFloor.plan), activeFloorId: floorId, plan: solvedFloor.plan, report: solvedFloor.report, undoStack: [], redoStack: [], selection: [], tool: 'select', placing: null, fitVersion: get().fitVersion + 1 })
+    },
+    closeViewLink: () => {
+      if (!get().viewLink) return
+      set({ viewLink: null })
+      const index = loadIndex()
+      openProjectState((index.activeId && loadProject(index.activeId)) || (index.list[0] && loadProject(index.list[0].id)) || exampleProject())
+    },
     markSaved: (projectId, version, updatedAt) => {
+      if (get().viewLink) return // a link viewer keeps nothing locally
       const u = get().user
       setMeta(projectId, { syncedVersion: version, dirty: false, updatedAt, updatedBy: u ? { email: u.email, name: u.name } : null })
       if (get().syncStatus !== 'conflict' && get().syncStatus !== 'error') set({ syncStatus: 'synced' })
@@ -913,7 +939,7 @@ export const useEditor = create<EditorState>((set, get) => {
     placing: null,
     setPlacing: (placing) => set({ placing }),
 
-    setTool: (tool) => set({ tool, selection: tool === 'select' ? get().selection : [], placing: tool === 'furniture' ? get().placing : null, railTab: tool === 'furniture' ? 'furniture' : get().railTab }),
+    setTool: (tool) => set({ tool: readOnly() && tool !== 'pan' ? 'select' : tool, selection: tool === 'select' ? get().selection : [], placing: tool === 'furniture' ? get().placing : null, railTab: tool === 'furniture' ? 'furniture' : get().railTab }),
     setMode: (mode) => set({ mode }),
     setSnapGrid: (snapGrid) => {
       set({ snapGrid })
@@ -946,6 +972,7 @@ export const useEditor = create<EditorState>((set, get) => {
     clearSelection: () => set({ selection: [] }),
 
     commit: (plan) => {
+      if (readOnly()) return
       const { project, activeFloorId } = get()
       const { plan: solvedPlan, report } = solvePlan(plan)
       const undoStack = [...get().undoStack, { project, activeFloorId }].slice(-MAX_UNDO)
@@ -960,12 +987,17 @@ export const useEditor = create<EditorState>((set, get) => {
       scheduleSave(nextProject)
     },
 
-    beginDrag: () => set({ dragSnapshot: { project: get().project, activeFloorId: get().activeFloorId } }),
+    beginDrag: () => {
+      if (readOnly()) return
+      set({ dragSnapshot: { project: get().project, activeFloorId: get().activeFloorId } })
+    },
     dragTo: (drags) => {
+      if (!get().dragSnapshot) return
       const { plan: solvedPlan, report } = solvePlan(get().plan, drags)
       applyPlan(solvedPlan, report)
     },
     dragOpening: (openingId, offset) => {
+      if (!get().dragSnapshot) return
       const plan = get().plan
       const o = plan.openings[openingId]
       if (!o) return
@@ -978,6 +1010,7 @@ export const useEditor = create<EditorState>((set, get) => {
       applyPlan(solvedPlan, report)
     },
     dragFurniture: (drags) => {
+      if (!get().dragSnapshot) return
       const { plan: solvedPlan, report } = solvePlan(get().plan, [], drags)
       applyPlan(solvedPlan, report)
     },
@@ -1329,6 +1362,12 @@ export const useEditor = create<EditorState>((set, get) => {
     loadExample: () => openProjectState(exampleProject()),
   }
 })
+
+/** true when the open project must not be edited: a view link, or a project shared read-only */
+export function isReadOnly(s: Pick<EditorState, 'viewLink' | 'projects' | 'project'>): boolean {
+  if (s.viewLink) return true
+  return s.projects.find((p) => p.id === s.project.id)?.role === 'viewer'
+}
 
 export function isSelected(selection: SelectionItem[], kind: SelectionItem['kind'], id: string): boolean {
   return selection.some((s) => s.kind === kind && s.id === id)

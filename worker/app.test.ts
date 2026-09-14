@@ -242,4 +242,40 @@ describe('worker app', () => {
     const hijack = await handle(new Request(`${ORIGIN}/api/projects/prj1`, { method: 'PUT', headers: { ...auth, Cookie: `${SESSION_COOKIE}=${token2}` }, body: JSON.stringify({ project, baseVersion: 0 }) }))
     expect(hijack.status).toBe(403)
   })
+
+  it('supports read-only viewers and a view link that needs no account', async () => {
+    const cb = await signIn()
+    const token = parseCookies(setCookieHeaders(cb).find((c) => c.startsWith(SESSION_COOKIE))!.split(';')[0])[SESSION_COOKIE]
+    const auth = { Cookie: `${SESSION_COOKIE}=${token}`, Origin: ORIGIN, 'Content-Type': 'application/json' }
+    const project = { id: 'prj1', name: 'House', floors: [{ id: 'f', name: 'Ground', plan: {} }], roof: { type: 'none' } }
+    await handle(new Request(`${ORIGIN}/api/projects/prj1`, { method: 'PUT', headers: auth, body: JSON.stringify({ project, baseVersion: 0 }) }))
+    const invited = await body(await handle(new Request(`${ORIGIN}/api/projects/prj1/members`, { method: 'POST', headers: auth, body: JSON.stringify({ email: 'other@example.com', role: 'viewer' }) })))
+    expect(invited.members[0].role).toBe('viewer')
+    resetJwksCache()
+    const cb2 = await signIn({ sub: 'google-sub-2', email: 'other@example.com', name: 'Other' })
+    const token2 = parseCookies(setCookieHeaders(cb2).find((c) => c.startsWith(SESSION_COOKIE))!.split(';')[0])[SESSION_COOKIE]
+    const auth2 = { ...auth, Cookie: `${SESSION_COOKIE}=${token2}` }
+    const list2 = await body(await handle(new Request(`${ORIGIN}/api/projects`, { headers: auth2 })))
+    expect(list2.projects[0].role).toBe('viewer')
+    expect(list2.projects[0].viewToken).toBeNull() // only the owner sees the link token
+    expect((await handle(new Request(`${ORIGIN}/api/projects/prj1`, { headers: auth2 }))).status).toBe(200)
+    const denied = await handle(new Request(`${ORIGIN}/api/projects/prj1`, { method: 'PUT', headers: auth2, body: JSON.stringify({ project: { ...project, name: 'Nope' }, baseVersion: 1 }) }))
+    expect(denied.status).toBe(403)
+    // promote to editor by inviting again with the new role
+    await handle(new Request(`${ORIGIN}/api/projects/prj1/members`, { method: 'POST', headers: auth, body: JSON.stringify({ email: 'other@example.com', role: 'editor' }) }))
+    expect((await body(await handle(new Request(`${ORIGIN}/api/projects`, { headers: auth2 })))).projects[0].role).toBe('editor')
+    // view link: owner only, works signed out, can be revoked
+    expect((await handle(new Request(`${ORIGIN}/api/projects/prj1/link`, { method: 'POST', headers: auth2 }))).status).toBe(403)
+    expect((await body(await handle(new Request(`${ORIGIN}/api/view/nope-nope-nope`)))).error).toBeDefined()
+    const linked = await body(await handle(new Request(`${ORIGIN}/api/projects/prj1/link`, { method: 'POST', headers: auth })))
+    expect(linked.token).toMatch(/^[A-Za-z0-9_-]{8,}$/)
+    const again = await body(await handle(new Request(`${ORIGIN}/api/projects/prj1/link`, { method: 'POST', headers: auth })))
+    expect(again.token).toBe(linked.token)
+    const viewed = await body(await handle(new Request(`${ORIGIN}/api/view/${linked.token}`)))
+    expect(viewed.project.name).toBe('House')
+    expect(viewed.owner.email).toBe('mathieu@example.com')
+    expect((await body(await handle(new Request(`${ORIGIN}/api/projects`, { headers: auth })))).projects[0].viewToken).toBe(linked.token)
+    await handle(new Request(`${ORIGIN}/api/projects/prj1/link`, { method: 'DELETE', headers: auth }))
+    expect((await handle(new Request(`${ORIGIN}/api/view/${linked.token}`))).status).toBe(404)
+  })
 })

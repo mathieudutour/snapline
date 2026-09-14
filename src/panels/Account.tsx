@@ -26,7 +26,7 @@ export function AccountButton() {
   if (user === undefined || apiAvailable === false) return null
   if (!user) {
     return (
-      <a className="button signin" href={signInUrl('/')} title="Sign in to save projects to your account">
+      <a className="button signin" href={signInUrl(location.pathname.startsWith('/view/') ? location.pathname : '/')} title="Sign in to save projects to your account">
         <GoogleMark /> Sign in
       </a>
     )

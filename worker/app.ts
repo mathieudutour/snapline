@@ -1,4 +1,4 @@
-import { normalizeEmail, type ObjectStore, type Store, type User } from './store'
+import { normalizeEmail, type MemberRole, type ObjectStore, type Store, type User } from './store'
 import { buildAuthUrl, exchangeCode, verifyIdToken, type GoogleConfig } from './google'
 import { error, json, parseCookies, randomToken, serializeCookie, sha256Base64url, sha256Hex } from './util'
 
@@ -13,8 +13,8 @@ export interface AppConfig {
   store: Store
   /** file storage for imported models; undefined when no bucket is bound */
   objects?: ObjectStore
-  /** live collaboration: hand an authenticated WebSocket upgrade to the project's room */
-  live?: (req: Request, ctx: { projectId: string; user: User }) => Promise<Response>
+  /** live collaboration: hand an authenticated WebSocket upgrade to the project's room; viewers only receive */
+  live?: (req: Request, ctx: { projectId: string; user: User; role: 'owner' | 'editor' | 'viewer' }) => Promise<Response>
   /** tell an open room that the stored project changed through the REST API */
   onProjectSaved?: (projectId: string, project: Record<string, unknown>, version: number) => Promise<void>
   google: GoogleConfig
@@ -102,16 +102,47 @@ export function createApp(cfg: AppConfig) {
       if (!csrfOk(req, url)) return error(403, 'bad origin')
       const me = await currentUser(req)
       if (path === '/api/me' && req.method === 'GET') return json({ user: me ? publicUser(me.user) : null })
+      // ---- view links need no account ----
+      const view = /^\/api\/view\/([A-Za-z0-9_-]{8,64})(\/live)?$/.exec(path)
+      if (view && req.method === 'GET') {
+        const row = await cfg.store.getProjectByViewToken(view[1])
+        if (!row) return error(404, 'this link is not valid any more')
+        if (view[2]) {
+          if (!cfg.live) return error(503, 'live collaboration is not configured')
+          const guest: User = me?.user ?? { id: 'guest', googleSub: '', email: '', name: 'Guest', picture: '', createdAt: 0 }
+          return cfg.live(req, { projectId: row.id, user: guest, role: 'viewer' })
+        }
+        return json({ project: JSON.parse(row.data), version: row.version, updatedAt: row.updatedAt, owner: row.owner })
+      }
       if (!me) return error(401, 'sign in required')
       const userId = me.user.id
       const access = { userId, email: me.user.email }
-      const withRole = <T extends { ownerId: string }>(meta: T) => ({ ...meta, role: meta.ownerId === userId ? ('owner' as const) : ('editor' as const) })
+      const roleOf = (meta: { ownerId: string; memberRole: MemberRole | null }) => (meta.ownerId === userId ? ('owner' as const) : meta.memberRole === 'viewer' ? ('viewer' as const) : ('editor' as const))
+      const withRole = <T extends { ownerId: string; memberRole: MemberRole | null; viewToken: string | null }>(meta: T) => ({ ...meta, role: roleOf(meta), viewToken: meta.ownerId === userId ? meta.viewToken : null })
       if (path === '/api/projects' && req.method === 'GET') return json({ projects: (await cfg.store.listProjects(access)).map(withRole) })
       const live = /^\/api\/projects\/([A-Za-z0-9_-]{1,64})\/live$/.exec(path)
       if (live && req.method === 'GET') {
         if (!cfg.live) return error(503, 'live collaboration is not configured')
-        if (!(await cfg.store.getProjectMeta(access, live[1]))) return error(404, 'not found')
-        return cfg.live(req, { projectId: live[1], user: me.user })
+        const meta = await cfg.store.getProjectMeta(access, live[1])
+        if (!meta) return error(404, 'not found')
+        return cfg.live(req, { projectId: live[1], user: me.user, role: roleOf(meta) })
+      }
+      // ---- "anyone with the link can view" ----
+      const link = /^\/api\/projects\/([A-Za-z0-9_-]{1,64})\/link$/.exec(path)
+      if (link) {
+        const meta = await cfg.store.getProjectMeta(access, link[1])
+        if (!meta) return error(404, 'not found')
+        if (meta.ownerId !== userId) return error(403, 'only the owner can manage the view link')
+        if (req.method === 'GET') return json({ token: meta.viewToken })
+        if (req.method === 'POST') {
+          const token = meta.viewToken ?? randomToken(18)
+          await cfg.store.setViewToken(link[1], token)
+          return json({ token })
+        }
+        if (req.method === 'DELETE') {
+          await cfg.store.setViewToken(link[1], null)
+          return json({ token: null })
+        }
       }
       const m = /^\/api\/projects\/([A-Za-z0-9_-]{1,64})(?:\/members(?:\/([^/]{1,254}))?)?$/.exec(path)
       if (m) {
@@ -124,11 +155,11 @@ export function createApp(cfg: AppConfig) {
           if (!meta) return error(404, 'not found')
           const isOwner = meta.ownerId === userId
           if (req.method === 'GET' && !memberEmail) {
-            return json({ owner: meta.owner, role: isOwner ? 'owner' : 'editor', members: await cfg.store.listMembers(id) })
+            return json({ owner: meta.owner, role: roleOf(meta), members: await cfg.store.listMembers(id) })
           }
           if (req.method === 'POST' && !memberEmail) {
             if (!isOwner) return error(403, 'only the owner can share a project')
-            let body: { email?: unknown }
+            let body: { email?: unknown; role?: unknown }
             try {
               body = JSON.parse(await req.text())
             } catch {
@@ -137,7 +168,8 @@ export function createApp(cfg: AppConfig) {
             const email = typeof body.email === 'string' ? normalizeEmail(body.email) : ''
             if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return error(400, 'invalid email')
             if (email === normalizeEmail(me.user.email)) return error(400, 'that is your own address')
-            await cfg.store.addMember(id, email, userId)
+            const role: MemberRole = body.role === 'viewer' ? 'viewer' : 'editor'
+            await cfg.store.addMember(id, email, userId, role)
             return json({ ok: true, members: await cfg.store.listMembers(id) })
           }
           if (req.method === 'DELETE' && memberEmail) {
@@ -165,6 +197,8 @@ export function createApp(cfg: AppConfig) {
           }
           const project = body.project
           if (!project || typeof project !== 'object' || !Array.isArray(project.floors)) return error(400, 'invalid project')
+          const meta = await cfg.store.getProjectMeta(access, id)
+          if (meta && roleOf(meta) === 'viewer') return error(403, 'this project is shared with you read-only')
           const baseVersion = typeof body.baseVersion === 'number' ? body.baseVersion : 0
           const force = body.force === true
           const updatedAt = now()
