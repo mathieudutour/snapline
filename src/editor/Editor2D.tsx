@@ -10,6 +10,7 @@ import { snapPosition, type SnapResult } from './snapping'
 import { screenToWorld, worldToScreen, type Viewport } from './viewport'
 import { Dimension } from './Dimension'
 import { setLiveCursor } from '../sync/liveController'
+import { wallGap } from '../model/measure'
 import { PeerCursors, usePeerSelections } from './Peers'
 
 type DragState =
@@ -59,6 +60,8 @@ export function Editor2D() {
 
   const [cursor, setCursor] = useState<Vec2 | null>(null)
   const [hover, setHover] = useState<SelectionItem | null>(null)
+  /** Option/Alt held: show the distance from the selected wall to the hovered one */
+  const [alt, setAlt] = useState(false)
   const [snap, setSnap] = useState<SnapResult | null>(null)
   const [drawing, setDrawing] = useState<{ pos: Vec2; pointId?: string; wall?: { wallId: string; t: number }; startPointId?: string } | null>(null)
   const [editing, setEditing] = useState<Editing | null>(null)
@@ -98,6 +101,8 @@ export function Editor2D() {
   const toScreen = useCallback((p: Vec2): Vec2 => worldToScreen(vp, p, size.width, size.height), [vp, size])
 
   const peerSelections = usePeerSelections()
+  /** wall under the pointer for Option-hover measuring; hovering a door or window counts as its wall */
+  const measureTarget = hover?.kind === 'wall' ? hover.id : hover?.kind === 'opening' ? plan.openings[hover.id]?.wallId : null
   /** the side a wall's dimension is drawn on (away from rooms) and its outward normal */
   const wallSide = useCallback((w: Wall) => dimensionSide(plan, rooms, w), [plan, rooms])
   const DIM_GAP = 0.35
@@ -190,6 +195,10 @@ export function Editor2D() {
   useEffect(() => {
     const isField = (t: EventTarget | null) => t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement
     const down = (e: KeyboardEvent) => {
+      if (e.key === 'Alt') {
+        setAlt(true)
+        e.preventDefault() // keep the browser from moving focus to its menu bar
+      }
       if (e.key === 'Shift') setShift(true)
       if (e.key === 'Control' || e.key === 'Meta') setCtrl(true)
       if (isField(e.target)) return
@@ -312,6 +321,7 @@ export function Editor2D() {
       }
     }
     const up = (e: KeyboardEvent) => {
+      if (e.key === 'Alt') setAlt(false)
       if (e.key === 'Shift') setShift(false)
       if (e.key === 'Control' || e.key === 'Meta') setCtrl(false)
       if (e.key === ' ') setSpace(false)
@@ -320,6 +330,7 @@ export function Editor2D() {
       setShift(false)
       setCtrl(false)
       setSpace(false)
+      setAlt(false)
     }
     window.addEventListener('keydown', down)
     window.addEventListener('keyup', up)
@@ -955,6 +966,9 @@ export function Editor2D() {
           {snap && (snap.pointId || snap.wall) && dragRef.current?.kind === 'point' && (
             <circle cx={snap.pos.x} cy={snap.pos.y} r={9 * px} fill="none" stroke="#e0891d" strokeWidth={px * 2} style={{ pointerEvents: 'none' }} />
           )}
+          {alt && tool === 'select' && selection.length === 1 && selection[0].kind === 'wall' && measureTarget && measureTarget !== selection[0].id && plan.walls[selection[0].id] && plan.walls[measureTarget] && (
+            <GapMeasure gap={wallGap(plan, plan.walls[selection[0].id], plan.walls[measureTarget])} px={px} units={units} />
+          )}
           <PeerCursors px={px} />
         </g>
       </svg>
@@ -1027,6 +1041,7 @@ const SHORTCUTS: [string, string][] = [
   ['+ / −', 'Zoom in / out'],
   ['Shift + 0', 'Zoom to 100%'],
   ['Shift + 1', 'Zoom to fit'],
+  ['⌥ + hover', 'Distance from the selected wall to another wall'],
   ['Shift + 2', 'Zoom to selection'],
   ['Shift + click', 'Add to selection'],
   ['Drag on empty space', 'Marquee select'],
@@ -1094,6 +1109,37 @@ function FurnitureHandles({ piece, px }: { piece: Furniture; px: number }) {
     <g data-kind="furniture" data-id={piece.id} data-handle="rotate" style={{ cursor: 'grab' }}>
       <line x1={back.x} y1={back.y} x2={handle.x} y2={handle.y} stroke="#2f6fed" strokeWidth={px} />
       <circle cx={handle.x} cy={handle.y} r={6 * px} fill="white" stroke="#2f6fed" strokeWidth={px * 1.5} />
+    </g>
+  )
+}
+
+/** Figma-style red measurement between the selected wall and the hovered one (Option/Alt held) */
+function GapMeasure({ gap, px, units }: { gap: ReturnType<typeof wallGap>; px: number; units: Units }) {
+  if (!gap) return null
+  const color = '#e0245e'
+  const u = normalize(sub(gap.to, gap.from))
+  const n = perp(u)
+  const tick = scale(n, 5 * px)
+  const mid = scale(add(gap.from, gap.to), 0.5)
+  const label = formatLength(gap.distance, units)
+  const width = (label.length * 6.6 + 10) * px
+  const height = 16 * px
+  let angle = (Math.atan2(u.y, u.x) * 180) / Math.PI
+  if (angle > 90 || angle <= -90) angle += 180
+  // the label sits beside the line, not on it, so it does not hide short gaps
+  const off = scale(n, 12 * px)
+  return (
+    <g style={{ pointerEvents: 'none' }}>
+      {gap.extension && <line x1={gap.extension[0].x} y1={gap.extension[0].y} x2={gap.extension[1].x} y2={gap.extension[1].y} stroke={color} strokeWidth={px} strokeDasharray={`${4 * px} ${3 * px}`} />}
+      <line x1={gap.from.x} y1={gap.from.y} x2={gap.to.x} y2={gap.to.y} stroke={color} strokeWidth={1.5 * px} />
+      <line x1={gap.from.x - tick.x} y1={gap.from.y - tick.y} x2={gap.from.x + tick.x} y2={gap.from.y + tick.y} stroke={color} strokeWidth={px} />
+      <line x1={gap.to.x - tick.x} y1={gap.to.y - tick.y} x2={gap.to.x + tick.x} y2={gap.to.y + tick.y} stroke={color} strokeWidth={px} />
+      <g transform={`translate(${mid.x + off.x} ${mid.y + off.y}) rotate(${angle})`}>
+        <rect x={-width / 2} y={-height / 2} width={width} height={height} rx={3 * px} fill={color} />
+        <text fontSize={11 * px} textAnchor="middle" dominantBaseline="central" fill="white" fontFamily="ui-sans-serif, system-ui, sans-serif" fontWeight={600}>
+          {label}
+        </text>
+      </g>
     </g>
   )
 }
