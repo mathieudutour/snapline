@@ -58,3 +58,37 @@ export async function putRemoteProject(project: Project): Promise<number> {
 export async function deleteRemoteProject(id: string): Promise<void> {
   await call(`/api/projects/${id}`, { method: 'DELETE' })
 }
+
+// ---- custom 3D models (metadata in D1, files in R2) ----
+export interface RemoteModelMeta {
+  key: string
+  name: string
+  width: number
+  depth: number
+  height: number
+  fit: { unitScale: number; center: [number, number, number] }
+  createdAt: number
+}
+
+export async function listRemoteModels(): Promise<RemoteModelMeta[]> {
+  return (await call<{ models: RemoteModelMeta[] }>('/api/models')).models
+}
+
+export async function putRemoteModelMeta(meta: RemoteModelMeta): Promise<void> {
+  await call(`/api/models/${meta.key}`, { method: 'PUT', body: JSON.stringify(meta) })
+}
+
+export async function putRemoteModelFile(key: string, part: 'glb' | 'plan' | 'thumb', body: Blob | ArrayBuffer): Promise<void> {
+  const res = await fetch(`/api/models/${key}/${part}`, { method: 'PUT', body, headers: { 'Content-Type': part === 'glb' ? 'model/gltf-binary' : 'image/png' }, credentials: 'same-origin' })
+  if (!res.ok) throw new ApiError(res.status, `upload ${part} → ${res.status}`)
+}
+
+export async function getRemoteModelFile(key: string, part: 'glb' | 'plan' | 'thumb'): Promise<Blob> {
+  const res = await fetch(`/api/models/${key}/${part}`, { credentials: 'same-origin' })
+  if (!res.ok) throw new ApiError(res.status, `download ${part} → ${res.status}`)
+  return res.blob()
+}
+
+export async function deleteRemoteModel(key: string): Promise<void> {
+  await call(`/api/models/${key}`, { method: 'DELETE' })
+}

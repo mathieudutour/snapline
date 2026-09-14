@@ -53,6 +53,14 @@ jobs:
           name: dist
           path: dist
 
+      - name: Create the R2 bucket for imported models (no-op when it exists)
+        uses: cloudflare/wrangler-action@v3
+        continue-on-error: true
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: r2 bucket create snapline-models
+
       - name: Apply D1 schema (idempotent)
         uses: cloudflare/wrangler-action@v3
         with:

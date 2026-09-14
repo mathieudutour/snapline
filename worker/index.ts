@@ -1,11 +1,13 @@
 import { createApp } from './app'
-import { D1Store } from './store'
+import { D1Store, R2Objects } from './store'
 
 export interface Env {
   DB: D1Database
   ASSETS: Fetcher
   GOOGLE_CLIENT_ID: string
   GOOGLE_CLIENT_SECRET: string
+  /** optional R2 bucket for imported 3D models */
+  MODELS?: R2Bucket
 }
 
 export default {
@@ -14,6 +16,7 @@ export default {
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/')) {
       const handle = createApp({
         store: new D1Store(env.DB),
+        objects: env.MODELS ? new R2Objects(env.MODELS) : undefined,
         google: { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET },
         secureCookies: url.protocol === 'https:',
       })

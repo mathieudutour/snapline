@@ -20,6 +20,12 @@
 			"remote": true
 		}
 	],
+	"r2_buckets": [
+		{
+			"binding": "MODELS",
+			"bucket_name": "snapline-models"
+		}
+	],
 	"observability": {
 		"enabled": true
 	}

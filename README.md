@@ -59,6 +59,7 @@ canvas in the middle with a floating toolbar at the bottom, and an inspector for
 | Join walls | Drop a corner onto another corner or onto a wall. |
 | Doors / windows | `D` / `N`, then click on a wall. Select an opening to lock its distance from either wall end. |
 | Furniture | `F` or the Furniture rail tab opens the catalogue in the left panel; click a piece, then click on the plan. `R` rotates. Dropping a piece against a wall snaps its back to the wall and locks the gap. |
+| Your own models | "Import…" in the catalogue takes a `.glb` or `.gltf` file, measures it (pick the file's units if the size looks wrong) and renders its plan symbol and thumbnail in the browser. Imported models live under "My models", are kept in the browser, and are copied to your account when signed in. Only import models you are allowed to use. |
 | Relate two walls | Shift-click two walls, then choose parallel / perpendicular / equal / angle in the inspector. |
 | Anchor a corner | Select a corner and click "Anchor in place" so the plan does not drift. |
 | Floors | Floors list in the left panel: click to switch, `+` to add, hover a floor for duplicate / remove, double-click to rename; PageUp / PageDown switch floors. With nothing selected the inspector edits the floor's name and height. |
@@ -97,7 +98,7 @@ src/panels     toolbar and side panel
 src/three      3D scene builder, orbit view, walkthrough and collisions
 src/furniture  catalogue metadata and asset URLs
 src/sync       API client for the account and project sync
-worker         Cloudflare Worker: Google sign-in, sessions, projects API, D1 schema
+worker         Cloudflare Worker: Google sign-in, sessions, projects and models API, D1 schema, R2 files
 public/furniture  generated GLB models, thumbnails, plan symbols and credits
 scripts        catalogue import and icon rendering
 ```

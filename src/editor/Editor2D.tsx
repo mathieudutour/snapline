@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Furniture, Opening, Plan, Vec2, Wall } from '../model/types'
 import { furnitureCorners, localToPlan, snapFurnitureToWall } from '../model/furniture'
-import { CATALOG_BY_KEY, planIconUrl } from '../furniture/catalog'
+import { resolvePlanIconUrl } from '../furniture/catalog'
 import { add, dimensionSide, dist, dot, findRooms, normalize, oppositeSide, perp, planBounds, projectOnSegment, scale, sideNormal, sub, wallFace, wallLength, wallPolygon, wallsAtPoint } from '../model/geometry'
 import { floorBelow, isSelected, useEditor, type SelectionItem } from '../model/store'
 import { constraintsReferencing } from '../model/constraints'
@@ -380,7 +380,9 @@ export function Editor2D() {
     return { wallId: best.wall.id, offset, width }
   }, [cursor, tool, plan, threshold])
 
-  const placingItem = placing ? CATALOG_BY_KEY[placing] : null
+  const catalogItem = useEditor((s) => s.catalogItem)
+  useEditor((s) => s.customModels.length)
+  const placingItem = placing ? catalogItem(placing) ?? null : null
   const placementGhost = useMemo(() => {
     if (!cursor || tool !== 'furniture' || !placingItem) return null
     let pos = cursor
@@ -1066,7 +1068,13 @@ function FurnitureShape({ piece, selected, hovered, px, interactive, onHover }: 
     <g data-kind="furniture" data-id={piece.id} onPointerEnter={() => onHover(true)} onPointerLeave={() => onHover(false)} style={{ cursor: interactive ? 'move' : undefined }}>
       <g transform={`translate(${piece.x} ${piece.y}) rotate(${deg})`}>
         <rect x={-piece.width / 2} y={-piece.depth / 2} width={piece.width} height={piece.depth} fill={wallMounted ? 'rgba(255,255,255,0.35)' : 'white'} stroke={stroke} strokeWidth={px * (selected ? 2 : 1)} strokeDasharray={wallMounted ? `${4 * px} ${3 * px}` : undefined} />
-        <image href={planIconUrl(piece.catalogKey)} x={-side / 2} y={-side / 2} width={side} height={side} preserveAspectRatio="none" opacity={wallMounted ? 0.6 : 1} style={{ pointerEvents: 'none' }} />
+        {resolvePlanIconUrl(piece.catalogKey) ? (
+          <image href={resolvePlanIconUrl(piece.catalogKey)!} x={-side / 2} y={-side / 2} width={side} height={side} preserveAspectRatio="none" opacity={wallMounted ? 0.6 : 1} style={{ pointerEvents: 'none' }} />
+        ) : (
+          <text fontSize={10 * px} textAnchor="middle" dominantBaseline="central" fill="#666" fontFamily="ui-sans-serif, system-ui, sans-serif" style={{ pointerEvents: 'none' }}>
+            {piece.name}
+          </text>
+        )}
       </g>
     </g>
   )

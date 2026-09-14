@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { useEditor } from '../model/store'
 import type { Constraint, Furniture, FurnitureSide, Opening, Wall } from '../model/types'
 import { nearestWallToSide, SIDE_LABELS } from '../model/furniture'
-import { CATALOG, CATEGORIES, creditsUrl, iconUrl } from '../furniture/catalog'
+import { CATALOG, CATEGORIES, CUSTOM_CATEGORY, creditsUrl, resolveIconUrl, type CatalogItem } from '../furniture/catalog'
+import { ImportModelDialog } from './ImportModel'
 import { constraintsReferencing, pointDistance, shortId } from '../model/constraints'
 import { useMemo } from 'react'
 import { dimensionSide, findRooms, oppositeSide, wallFace, wallLength } from '../model/geometry'
@@ -342,16 +343,27 @@ function FurnitureAndWallProps({ piece, wall }: { piece: Furniture; wall: Wall }
 export function CataloguePanel() {
   const placing = useEditor((s) => s.placing)
   const setPlacing = useEditor((s) => s.setPlacing)
+  const customModels = useEditor((s) => s.customModels)
+  const deleteCustomModel = useEditor((s) => s.deleteCustomModel)
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<string>('All')
+  const [importing, setImporting] = useState(false)
   const q = query.trim().toLowerCase()
-  const items = CATALOG.filter((c) => (category === 'All' || c.category === category) && (!q || c.name.toLowerCase().includes(q) || c.category.toLowerCase().includes(q)))
+  const all: CatalogItem[] = [...customModels, ...CATALOG]
+  const items = all.filter((c) => (category === 'All' || c.category === category) && (!q || c.name.toLowerCase().includes(q) || c.category.toLowerCase().includes(q)))
+  const categories = customModels.length > 0 ? [CUSTOM_CATEGORY, ...CATEGORIES] : CATEGORIES
   return (
     <div className="props catalogue">
-      <h3>Furniture</h3>
+      <div className="row space">
+        <h3>Furniture</h3>
+        <button onClick={() => setImporting(true)} title="Import a .glb or .gltf model">
+          + Import…
+        </button>
+      </div>
+      {importing && <ImportModelDialog onClose={() => setImporting(false)} onImported={() => setCategory(CUSTOM_CATEGORY)} />}
       <input className="search" placeholder="Search…" value={query} onChange={(e) => setQuery(e.target.value)} />
       <div className="chips">
-        {['All', ...CATEGORIES].map((c) => (
+        {['All', ...categories].map((c) => (
           <button key={c} className={category === c ? 'chip on' : 'chip'} onClick={() => setCategory(c)}>
             {c}
           </button>
@@ -361,16 +373,28 @@ export function CataloguePanel() {
       <div className="catalogue-grid">
         {items.map((c) => (
           <button key={c.key} className={placing === c.key ? 'tile on' : 'tile'} onClick={() => setPlacing(placing === c.key ? null : c.key)} title={`${c.name} · ${Math.round(c.width * 100)}×${Math.round(c.depth * 100)}×${Math.round(c.height * 100)} cm · ${c.creator} (${c.license})`}>
-            <img src={iconUrl(c.key)} alt="" loading="lazy" />
+            {resolveIconUrl(c.key) ? <img src={resolveIconUrl(c.key)!} alt="" loading="lazy" /> : <span className="tile-box" />}
             <span>{c.name}</span>
             <small>
               {Math.round(c.width * 100)}×{Math.round(c.depth * 100)}
             </small>
+            {c.category === CUSTOM_CATEGORY && (
+              <span
+                className="tile-x"
+                title="Delete this model"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (confirm(`Delete "${c.name}" from your models? Pieces already placed keep their size but lose the model.`)) void deleteCustomModel(c.key)
+                }}
+              >
+                ×
+              </span>
+            )}
           </button>
         ))}
       </div>
       <p className="muted small">
-        Models from the free <a href="https://www.sweethome3d.com/" target="_blank" rel="noreferrer">Sweet Home 3D</a> libraries (CC0, CC-BY and Free Art licences).{' '}
+        Import your own .glb files (for example models you downloaded for your own planning). Bundled models come from the free <a href="https://www.sweethome3d.com/" target="_blank" rel="noreferrer">Sweet Home 3D</a> libraries (CC0, CC-BY and Free Art licences).{' '}
         <a href={creditsUrl} target="_blank" rel="noreferrer">
           Credits
         </a>

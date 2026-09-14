@@ -1284,3 +1284,76 @@ button.account .avatar {
 .tree-items .tree-row {
   padding-left: 30px;
 }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 24, 32, 0.45);
+  display: grid;
+  place-items: center;
+  z-index: 30;
+}
+.modal {
+  width: min(520px, 92vw);
+  background: var(--panel);
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+.file-drop {
+  display: block;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 18px;
+  text-align: center;
+  cursor: pointer;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.file-drop:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.import-preview {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 14px;
+  align-items: start;
+}
+.import-preview img {
+  width: 140px;
+  height: 140px;
+  object-fit: contain;
+  background: #f4f4f5;
+  border-radius: 8px;
+}
+.row.space {
+  justify-content: space-between;
+}
+.row.end {
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+.tile {
+  position: relative;
+}
+.tile-x {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  color: var(--muted);
+  font-size: 14px;
+  display: none;
+}
+.tile:hover .tile-x {
+  display: block;
+}
+.tile-x:hover {
+  color: var(--danger);
+}
+.tile-box {
+  width: 56px;
+  height: 56px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+}

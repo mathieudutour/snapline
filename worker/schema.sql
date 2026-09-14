@@ -25,3 +25,15 @@ CREATE TABLE IF NOT EXISTS projects (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS projects_user ON projects(user_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS models (
+  key TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  width REAL NOT NULL,
+  depth REAL NOT NULL,
+  height REAL NOT NULL,
+  fit TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS models_user ON models(user_id);

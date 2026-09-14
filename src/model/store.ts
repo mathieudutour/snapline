@@ -7,7 +7,10 @@ import { dist, projectOnSegment, wallLength, wallsAtPoint, type WallSide } from 
 import { exampleProject } from './example'
 import { defaultFloorName, floorElevation, newProject, normalizeProject, type Floor, type Project, type ProjectMeta, type Roof } from './project'
 import type { Units } from './units'
-import { deleteRemoteProject, fetchMe, getRemoteProject, listRemoteProjects, putRemoteProject, signOut as apiSignOut, type AccountUser } from '../sync/api'
+import { CUSTOM_CATEGORY, type CatalogItem } from '../furniture/catalog'
+import { deleteModelBlobs, getModelBlobs, loadCustomModelMeta, newModelKey, parseModelFile, putModelBlobs, registerModelUrls, saveCustomModelMeta, unregisterModelUrls, type CustomModel } from '../furniture/customModels'
+import { renderModelIcons } from '../furniture/renderIcon'
+import { deleteRemoteModel, deleteRemoteProject, fetchMe, getRemoteModelFile, getRemoteProject, listRemoteModels, listRemoteProjects, putRemoteModelFile, putRemoteModelMeta, putRemoteProject, signOut as apiSignOut, type AccountUser } from '../sync/api'
 
 export type Tool = 'select' | 'wall' | 'door' | 'window' | 'furniture' | 'pan'
 export type ViewMode = 'plan' | '3d' | 'walk'
@@ -44,6 +47,14 @@ export interface EditorState {
   setRailTab: (tab: 'layers' | 'furniture') => void
   prefsOpen: boolean
   setPrefsOpen: (v: boolean) => void
+  /** models imported by the user (metadata; files live in IndexedDB and, when signed in, in the account) */
+  customModels: CustomModel[]
+  /** load imported models from the browser and expose their files */
+  loadCustomModels: () => Promise<void>
+  importModel: (file: File, name: string, unitScale: number) => Promise<CustomModel>
+  deleteCustomModel: (key: string) => Promise<void>
+  /** catalogue lookup covering bundled and imported models */
+  catalogItem: (key: string) => CatalogItem | undefined
   /** current 2D zoom in pixels per metre (display only) */
   zoomLevel: number
   setZoomLevel: (z: number) => void
@@ -457,6 +468,37 @@ export const useEditor = create<EditorState>((set, get) => {
     saveProjectNow(withSolved)
   }
 
+  const saveModels = (list: CustomModel[]) => {
+    saveCustomModelMeta(list)
+    set({ customModels: list })
+  }
+  const uploadModel = async (meta: CustomModel) => {
+    const blobs = await getModelBlobs(meta.key)
+    if (!blobs) return
+    await putRemoteModelMeta({ key: meta.key, name: meta.name, width: meta.width, depth: meta.depth, height: meta.height, fit: meta.fit, createdAt: meta.createdAt })
+    await putRemoteModelFile(meta.key, 'glb', blobs.glb)
+    await putRemoteModelFile(meta.key, 'plan', blobs.plan)
+    await putRemoteModelFile(meta.key, 'thumb', blobs.thumb)
+  }
+  /** copy models both ways so the same catalogue is available on every device */
+  const syncModels = async () => {
+    const remote = await listRemoteModels()
+    const local = get().customModels
+    const localKeys = new Set(local.map((m) => m.key))
+    const list = [...local]
+    for (const r of remote) {
+      if (localKeys.has(r.key)) continue
+      const [glbBlob, plan, thumb] = await Promise.all([getRemoteModelFile(r.key, 'glb'), getRemoteModelFile(r.key, 'plan'), getRemoteModelFile(r.key, 'thumb')])
+      const blobs = { glb: await glbBlob.arrayBuffer(), plan, thumb }
+      await putModelBlobs(r.key, blobs)
+      await registerModelUrls(r.key, blobs)
+      list.push({ key: r.key, name: r.name, category: CUSTOM_CATEGORY, width: r.width, depth: r.depth, height: r.height, elevation: 0, creator: 'me', license: 'own', library: 'imported', fit: r.fit, createdAt: r.createdAt })
+    }
+    saveModels(list)
+    const remoteKeys = new Set(remote.map((m) => m.key))
+    for (const m of local) if (!remoteKeys.has(m.key)) await uploadModel(m)
+  }
+
   const push = async (project: Project) => {
     if (!get().user) return
     set({ syncStatus: 'syncing' })
@@ -509,7 +551,10 @@ export const useEditor = create<EditorState>((set, get) => {
       try {
         const user = await fetchMe()
         set({ user, apiAvailable: true, syncStatus: user ? 'idle' : 'offline' })
-        if (user) await mergeWithRemote()
+        if (user) {
+          await mergeWithRemote()
+          await syncModels().catch(() => set({ syncStatus: 'error' }))
+        }
       } catch {
         // no worker behind the app (plain vite dev) or network down: work locally
         set({ user: null, apiAvailable: false, syncStatus: 'offline' })
@@ -523,7 +568,10 @@ export const useEditor = create<EditorState>((set, get) => {
       }
     },
     syncNow: async () => {
-      if (get().user) await mergeWithRemote()
+      if (get().user) {
+        await mergeWithRemote()
+        await syncModels().catch(() => set({ syncStatus: 'error' }))
+      }
     },
 
     project: initialProject,
@@ -536,6 +584,56 @@ export const useEditor = create<EditorState>((set, get) => {
     setRailTab: (railTab) => set({ railTab }),
     prefsOpen: false,
     setPrefsOpen: (prefsOpen) => set({ prefsOpen }),
+    customModels: [],
+    loadCustomModels: async () => {
+      const list = loadCustomModelMeta()
+      const loaded: CustomModel[] = []
+      for (const m of list) {
+        try {
+          const blobs = await getModelBlobs(m.key)
+          if (blobs) {
+            await registerModelUrls(m.key, blobs)
+            loaded.push(m)
+          }
+        } catch {
+          // skip unreadable entries
+        }
+      }
+      set({ customModels: loaded })
+    },
+    importModel: async (file, name, unitScale) => {
+      const buffer = await file.arrayBuffer()
+      const parsed = await parseModelFile(buffer, unitScale)
+      const icons = await renderModelIcons(parsed.object, parsed.width, parsed.depth, parsed.height)
+      const key = newModelKey()
+      const meta: CustomModel = {
+        key,
+        name: name.trim() || file.name.replace(/\.(glb|gltf)$/i, ''),
+        category: CUSTOM_CATEGORY,
+        width: +parsed.width.toFixed(4),
+        depth: +parsed.depth.toFixed(4),
+        height: +parsed.height.toFixed(4),
+        elevation: 0,
+        creator: 'me',
+        license: 'own',
+        library: 'imported',
+        fit: parsed.fit,
+        createdAt: Date.now(),
+      }
+      const blobs = { glb: buffer, plan: icons.plan, thumb: icons.thumb }
+      await putModelBlobs(key, blobs)
+      await registerModelUrls(key, blobs)
+      saveModels([...get().customModels, meta])
+      if (get().user) uploadModel(meta).catch(() => set({ syncStatus: 'error' }))
+      return meta
+    },
+    deleteCustomModel: async (key) => {
+      unregisterModelUrls(key)
+      await deleteModelBlobs(key).catch(() => undefined)
+      saveModels(get().customModels.filter((m) => m.key !== key))
+      if (get().user) deleteRemoteModel(key).catch(() => set({ syncStatus: 'error' }))
+    },
+    catalogItem: (key) => CATALOG_BY_KEY[key] ?? get().customModels.find((m) => m.key === key),
     zoomLevel: 70,
     setZoomLevel: (zoomLevel) => set({ zoomLevel }),
     requestFit: () => set({ fitVersion: get().fitVersion + 1 }),
@@ -744,7 +842,7 @@ export const useEditor = create<EditorState>((set, get) => {
     },
 
     addFurniture: (catalogKey, pos, angle) => {
-      const item = CATALOG_BY_KEY[catalogKey]
+      const item = get().catalogItem(catalogKey)
       if (!item) return null
       const plan = get().plan
       const id = newId('f')

@@ -1,4 +1,4 @@
-import type { Store, User } from './store'
+import type { ObjectStore, Store, User } from './store'
 import { buildAuthUrl, exchangeCode, verifyIdToken, type GoogleConfig } from './google'
 import { error, json, parseCookies, randomToken, serializeCookie, sha256Base64url, sha256Hex } from './util'
 
@@ -6,9 +6,13 @@ export const SESSION_COOKIE = 'sl_session'
 const OAUTH_COOKIE = 'sl_oauth'
 const SESSION_TTL_MS = 30 * 24 * 3600 * 1000
 const MAX_PROJECT_BYTES = 2 * 1024 * 1024
+const MAX_MODEL_BYTES = 15 * 1024 * 1024
+const MAX_ICON_BYTES = 512 * 1024
 
 export interface AppConfig {
   store: Store
+  /** file storage for imported models; undefined when no bucket is bound */
+  objects?: ObjectStore
   google: GoogleConfig
   now?: () => number
   /** set to false for local http dev */
@@ -125,6 +129,58 @@ export function createApp(cfg: AppConfig) {
         if (req.method === 'DELETE') {
           await cfg.store.deleteProject(userId, id)
           return json({ ok: true })
+        }
+      }
+      // ---- imported 3D models ----
+      if (path === '/api/models' && req.method === 'GET') {
+        const rows = await cfg.store.listModels(userId)
+        return json({ models: rows.map((r) => ({ key: r.key, name: r.name, width: r.width, depth: r.depth, height: r.height, fit: JSON.parse(r.fit), createdAt: r.createdAt })) })
+      }
+      const mm = /^\/api\/models\/(u-[a-f0-9]{12})(?:\/(glb|plan|thumb))?$/.exec(path)
+      if (mm) {
+        const key = mm[1]
+        const part = mm[2] as 'glb' | 'plan' | 'thumb' | undefined
+        const objectKey = (p: string) => `users/${userId}/${key}.${p}`
+        if (!part) {
+          if (req.method === 'PUT') {
+            let body: Record<string, unknown>
+            try {
+              body = JSON.parse(await req.text())
+            } catch {
+              return error(400, 'invalid json')
+            }
+            const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null)
+            const width = num(body.width)
+            const depth = num(body.depth)
+            const height = num(body.height)
+            if (!width || !depth || !height || typeof body.fit !== 'object' || !body.fit) return error(400, 'invalid model')
+            const existing = await cfg.store.getModel(userId, key)
+            await cfg.store.putModel({ key, userId, name: typeof body.name === 'string' && body.name.trim() ? body.name.slice(0, 120) : 'Model', width, depth, height, fit: JSON.stringify(body.fit), createdAt: existing?.createdAt ?? (typeof body.createdAt === 'number' ? body.createdAt : now()) })
+            return json({ ok: true })
+          }
+          if (req.method === 'DELETE') {
+            await cfg.store.deleteModel(userId, key)
+            if (cfg.objects) await Promise.all(['glb', 'plan', 'thumb'].map((p) => cfg.objects!.delete(objectKey(p))))
+            return json({ ok: true })
+          }
+          return error(404, 'not found')
+        }
+        if (!cfg.objects) return error(503, 'model storage is not configured')
+        if (req.method === 'PUT') {
+          const length = Number(req.headers.get('content-length') ?? '0')
+          const cap = part === 'glb' ? MAX_MODEL_BYTES : MAX_ICON_BYTES
+          if (length > cap) return error(413, 'file too large')
+          if (!(await cfg.store.getModel(userId, key))) return error(404, 'register the model metadata first')
+          const buf = await req.arrayBuffer()
+          if (buf.byteLength > cap) return error(413, 'file too large')
+          await cfg.objects.put(objectKey(part), buf, part === 'glb' ? 'model/gltf-binary' : 'image/png')
+          return json({ ok: true })
+        }
+        if (req.method === 'GET') {
+          if (!(await cfg.store.getModel(userId, key))) return error(404, 'not found')
+          const obj = await cfg.objects.get(objectKey(part))
+          if (!obj) return error(404, 'not found')
+          return new Response(obj.body, { headers: { 'Content-Type': obj.contentType, 'Cache-Control': 'private, max-age=31536000, immutable' } })
         }
       }
       return error(404, 'not found')

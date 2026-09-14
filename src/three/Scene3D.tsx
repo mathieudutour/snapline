@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, PointerLockControls, Sky, useGLTF } from '@react-three/drei'
 import { Suspense } from 'react'
-import { CATALOG_BY_KEY, modelUrl } from '../furniture/catalog'
+import { resolveModelUrl } from '../furniture/catalog'
+import { isCustomKey } from '../furniture/customModels'
 import type { Furniture } from '../model/types'
 import * as THREE from 'three'
 import { useEditor } from '../model/store'
@@ -124,8 +125,9 @@ function WindowMesh({ o }: { o: OpeningMeshData }) {
   )
 }
 
-function FurnitureModel({ piece }: { piece: Furniture }) {
-  const { scene } = useGLTF(modelUrl(piece.catalogKey))
+function FurnitureModel({ piece, url }: { piece: Furniture; url: string }) {
+  const { scene } = useGLTF(url)
+  const custom = useEditor((s) => (isCustomKey(piece.catalogKey) ? s.customModels.find((m) => m.key === piece.catalogKey) : undefined))
   const cloned = useMemo(() => {
     const c = scene.clone(true)
     c.traverse((o) => {
@@ -137,10 +139,21 @@ function FurnitureModel({ piece }: { piece: Furniture }) {
     })
     return c
   }, [scene])
-  const item = CATALOG_BY_KEY[piece.catalogKey]
+  const item = useEditor((s) => s.catalogItem(piece.catalogKey))
   const sx = item ? piece.width / item.width : 1
   const sy = item ? piece.height / item.height : 1
   const sz = item ? piece.depth / item.depth : 1
+  if (custom) {
+    // imported files are raw: scale to metres and shift so the piece is centred with its floor at y=0
+    const [cx, minY, cz] = custom.fit.center
+    return (
+      <group scale={[sx, sy, sz]}>
+        <group scale={custom.fit.unitScale}>
+          <primitive object={cloned} position={[-cx, -minY, -cz]} />
+        </group>
+      </group>
+    )
+  }
   return <primitive object={cloned} scale={[sx, sy, sz]} />
 }
 
@@ -153,14 +166,24 @@ function FurniturePlaceholder({ piece }: { piece: Furniture }) {
   )
 }
 
+function FurnitureOrBox({ piece }: { piece: Furniture }) {
+  // re-render when imported models finish loading
+  useEditor((s) => s.customModels.length)
+  const url = resolveModelUrl(piece.catalogKey)
+  if (!url) return <FurniturePlaceholder piece={piece} />
+  return (
+    <Suspense fallback={<FurniturePlaceholder piece={piece} />}>
+      <FurnitureModel piece={piece} url={url} />
+    </Suspense>
+  )
+}
+
 function FurnitureMeshes({ furniture }: { furniture: Plan['furniture'] }) {
   return (
     <group>
       {Object.values(furniture ?? {}).map((piece) => (
         <group key={piece.id} position={[piece.x, piece.elevation, piece.y]} rotation={[0, -piece.angle, 0]}>
-          <Suspense fallback={<FurniturePlaceholder piece={piece} />}>
-            <FurnitureModel piece={piece} />
-          </Suspense>
+          <FurnitureOrBox piece={piece} />
         </group>
       ))}
     </group>

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createApp, SESSION_COOKIE } from './app'
-import { MemoryStore } from './store'
+import { MemoryObjects, MemoryStore } from './store'
 import { base64url, parseCookies } from './util'
 import { GOOGLE_JWKS_URL, GOOGLE_TOKEN_URL, resetJwksCache } from './google'
 
@@ -43,7 +43,7 @@ describe('worker app', () => {
     resetJwksCache()
     store = new MemoryStore()
     google = await makeGoogle()
-    handle = createApp({ store, google: { clientId: CLIENT_ID, clientSecret: 'secret', fetch: google.fetchStub } })
+    handle = createApp({ store, objects: new MemoryObjects(), google: { clientId: CLIENT_ID, clientSecret: 'secret', fetch: google.fetchStub } })
   })
 
   async function signIn(claims: Partial<Record<string, unknown>> = {}) {
@@ -122,5 +122,35 @@ describe('worker app', () => {
     expect(logout.status).toBe(200)
     const after = await handle(new Request(`${ORIGIN}/api/me`, { headers: { Cookie: `${SESSION_COOKIE}=${token}` } }))
     expect((await body(after)).user).toBeNull()
+  })
+
+  it('stores imported model metadata and files per user', async () => {
+    const cb = await signIn()
+    const token = parseCookies(setCookieHeaders(cb).find((c) => c.startsWith(SESSION_COOKIE))!.split(';')[0])[SESSION_COOKIE]
+    const auth = { Cookie: `${SESSION_COOKIE}=${token}`, Origin: ORIGIN }
+    const key = 'u-0123456789ab'
+    // files before metadata are refused
+    const early = await handle(new Request(`${ORIGIN}/api/models/${key}/glb`, { method: 'PUT', headers: { ...auth, 'Content-Type': 'model/gltf-binary' }, body: new Uint8Array([1, 2, 3]) }))
+    expect(early.status).toBe(404)
+    const meta = await handle(new Request(`${ORIGIN}/api/models/${key}`, { method: 'PUT', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Chair', width: 0.5, depth: 0.5, height: 0.9, fit: { unitScale: 1, center: [0, 0, 0] } }) }))
+    expect(meta.status).toBe(200)
+    const up = await handle(new Request(`${ORIGIN}/api/models/${key}/glb`, { method: 'PUT', headers: { ...auth, 'Content-Type': 'model/gltf-binary' }, body: new Uint8Array([1, 2, 3, 4]) }))
+    expect(up.status).toBe(200)
+    const list = await body(await handle(new Request(`${ORIGIN}/api/models`, { headers: auth })))
+    expect(list.models).toHaveLength(1)
+    expect(list.models[0].fit.unitScale).toBe(1)
+    const down = await handle(new Request(`${ORIGIN}/api/models/${key}/glb`, { headers: auth }))
+    expect(down.status).toBe(200)
+    expect(down.headers.get('Content-Type')).toBe('model/gltf-binary')
+    expect(new Uint8Array(await down.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4]))
+    // another user sees nothing
+    resetJwksCache()
+    const cb2 = await signIn({ sub: 'google-sub-2', email: 'other@example.com' })
+    const token2 = parseCookies(setCookieHeaders(cb2).find((c) => c.startsWith(SESSION_COOKIE))!.split(';')[0])[SESSION_COOKIE]
+    const other = await handle(new Request(`${ORIGIN}/api/models/${key}/glb`, { headers: { ...auth, Cookie: `${SESSION_COOKIE}=${token2}` } }))
+    expect(other.status).toBe(404)
+    // delete removes metadata and files
+    expect((await handle(new Request(`${ORIGIN}/api/models/${key}`, { method: 'DELETE', headers: auth }))).status).toBe(200)
+    expect((await handle(new Request(`${ORIGIN}/api/models/${key}/glb`, { headers: auth }))).status).toBe(404)
   })
 })
