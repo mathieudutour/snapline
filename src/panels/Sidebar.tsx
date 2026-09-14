@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useEditor } from '../model/store'
 import type { Constraint, Furniture, FurnitureSide, Opening, Wall } from '../model/types'
 import { nearestWallToSide, SIDE_LABELS } from '../model/furniture'
 import { CATALOG, CATEGORIES, creditsUrl, iconUrl } from '../furniture/catalog'
-import { constraintsReferencing, describeConstraint, pointDistance, shortId } from '../model/constraints'
-import { findRooms, wallLength } from '../model/geometry'
-import { formatArea, formatLength, parseLength } from '../model/units'
+import { constraintsReferencing, pointDistance, shortId } from '../model/constraints'
+import { wallLength } from '../model/geometry'
+import { formatLength, parseLength, type Units } from '../model/units'
 
-function LengthField({ value, onChange, label, units }: { value: number; onChange: (v: number) => void; label: string; units: 'm' | 'cm' }) {
+export function LengthField({ value, onChange, label, units }: { value: number; onChange: (v: number) => void; label: string; units: Units }) {
   const [text, setText] = useState(formatLength(value, units, false))
   useEffect(() => setText(formatLength(value, units, false)), [value, units])
   const commit = () => {
@@ -40,7 +40,7 @@ function WallProps({ wall }: { wall: Wall }) {
   const setWallLength = useEditor((s) => s.setWallLength)
   const addConstraint = useEditor((s) => s.addConstraint)
   const removeConstraint = useEditor((s) => s.removeConstraint)
-  const units = plan.settings.units
+  const units = useEditor((s) => s.units)
   const len = wallLength(plan, wall)
   const cs = constraintsReferencing(plan, { walls: [wall.id] })
   const lengthC = cs.find((c) => c.type === 'length')
@@ -150,7 +150,7 @@ function PointProps({ id }: { id: string }) {
 function TwoPointsProps({ a, b }: { a: string; b: string }) {
   const plan = useEditor((s) => s.plan)
   const addConstraint = useEditor((s) => s.addConstraint)
-  const units = plan.settings.units
+  const units = useEditor((s) => s.units)
   const d = pointDistance(plan, a, b)
   const existing = Object.values(plan.constraints).find((c) => c.type === 'distance' && ((c.pointA === a && c.pointB === b) || (c.pointA === b && c.pointB === a)))
   return (
@@ -172,7 +172,7 @@ function OpeningProps({ opening }: { opening: Opening }) {
   const updateOpening = useEditor((s) => s.updateOpening)
   const addConstraint = useEditor((s) => s.addConstraint)
   const removeConstraint = useEditor((s) => s.removeConstraint)
-  const units = plan.settings.units
+  const units = useEditor((s) => s.units)
   const wall = plan.walls[opening.wallId]
   const len = wallLength(plan, wall)
   const cs = constraintsReferencing(plan, { openings: [opening.id] })
@@ -227,7 +227,7 @@ function FurnitureProps({ piece }: { piece: Furniture }) {
   const updateFurniture = useEditor((s) => s.updateFurniture)
   const addConstraint = useEditor((s) => s.addConstraint)
   const removeConstraint = useEditor((s) => s.removeConstraint)
-  const units = plan.settings.units
+  const units = useEditor((s) => s.units)
   const cs = constraintsReferencing(plan, { furniture: [piece.id] })
   const fixed = cs.find((c) => c.type === 'furnitureFixed')
   const gaps = cs.filter((c): c is Extract<Constraint, { type: 'furnitureWallGap' }> => c.type === 'furnitureWallGap')
@@ -305,9 +305,8 @@ function FurnitureProps({ piece }: { piece: Furniture }) {
 }
 
 function FurnitureAndWallProps({ piece, wall }: { piece: Furniture; wall: Wall }) {
-  const plan = useEditor((s) => s.plan)
   const addConstraint = useEditor((s) => s.addConstraint)
-  const units = plan.settings.units
+  const units = useEditor((s) => s.units)
   const [side, setSide] = useState<FurnitureSide>('back')
   const [gap, setGap] = useState(0)
   return (
@@ -330,7 +329,7 @@ function FurnitureAndWallProps({ piece, wall }: { piece: Furniture; wall: Wall }
   )
 }
 
-function CataloguePanel() {
+export function CataloguePanel() {
   const placing = useEditor((s) => s.placing)
   const setPlacing = useEditor((s) => s.setPlacing)
   const [query, setQuery] = useState('')
@@ -372,6 +371,7 @@ function CataloguePanel() {
 
 function SettingsProps() {
   const settings = useEditor((s) => s.plan.settings)
+  const units = useEditor((s) => s.units)
   const setSettings = useEditor((s) => s.setSettings)
   const project = useEditor((s) => s.project)
   const activeFloorId = useEditor((s) => s.activeFloorId)
@@ -392,8 +392,8 @@ function SettingsProps() {
             <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => floor && name.trim() && name !== floor.name && renameFloor(floor.id, name.trim())} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
           </span>
         </label>
-        <LengthField label="Floor height" units={settings.units} value={settings.wallHeight} onChange={(v) => setSettings({ wallHeight: v })} />
-        <LengthField label="Wall thickness" units={settings.units} value={settings.wallThickness} onChange={(v) => setSettings({ wallThickness: v })} />
+        <LengthField label="Floor height" units={units} value={settings.wallHeight} onChange={(v) => setSettings({ wallHeight: v })} />
+        <LengthField label="Wall thickness" units={units} value={settings.wallThickness} onChange={(v) => setSettings({ wallThickness: v })} />
         <p className="muted small">Floor height is the default height of new walls on this floor and sets where the floor above starts.</p>
       </div>
       <div className="props">
@@ -427,121 +427,38 @@ function SettingsProps() {
         )}
         {roof.type !== 'none' && (
           <>
-            <LengthField label="Overhang" units={settings.units} value={roof.overhang} onChange={(v) => setRoof({ overhang: Math.max(0, v) })} />
-            {roof.type === 'flat' && <LengthField label="Thickness" units={settings.units} value={roof.thickness} onChange={(v) => setRoof({ thickness: Math.max(0.05, v) })} />}
+            <LengthField label="Overhang" units={units} value={roof.overhang} onChange={(v) => setRoof({ overhang: Math.max(0, v) })} />
+            {roof.type === 'flat' && <LengthField label="Thickness" units={units} value={roof.thickness} onChange={(v) => setRoof({ thickness: Math.max(0.05, v) })} />}
             <label className="field">
               <span>Colour</span>
               <input type="color" value={roof.color} onChange={(e) => setRoof({ color: e.target.value })} />
             </label>
           </>
         )}
-        <LengthField label="Slab between floors" units={settings.units} value={project.slabThickness} onChange={setSlabThickness} />
+        <LengthField label="Slab between floors" units={units} value={project.slabThickness} onChange={setSlabThickness} />
         <p className="muted small">The roof covers the top floor's outline, aligned with its longest wall. Select a wall, corner, door, window or piece of furniture to edit it.</p>
       </div>
     </>
   )
 }
 
-export function Sidebar() {
+export function SelectionInspector() {
   const plan = useEditor((s) => s.plan)
   const selection = useEditor((s) => s.selection)
-  const violated = useEditor((s) => s.report.violated)
-  const removeConstraint = useEditor((s) => s.removeConstraint)
-  const select = useEditor((s) => s.select)
-  const tool = useEditor((s) => s.tool)
-  const rooms = useMemo(() => findRooms(plan), [plan])
 
   const walls = selection.filter((s) => s.kind === 'wall').map((s) => plan.walls[s.id]).filter(Boolean)
   const points = selection.filter((s) => s.kind === 'point').map((s) => s.id).filter((id) => plan.points[id])
   const openings = selection.filter((s) => s.kind === 'opening').map((s) => plan.openings[s.id]).filter(Boolean)
   const furniture = selection.filter((s) => s.kind === 'furniture').map((s) => plan.furniture[s.id]).filter(Boolean)
 
-  let props: React.ReactNode
-  if (tool === 'furniture') props = <CataloguePanel />
-  else if (furniture.length === 1 && walls.length === 1 && points.length === 0 && openings.length === 0) props = <FurnitureAndWallProps piece={furniture[0]} wall={walls[0]} />
-  else if (furniture.length === 1 && walls.length === 0 && points.length === 0 && openings.length === 0) props = <FurnitureProps piece={furniture[0]} />
-  else if (furniture.length > 0) props = <div className="props muted small">{selection.length} items selected. Press Delete to remove them.</div>
-  else if (openings.length === 1 && walls.length === 0 && points.length === 0) props = <OpeningProps opening={openings[0]} />
-  else if (walls.length === 1 && points.length === 0 && openings.length === 0) props = <WallProps wall={walls[0]} />
-  else if (walls.length === 2 && points.length === 0 && openings.length === 0) props = <TwoWallsProps a={walls[0]} b={walls[1]} />
-  else if (points.length === 1 && walls.length === 0 && openings.length === 0) props = <PointProps id={points[0]} />
-  else if (points.length === 2 && walls.length === 0 && openings.length === 0) props = <TwoPointsProps a={points[0]} b={points[1]} />
-  else if (selection.length === 0) props = <SettingsProps />
-  else props = <div className="props muted small">{selection.length} items selected. Press Delete to remove them.</div>
-
-  const selectFor = (c: Constraint) => {
-    switch (c.type) {
-      case 'length':
-      case 'horizontal':
-      case 'vertical':
-        return select([{ kind: 'wall', id: c.wallId }])
-      case 'parallel':
-      case 'perpendicular':
-      case 'equalLength':
-      case 'angle':
-        return select([
-          { kind: 'wall', id: c.wallA },
-          { kind: 'wall', id: c.wallB },
-        ])
-      case 'fixed':
-        return select([{ kind: 'point', id: c.pointId }])
-      case 'distance':
-        return select([
-          { kind: 'point', id: c.pointA },
-          { kind: 'point', id: c.pointB },
-        ])
-      case 'furnitureWallGap':
-        return select([{ kind: 'furniture', id: c.furnitureId }])
-      case 'furnitureFixed':
-        return select([{ kind: 'furniture', id: c.furnitureId }])
-      default:
-        return select([{ kind: 'opening', id: c.openingId }])
-    }
-  }
-
-  const constraints = Object.values(plan.constraints)
-  return (
-    <div className="sidebar">
-      {props}
-      <div className="props">
-        <h3>
-          Constraints <span className="count">{constraints.length}</span>
-        </h3>
-        {constraints.length === 0 && <p className="muted small">No constraints yet. Click a measurement on the plan and type a value to lock it.</p>}
-        <ul className="constraints">
-          {constraints.map((c) => (
-            <li key={c.id} className={violated.has(c.id) ? 'bad' : ''}>
-              <button className="link" onClick={() => selectFor(c)} title="Select">
-                {violated.has(c.id) ? '⚠ ' : ''}
-                {describeConstraint(plan, c)}
-              </button>
-              <button className="x" onClick={() => removeConstraint(c.id)} title="Remove constraint">
-                ×
-              </button>
-            </li>
-          ))}
-        </ul>
-        {violated.size > 0 && <p className="warn small">Highlighted constraints conflict with each other; the solver found the closest compromise. Remove or edit one of them.</p>}
-      </div>
-      <div className="props">
-        <h3>
-          Rooms <span className="count">{rooms.length}</span>
-        </h3>
-        {rooms.length === 0 && <p className="muted small">Close a loop of walls to create a room.</p>}
-        <ul className="rooms">
-          {rooms.map((r, i) => (
-            <li key={r.id}>
-              <span>Room {i + 1}</span>
-              <span>{formatArea(r.area)}</span>
-            </li>
-          ))}
-        </ul>
-        {rooms.length > 0 && (
-          <p className="muted small">
-            Total: {formatArea(rooms.reduce((s, r) => s + r.area, 0))}
-          </p>
-        )}
-      </div>
-    </div>
-  )
+  if (furniture.length === 1 && walls.length === 1 && points.length === 0 && openings.length === 0) return <FurnitureAndWallProps piece={furniture[0]} wall={walls[0]} />
+  if (furniture.length === 1 && walls.length === 0 && points.length === 0 && openings.length === 0) return <FurnitureProps piece={furniture[0]} />
+  if (furniture.length > 0) return <div className="props muted small">{selection.length} items selected. Press Delete to remove them.</div>
+  if (openings.length === 1 && walls.length === 0 && points.length === 0) return <OpeningProps opening={openings[0]} />
+  if (walls.length === 1 && points.length === 0 && openings.length === 0) return <WallProps wall={walls[0]} />
+  if (walls.length === 2 && points.length === 0 && openings.length === 0) return <TwoWallsProps a={walls[0]} b={walls[1]} />
+  if (points.length === 1 && walls.length === 0 && openings.length === 0) return <PointProps id={points[0]} />
+  if (points.length === 2 && walls.length === 0 && openings.length === 0) return <TwoPointsProps a={points[0]} b={points[1]} />
+  if (selection.length === 0) return <SettingsProps />
+  return <div className="props muted small">{selection.length} items selected. Press Delete to remove them.</div>
 }

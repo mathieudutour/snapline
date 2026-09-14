@@ -44,139 +44,28 @@ npm run build      # production bundle in dist/
 The interaction model follows Figma: single-key tools, scroll to pan, Ctrl/⌘ + scroll to zoom,
 Esc to go back to the Select tool. Press `?` in the app for the full list.
 
+The editor is laid out like Figma: an icon rail on the left (layers, furniture, projects, preferences),
+a left panel with the floors and a hierarchy of rooms, walls, openings, furniture and constraints, the
+canvas in the middle with a floating toolbar at the bottom, and an inspector for the selection on the right.
+
 | Action | How |
 | --- | --- |
-| Tools | `V` select, `W` wall, `D` door, `N` window, `H` hand. Esc returns to Select. |
+| Tools | Bottom toolbar or single keys: `V` select, `W` wall, `D` door, `N` window, `F` furniture, `H` hand. Esc returns to Select. |
 | Draw walls | `W`, then click corner after corner. Enter, Esc or right-click ends the chain. Close a loop to create a room. Shift constrains to 45°, Ctrl/⌘ disables snapping. |
 | Set a length | Click the dimension label of a wall, type a value, Enter. The value is locked (padlock icon). Untick "Lock as constraint" to resize once without locking. |
 | Move things | Drag corners, walls or openings, or nudge the selection with the arrow keys (Shift for 10×). Constraints are respected. |
-| Select | Click, Shift+click to add, drag on empty space for a marquee, Ctrl/⌘+A for everything. |
-| Navigate | Scroll to pan, Ctrl/⌘+scroll or pinch to zoom, Space+drag to pan, `+`/`-`, Shift+0 (100%), Shift+1 (fit), Shift+2 (fit selection). |
+| Select | Click, Shift+click to add, drag on empty space for a marquee, Ctrl/⌘+A for everything, or click rows in the Layers panel. |
+| Navigate | Scroll to pan, Ctrl/⌘+scroll or pinch to zoom, Space+drag to pan, `+`/`-`, Shift+0 (100%), Shift+1 (fit), Shift+2 (fit selection). The zoom readout in the inspector header fits the plan. |
 | Join walls | Drop a corner onto another corner or onto a wall. |
 | Doors / windows | `D` / `N`, then click on a wall. Select an opening to lock its distance from either wall end. |
-| Furniture | `F`, pick a piece in the panel, click to place. `R` rotates. Dropping a piece against a wall snaps its back to the wall and locks the gap. Drag the handle to rotate, or set sides and gaps in the panel. |
-| Relate two walls | Shift-click two walls, then choose parallel / perpendicular / equal / angle in the side panel. |
+| Furniture | `F` or the Furniture rail tab opens the catalogue in the left panel; click a piece, then click on the plan. `R` rotates. Dropping a piece against a wall snaps its back to the wall and locks the gap. |
+| Relate two walls | Shift-click two walls, then choose parallel / perpendicular / equal / angle in the inspector. |
 | Anchor a corner | Select a corner and click "Anchor in place" so the plan does not drift. |
-| Floors | Use the strip at the top left of the canvas: switch, add, duplicate, rename (double-click) or remove floors; PageUp / PageDown switch floors. With nothing selected the side panel edits the floor's name and height. |
-| Roof | With nothing selected, pick the roof type, pitch, ridge direction, overhang and colour in the side panel. |
-| Projects | Click the project name in the toolbar to switch, create, rename, import, export or delete projects. Old single-plan saves are migrated automatically. |
-| 3D / walkthrough | Use the tabs at the top. All floors and the roof are shown; tick "Cut above current floor" to look inside. In the walkthrough click to capture the mouse, move with WASD or arrows, Shift to run, Esc to release. The walkthrough runs on the floor selected in the strip. |
-
-## Accounts and sync (Cloudflare)
-
-The app works entirely in the browser, but it can also run on Cloudflare Workers with Google sign-in so
-projects are saved to an account and available on other devices. The Worker in `worker/` serves the built
-app, handles the Google OAuth flow itself (authorization code with PKCE, ID token verified against
-Google's published keys) and keeps users, sessions and projects in a D1 database. Sessions are random
-tokens stored hashed, sent as an `HttpOnly`, `SameSite=Lax` cookie; mutations require a matching `Origin`.
-
-Nothing else is stored: no passwords, no emails sent. On the Workers free plan this costs nothing at hobby
-scale; the paid plan is $5/month.
-
-### Deploy, step by step
-
-You need a Cloudflare account (free plan is enough), a Google Cloud project, and this repository on GitHub.
-
-**1. Create the database (once)**
-
-```sh
-npm install
-npx wrangler login                 # opens the browser
-npx wrangler d1 create snapline    # prints a database_id
-```
-
-Paste the printed `database_id` into `wrangler.jsonc` and commit it. The id is an identifier, not a secret.
-
-**2. Create the Google OAuth client (once)**
-
-In the Google Cloud Console go to APIs & Services → Credentials → Create credentials → OAuth client ID,
-type "Web application". You will add the redirect URI after the first deploy (step 5). If the consent
-screen is not configured yet, configure it as "External" and add your own account as a test user, or
-publish it.
-
-Keep the client id and client secret at hand.
-
-**3. Create a Cloudflare API token (once)**
-
-Cloudflare dashboard → My Profile → API Tokens → Create Token → use the "Edit Cloudflare Workers"
-template, then add the permission `Account → D1 → Edit`. Also note your Account ID (Workers & Pages
-overview, right-hand column).
-
-**4. Add the GitHub secrets (once)**
-
-Repository → Settings → Secrets and variables → Actions → New repository secret:
-
-| Secret | Value |
-| --- | --- |
-| `CLOUDFLARE_API_TOKEN` | the token from step 3 |
-| `CLOUDFLARE_ACCOUNT_ID` | your Cloudflare account id |
-| `GOOGLE_CLIENT_ID` | from step 2 |
-| `GOOGLE_CLIENT_SECRET` | from step 2 |
-
-**5. Push to `main`**
-
-`.github/workflows/deploy.yml` runs typecheck, tests and the build on every push and pull request. On a
-push to `main` it also applies `worker/schema.sql` to D1 (safe to re-run), uploads the Google secrets to
-the Worker, deploys, and hits `/api/me` on the new deployment as a smoke test. The URL appears on the
-workflow run and under Environments → production.
-
-The first deploy gives you `https://snapline.<your-subdomain>.workers.dev`. Go back to the Google OAuth
-client and add `https://snapline.<your-subdomain>.workers.dev/auth/google/callback` as an authorised
-redirect URI. Sign-in works from then on; no redeploy needed.
-
-**6. Optional: custom domain**
-
-Cloudflare dashboard → Workers & Pages → snapline → Settings → Domains & Routes → add your domain. Then
-add `https://<your-domain>/auth/google/callback` to the Google client as well.
-
-**Deploying by hand instead**
-
-```sh
-npx wrangler secret put GOOGLE_CLIENT_ID
-npx wrangler secret put GOOGLE_CLIENT_SECRET
-npm run db:migrate
-npm run deploy
-```
-
-### Local development with sign-in
-
-```sh
-cp .dev.vars.example .dev.vars   # fill in the Google client id and secret
-npm run db:migrate:local
-npm run build && npm run dev:worker   # http://localhost:8787 serves the built app + API
-```
-
-Or run `npm run dev` (Vite with hot reload) alongside `npm run dev:worker`: Vite proxies `/api` and
-`/auth` to the Worker. Without a Worker the app simply stays in local-only mode.
-
-### Pages
-
-| Path | Signed out | Signed in |
-| --- | --- | --- |
-| `/` | landing page | the editor |
-| `/home` | landing page | landing page (like GitHub's `/home`) |
-| `/login` | sign-in page | redirects to the editor |
-
-When the app is served without the Worker (plain `vite dev` or `vite preview`) there is no account
-backend, so `/` opens the editor in local-only mode.
-
-### How sync works
-
-Projects are always saved in the browser. When signed in, every change is also pushed to the account a
-second later, and on start-up the local and remote project lists are merged: a project missing on one
-side is copied over, and when both have it the more recently updated copy wins.
-
-## How the solver works
-
-Every corner contributes two variables (x, y) and every opening one (its offset along the wall).
-Each constraint contributes a residual function that is zero when the constraint holds. The plan is
-solved with a small Levenberg–Marquardt least-squares solver (`src/model/solver.ts`) in two phases:
-
-1. Pull towards what the user asked for (the cursor while dragging, or a new constraint value), with a
-   weak pull of every other point towards where it currently is so the nearest layout wins.
-2. Drop the drag pull and polish onto the exact constraint manifold.
-
-Constraints whose residual is still above tolerance after phase 2 are reported as conflicting.
+| Floors | Floors list in the left panel: click to switch, `+` to add, hover a floor for duplicate / remove, double-click to rename; PageUp / PageDown switch floors. With nothing selected the inspector edits the floor's name and height. |
+| Roof | With nothing selected, pick the roof type, pitch, ridge direction, overhang and colour in the inspector. |
+| Projects | The project name at the top of the left panel opens a menu (rename, import, export, delete); the Projects rail tab lists all projects. |
+| Preferences | The Prefs rail tab: metric (m or cm) or imperial (feet and inches), grid snap, auto-lock, ghost of the floor below. |
+| 3D / walkthrough | Switch with 2D / 3D / Walk in the inspector header. In 3D tick "Cut above" to look inside; the walkthrough runs on the floor selected in the Floors list. |
 
 ## Furniture catalogue
 

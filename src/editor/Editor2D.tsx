@@ -5,7 +5,7 @@ import { CATALOG_BY_KEY, planIconUrl } from '../furniture/catalog'
 import { add, dist, dot, findRooms, normalize, perp, planBounds, pointInPolygon, projectOnSegment, scale, sub, wallLength, wallPolygon, wallsAtPoint } from '../model/geometry'
 import { floorBelow, isSelected, useEditor, type SelectionItem } from '../model/store'
 import { constraintsReferencing } from '../model/constraints'
-import { formatArea, formatLength, parseLength } from '../model/units'
+import { formatArea, formatLength, parseLength, type Units } from '../model/units'
 import { snapPosition, type SnapResult } from './snapping'
 import { screenToWorld, worldToScreen, type Viewport } from './viewport'
 import { Dimension } from './Dimension'
@@ -634,7 +634,7 @@ export function Editor2D() {
 
   const commitEdit = (raw: string, lock: boolean) => {
     if (!editing) return
-    const value = parseLength(raw, plan.settings.units)
+    const value = parseLength(raw, units)
     const st = useEditor.getState()
     if (value !== null && value > 0) {
       if (editing.kind === 'wallLength') st.setWallLength(editing.wallId, value, lock)
@@ -668,7 +668,9 @@ export function Editor2D() {
   const visibleMin = screenToWorld(vp, { x: 0, y: 0 }, size.width, size.height)
   const visibleMax = screenToWorld(vp, { x: size.width, y: size.height }, size.width, size.height)
   const showMinorGrid = vp.scale > 35
-  const units = plan.settings.units
+  const units = useEditor((s) => s.units)
+  const setZoomLevel = useEditor((s) => s.setZoomLevel)
+  useEffect(() => setZoomLevel(vp.scale), [vp.scale, setZoomLevel])
 
   const cursorStyle = tool === 'pan' || space ? 'grab' : tool === 'wall' || tool === 'door' || tool === 'window' || (tool === 'furniture' && placing) ? 'crosshair' : 'default'
 
@@ -727,7 +729,7 @@ export function Editor2D() {
             <g key={r.id} style={{ pointerEvents: 'none' }}>
               <polygon points={r.polygon.map((p) => `${p.x},${p.y}`).join(' ')} fill="#f6f1e7" />
               <text x={r.centroid.x} y={r.centroid.y} fontSize={12 * px} textAnchor="middle" dominantBaseline="central" fill="#8a7d66" fontFamily="ui-sans-serif, system-ui, sans-serif">
-                {formatArea(r.area)}
+                {formatArea(r.area, units)}
               </text>
             </g>
           ))}
@@ -971,7 +973,7 @@ export function Editor2D() {
         {tool === 'wall' && !drawing && 'Click to start a wall. Shift constrains to 45°, Ctrl/⌘ disables snapping.'}
         {tool === 'wall' && drawing && 'Click to place the next corner · Enter, Esc or right-click to finish'}
         {(tool === 'door' || tool === 'window') && `Click on a wall to place a ${tool}.`}
-        {tool === 'furniture' && !placing && 'Pick a piece of furniture in the panel on the right.'}
+        {tool === 'furniture' && !placing && 'Pick a piece of furniture in the panel on the left.'}
         {tool === 'furniture' && placing && 'Click to place · R rotates · drops against walls lock the piece to the wall · Ctrl/⌘ disables snapping'}
         {tool === 'select' && 'Drag corners, walls or openings, or drag on empty space to marquee-select. Click a measurement to type a value. Press ? for shortcuts.'}
         {tool === 'pan' && 'Drag to pan · scroll to pan · Ctrl/⌘ + scroll to zoom'}
@@ -986,7 +988,7 @@ export function Editor2D() {
   )
 }
 
-function EditBox({ screen, initial, units, onCommit, onCancel }: { screen: Vec2; initial: string; units: 'm' | 'cm'; onCommit: (raw: string, lock: boolean) => void; onCancel: () => void }) {
+function EditBox({ screen, initial, units, onCommit, onCancel }: { screen: Vec2; initial: string; units: Units; onCommit: (raw: string, lock: boolean) => void; onCancel: () => void }) {
   const [value, setValue] = useState(initial)
   const [lock, setLock] = useState(true)
   return (

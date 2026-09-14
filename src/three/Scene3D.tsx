@@ -296,7 +296,6 @@ export function Scene3D({ walk }: { walk: boolean }) {
   const scenes = useFloorScenes()
   const activeFloorId = useEditor((s) => s.activeFloorId)
   const cutAboveActive = useEditor((s) => s.cutAboveActive)
-  const setCutAboveActive = useEditor((s) => s.setCutAboveActive)
   const roofType = useEditor((s) => s.project.roof.type)
   const [locked, setLocked] = useState(false)
   const controlsRef = useRef<{ lock: () => void; unlock: () => void } | null>(null)
@@ -347,21 +346,12 @@ export function Scene3D({ walk }: { walk: boolean }) {
           <div className="card">
             <h2>Walk through your plan</h2>
             <p>Click to start. Move with <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> or the arrow keys, look around with the mouse, hold <kbd>Shift</kbd> to run.</p>
-            <p>Press <kbd>Esc</kbd> to release the mouse. Pick another floor in the strip at the top left.</p>
+            <p>Press <kbd>Esc</kbd> to release the mouse. Pick another floor in the Floors list on the left.</p>
           </div>
         </div>
       )}
       {walk && locked && <div className="crosshair" />}
-      {!walk && (
-        <div className="scene-hint">
-          Drag to orbit · right-drag to pan · scroll to zoom
-          {scenes.length > 1 || roofType !== 'none' ? (
-            <label className="toggle" style={{ marginLeft: 12 }}>
-              <input type="checkbox" checked={cutAboveActive} onChange={(e) => setCutAboveActive(e.target.checked)} /> Cut above current floor
-            </label>
-          ) : null}
-        </div>
-      )}
+      {!walk && <div className="scene-hint">Drag to orbit · right-drag to pan · scroll to zoom</div>}
     </div>
   )
 }

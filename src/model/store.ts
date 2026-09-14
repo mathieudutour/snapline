@@ -6,6 +6,7 @@ import { constraintsReferencing, solvePlan, type DragTarget, type FurnitureDrag,
 import { dist, projectOnSegment, wallLength, wallsAtPoint } from './geometry'
 import { exampleProject } from './example'
 import { defaultFloorName, floorElevation, newProject, normalizeProject, type Floor, type Project, type ProjectMeta, type Roof } from './project'
+import type { Units } from './units'
 import { deleteRemoteProject, fetchMe, getRemoteProject, listRemoteProjects, putRemoteProject, signOut as apiSignOut, type AccountUser } from '../sync/api'
 
 export type Tool = 'select' | 'wall' | 'door' | 'window' | 'furniture' | 'pan'
@@ -37,6 +38,16 @@ export interface EditorState {
   projects: ProjectMeta[]
   showFloorBelow: boolean
   cutAboveActive: boolean
+  units: Units
+  /** which left-panel tab is open */
+  railTab: 'layers' | 'furniture'
+  setRailTab: (tab: 'layers' | 'furniture') => void
+  prefsOpen: boolean
+  setPrefsOpen: (v: boolean) => void
+  /** current 2D zoom in pixels per metre (display only) */
+  zoomLevel: number
+  setZoomLevel: (z: number) => void
+  requestFit: () => void
   plan: Plan
   report: SolveReport
   selection: SelectionItem[]
@@ -61,7 +72,7 @@ export interface EditorState {
   setMode: (mode: ViewMode) => void
   setSnapGrid: (v: boolean) => void
   setAutoHV: (v: boolean) => void
-  setUnits: (u: Plan['settings']['units']) => void
+  setUnits: (u: Units) => void
   setSettings: (patch: Partial<Plan['settings']>) => void
 
   select: (items: SelectionItem[], additive?: boolean) => void
@@ -109,6 +120,27 @@ export interface EditorState {
   deleteProject: (id: string) => void
   importProject: (raw: unknown) => void
   loadExample: () => void
+}
+
+const PREFS_KEY = 'snapline.prefs'
+interface Prefs {
+  units: Units
+  snapGrid: boolean
+  autoHV: boolean
+  showFloorBelow: boolean
+}
+function loadPrefs(): Prefs {
+  const d: Prefs = { units: 'm', snapGrid: true, autoHV: true, showFloorBelow: true }
+  const raw = readJson<Partial<Prefs>>(PREFS_KEY)
+  return raw ? { ...d, ...raw } : d
+}
+function savePrefs(p: Prefs) {
+  if (!hasStorage()) return
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(p))
+  } catch {
+    // ignore
+  }
 }
 
 const LEGACY_KEY = 'snapline.plan.v1'
@@ -357,6 +389,11 @@ export function splitWall(plan: Plan, wallId: string, t: number): { plan: Plan; 
 }
 
 export const useEditor = create<EditorState>((set, get) => {
+  const prefs = loadPrefs()
+  const persistPrefs = () => {
+    const s = get()
+    savePrefs({ units: s.units, snapGrid: s.snapGrid, autoHV: s.autoHV, showFloorBelow: s.showFloorBelow })
+  }
   const index = loadIndex()
   let initialProject = (index.activeId && loadProject(index.activeId)) || null
   let projects = index.list
@@ -491,16 +528,24 @@ export const useEditor = create<EditorState>((set, get) => {
     project: initialProject,
     activeFloorId: initialFloorId,
     projects,
-    showFloorBelow: true,
+    showFloorBelow: prefs.showFloorBelow,
     cutAboveActive: false,
+    units: prefs.units,
+    railTab: 'layers',
+    setRailTab: (railTab) => set({ railTab }),
+    prefsOpen: false,
+    setPrefsOpen: (prefsOpen) => set({ prefsOpen }),
+    zoomLevel: 70,
+    setZoomLevel: (zoomLevel) => set({ zoomLevel }),
+    requestFit: () => set({ fitVersion: get().fitVersion + 1 }),
     plan: solved.plan,
     report: solved.report,
     selection: [],
     tool: 'select',
     mode: 'plan',
-    snapGrid: true,
+    snapGrid: prefs.snapGrid,
     gridSize: 0.05,
-    autoHV: true,
+    autoHV: prefs.autoHV,
     undoStack: [],
     redoStack: [],
     dragSnapshot: null,
@@ -511,11 +556,20 @@ export const useEditor = create<EditorState>((set, get) => {
     placing: null,
     setPlacing: (placing) => set({ placing }),
 
-    setTool: (tool) => set({ tool, selection: tool === 'select' ? get().selection : [], placing: tool === 'furniture' ? get().placing : null }),
+    setTool: (tool) => set({ tool, selection: tool === 'select' ? get().selection : [], placing: tool === 'furniture' ? get().placing : null, railTab: tool === 'furniture' ? 'furniture' : get().railTab }),
     setMode: (mode) => set({ mode }),
-    setSnapGrid: (snapGrid) => set({ snapGrid }),
-    setAutoHV: (autoHV) => set({ autoHV }),
-    setUnits: (units) => get().setSettings({ units }),
+    setSnapGrid: (snapGrid) => {
+      set({ snapGrid })
+      persistPrefs()
+    },
+    setAutoHV: (autoHV) => {
+      set({ autoHV })
+      persistPrefs()
+    },
+    setUnits: (units) => {
+      set({ units })
+      persistPrefs()
+    },
     setSettings: (patch) => {
       const plan = get().plan
       get().commit({ ...plan, settings: { ...plan.settings, ...patch } })
@@ -839,7 +893,10 @@ export const useEditor = create<EditorState>((set, get) => {
       restore(next)
     },
 
-    setShowFloorBelow: (showFloorBelow) => set({ showFloorBelow }),
+    setShowFloorBelow: (showFloorBelow) => {
+      set({ showFloorBelow })
+      persistPrefs()
+    },
     setCutAboveActive: (cutAboveActive) => set({ cutAboveActive }),
     setActiveFloor: (id) => {
       const { project, activeFloorId } = get()
