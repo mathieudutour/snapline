@@ -17,13 +17,36 @@ export interface SnapOptions {
   from?: Vec2
   excludePoints?: Set<string>
   excludeWalls?: Set<string>
-  /** disable all snapping except point snapping (Shift) */
+  /** disable all snapping (Ctrl / Cmd held) */
   free?: boolean
+  /** force the direction from `from` onto a multiple of 45° (Shift held) */
+  constrainAngle?: boolean
 }
 
 export function snapPosition(plan: Plan, raw: Vec2, opts: SnapOptions): SnapResult {
   const guides: SnapResult['guides'] = []
   const thr = opts.threshold
+  if (opts.constrainAngle && opts.from) {
+    const dx = raw.x - opts.from.x
+    const dy = raw.y - opts.from.y
+    const l = Math.hypot(dx, dy)
+    const step = Math.PI / 4
+    const snapped = Math.round(Math.atan2(dy, dx) / step) * step
+    const k = Math.round(snapped / step)
+    const pos = { x: opts.from.x + Math.cos(snapped) * l, y: opts.from.y + Math.sin(snapped) * l }
+    if (k % 4 === 0) pos.y = opts.from.y
+    if (Math.abs(k % 4) === 2) pos.x = opts.from.x
+    if (opts.gridSize && !opts.free) {
+      // keep the angle exact: snap the distance along the ray to the grid
+      const g = opts.gridSize
+      const along = Math.round(l / g) * g
+      pos.x = opts.from.x + Math.cos(snapped) * along
+      pos.y = opts.from.y + Math.sin(snapped) * along
+      if (k % 4 === 0) pos.y = opts.from.y
+      if (Math.abs(k % 4) === 2) pos.x = opts.from.x
+    }
+    return { pos, guides, angleSnapped: true }
+  }
   // 1. existing points
   let bestPoint: { id: string; d: number } | null = null
   for (const p of Object.values(plan.points)) {

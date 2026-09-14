@@ -23,6 +23,10 @@ export interface EditorState {
   redoStack: Plan[]
   dragSnapshot: Plan | null
   lastSaved: number
+  /** bumped whenever a whole new plan is loaded so the editor zooms to fit */
+  fitVersion: number
+  showShortcuts: boolean
+  toggleShortcuts: (v?: boolean) => void
 
   setTool: (tool: Tool) => void
   setMode: (mode: ViewMode) => void
@@ -223,6 +227,9 @@ export const useEditor = create<EditorState>((set, get) => {
     redoStack: [],
     dragSnapshot: null,
     lastSaved: Date.now(),
+    fitVersion: 0,
+    showShortcuts: false,
+    toggleShortcuts: (v) => set({ showShortcuts: v ?? !get().showShortcuts }),
 
     setTool: (tool) => set({ tool, selection: tool === 'select' ? get().selection : [] }),
     setMode: (mode) => set({ mode }),
@@ -523,7 +530,7 @@ export const useEditor = create<EditorState>((set, get) => {
     resetPlan: (plan) => {
       const next = plan ? normalizePlan(plan) : emptyPlan()
       const solved = solvePlan(next)
-      set({ plan: solved.plan, report: solved.report, undoStack: [...get().undoStack, get().plan].slice(-MAX_UNDO), redoStack: [], selection: [] })
+      set({ plan: solved.plan, report: solved.report, undoStack: [...get().undoStack, get().plan].slice(-MAX_UNDO), redoStack: [], selection: [], fitVersion: get().fitVersion + 1 })
       scheduleSave(solved.plan)
     },
     loadExample: () => get().resetPlan(examplePlan()),

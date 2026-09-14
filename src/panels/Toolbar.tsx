@@ -34,6 +34,7 @@ export function Toolbar() {
   const resetPlan = useEditor((s) => s.resetPlan)
   const loadExample = useEditor((s) => s.loadExample)
   const violations = useEditor((s) => s.report.violated.size)
+  const toggleShortcuts = useEditor((s) => s.toggleShortcuts)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const exportJson = () => {
@@ -73,7 +74,7 @@ export function Toolbar() {
           <div className="seg">
             {TOOLS.map((t) => (
               <button key={t.id} className={tool === t.id ? 'active' : ''} onClick={() => setTool(t.id)} title={`${t.label} (${t.key})`}>
-                <span className="icon">{t.icon}</span> {t.label}
+                <span className="icon">{t.icon}</span> {t.label} <kbd>{t.key}</kbd>
               </button>
             ))}
           </div>
@@ -123,6 +124,11 @@ export function Toolbar() {
         <button onClick={loadExample}>Example</button>
         <button onClick={() => fileRef.current?.click()}>Import</button>
         <button onClick={exportJson}>Export</button>
+      </div>
+      <div className="seg">
+        <button onClick={() => toggleShortcuts()} title="Keyboard shortcuts (?)">
+          ?
+        </button>
         <input
           ref={fileRef}
           type="file"

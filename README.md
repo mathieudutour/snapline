@@ -34,11 +34,17 @@ npm run build      # production bundle in dist/
 
 ## How to use
 
+The interaction model follows Figma: single-key tools, scroll to pan, Ctrl/⌘ + scroll to zoom,
+Esc to go back to the Select tool. Press `?` in the app for the full list.
+
 | Action | How |
 | --- | --- |
-| Draw walls | `W`, then click corner after corner. Enter / Esc / right-click ends the chain. Close a loop to create a room. |
+| Tools | `V` select, `W` wall, `D` door, `N` window, `H` hand. Esc returns to Select. |
+| Draw walls | `W`, then click corner after corner. Enter, Esc or right-click ends the chain. Close a loop to create a room. Shift constrains to 45°, Ctrl/⌘ disables snapping. |
 | Set a length | Click the dimension label of a wall, type a value, Enter. The value is locked (padlock icon). Untick "Lock as constraint" to resize once without locking. |
-| Move things | `V`, then drag corners, walls or openings. Constraints are respected while you drag. |
+| Move things | Drag corners, walls or openings, or nudge the selection with the arrow keys (Shift for 10×). Constraints are respected. |
+| Select | Click, Shift+click to add, drag on empty space for a marquee, Ctrl/⌘+A for everything. |
+| Navigate | Scroll to pan, Ctrl/⌘+scroll or pinch to zoom, Space+drag to pan, `+`/`-`, Shift+0 (100%), Shift+1 (fit), Shift+2 (fit selection). |
 | Join walls | Drop a corner onto another corner or onto a wall. |
 | Doors / windows | `D` / `N`, then click on a wall. Select an opening to lock its distance from either wall end. |
 | Relate two walls | Shift-click two walls, then choose parallel / perpendicular / equal / angle in the side panel. |
