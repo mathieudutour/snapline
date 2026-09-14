@@ -10,12 +10,14 @@ editing, and tells you when two rules cannot both hold.
 ## Features
 
 - **Walls, doors and windows** drawn on a 2D plan with snapping to corners, walls, alignments and a 5 cm grid.
+- **Furniture** from a catalogue of 117 models (beds, sofas, kitchen units, bathroom fixtures, office, lights) shown as top-view symbols in 2D and real models in 3D. Pieces dropped against a wall stay locked to it.
 - **Constraints that stick**
   - wall length (click any dimension label and type a value)
   - horizontal / vertical (added automatically when you draw straight walls)
   - parallel, perpendicular, equal length and explicit angle between two walls
   - anchored corners and distance between two corners
   - door / window position: distance from either end of the wall, or centred
+  - furniture: a side of a piece parallel to a wall at a given gap (0 for "against the wall"), or anchored in place
 - **Conflict detection**: when constraints cannot all be satisfied the solver finds the closest
   compromise, highlights the conflicting constraints in red, and offers a one-click undo.
 - **Rooms** are detected automatically from closed wall loops, with their floor area.
@@ -47,6 +49,7 @@ Esc to go back to the Select tool. Press `?` in the app for the full list.
 | Navigate | Scroll to pan, Ctrl/⌘+scroll or pinch to zoom, Space+drag to pan, `+`/`-`, Shift+0 (100%), Shift+1 (fit), Shift+2 (fit selection). |
 | Join walls | Drop a corner onto another corner or onto a wall. |
 | Doors / windows | `D` / `N`, then click on a wall. Select an opening to lock its distance from either wall end. |
+| Furniture | `F`, pick a piece in the panel, click to place. `R` rotates. Dropping a piece against a wall snaps its back to the wall and locks the gap. Drag the handle to rotate, or set sides and gaps in the panel. |
 | Relate two walls | Shift-click two walls, then choose parallel / perpendicular / equal / angle in the side panel. |
 | Anchor a corner | Select a corner and click "Anchor in place" so the plan does not drift. |
 | 3D / walkthrough | Use the tabs at the top. In the walkthrough click to capture the mouse, move with WASD or arrows, Shift to run, Esc to release. |
@@ -63,6 +66,26 @@ solved with a small Levenberg–Marquardt least-squares solver (`src/model/solve
 
 Constraints whose residual is still above tolerance after phase 2 are reported as conflicting.
 
+## Furniture catalogue
+
+The models come from the free libraries distributed with [Sweet Home 3D](https://www.sweethome3d.com/)
+(Blend Swap CC0 and CC-BY sets, Scopia and Kator Legaz under CC-BY, community contributions and
+Luca Presidente under the Free Art License). Per-model authors and licences are listed in
+`public/furniture/CREDITS.md` and shown in the app.
+
+The catalogue is generated, not hand-made:
+
+```sh
+# 1. unpack the .sh3f libraries (zip files) into a folder, one sub-folder per library
+# 2. convert the curated selection in scripts/furniture-selection.json to GLB + thumbnails + catalog.json
+node scripts/import-furniture.mjs /path/to/unpacked-libraries
+# 3. render top-view symbols for the 2D plan with headless Chromium
+node scripts/render-plan-icons.mjs
+```
+
+Each OBJ is normalised so its bounding box matches the catalogue size, simplified when heavy, quantised,
+and its textures resized and converted to WebP, giving about 115 KB per model on average.
+
 ## Project layout
 
 ```
@@ -70,4 +93,7 @@ src/model      plan types, geometry (mitres, room detection), solver, constraint
 src/editor     2D SVG editor, snapping, dimension labels
 src/panels     toolbar and side panel
 src/three      3D scene builder, orbit view, walkthrough and collisions
+src/furniture  catalogue metadata and asset URLs
+public/furniture  generated GLB models, thumbnails, plan symbols and credits
+scripts        catalogue import and icon rendering
 ```

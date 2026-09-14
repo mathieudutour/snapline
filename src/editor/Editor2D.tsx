@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Opening, Plan, Vec2, Wall } from '../model/types'
+import type { Furniture, Opening, Plan, Vec2, Wall } from '../model/types'
+import { furnitureCorners, localToPlan, snapFurnitureToWall } from '../model/furniture'
+import { CATALOG_BY_KEY, planIconUrl } from '../furniture/catalog'
 import { add, dist, dot, findRooms, normalize, perp, planBounds, pointInPolygon, projectOnSegment, scale, sub, wallLength, wallPolygon, wallsAtPoint } from '../model/geometry'
 import { isSelected, useEditor, type SelectionItem } from '../model/store'
 import { constraintsReferencing } from '../model/constraints'
@@ -13,6 +15,8 @@ type DragState =
   | { kind: 'point'; id: string; moved: boolean; snap: SnapResult | null; start: Vec2 }
   | { kind: 'wall'; id: string; startA: Vec2; startB: Vec2; startCursor: Vec2; moved: boolean }
   | { kind: 'opening'; id: string; moved: boolean }
+  | { kind: 'furniture'; id: string; start: Vec2; startAngle: number; startCursor: Vec2; moved: boolean; snappedWall: string | null }
+  | { kind: 'rotate'; id: string; moved: boolean }
   | { kind: 'click-empty'; startScreen: Vec2; startWorld: Vec2 }
 
 type Editing = { kind: 'wallLength'; wallId: string; screen: Vec2 } | { kind: 'openingOffset'; openingId: string; end: 'a' | 'b'; screen: Vec2 }
@@ -60,7 +64,10 @@ export function Editor2D() {
   const [ctrl, setCtrl] = useState(false)
   const [space, setSpace] = useState(false)
   const [marquee, setMarquee] = useState<{ a: Vec2; b: Vec2 } | null>(null)
+  const [placeAngle, setPlaceAngle] = useState(0)
   const fitVersion = useEditor((s) => s.fitVersion)
+  const placing = useEditor((s) => s.placing)
+  const autoHV = useEditor((s) => s.autoHV)
   const showShortcuts = useEditor((s) => s.showShortcuts)
   const dragRef = useRef<DragState | null>(null)
 
@@ -135,6 +142,7 @@ export function Editor2D() {
         const g = openingGeometry(plan, plan.openings[s.id])
         if (g) pts.push(g.start, g.end)
       }
+      if (s.kind === 'furniture' && plan.furniture[s.id]) pts.push(...furnitureCorners(plan.furniture[s.id]))
     }
     if (pts.length === 0) return null
     const min = { x: Math.min(...pts.map((p) => p.x)), y: Math.min(...pts.map((p) => p.y)) }
@@ -163,8 +171,10 @@ export function Editor2D() {
         pointIds.add(plan.walls[s.id].b)
       }
     }
-    if (pointIds.size === 0 && !selection.some((s) => s.kind === 'opening')) return
+    const furnitureIds = selection.filter((s) => s.kind === 'furniture' && plan.furniture[s.id]).map((s) => s.id)
+    if (pointIds.size === 0 && furnitureIds.length === 0 && !selection.some((s) => s.kind === 'opening')) return
     st.beginDrag()
+    if (furnitureIds.length > 0) st.dragFurniture(furnitureIds.map((id) => ({ furnitureId: id, x: plan.furniture[id].x + dx, y: plan.furniture[id].y + dy })))
     if (pointIds.size > 0) {
       st.dragTo([...pointIds].map((id) => ({ pointId: id, x: plan.points[id].x + dx, y: plan.points[id].y + dy })))
     } else {
@@ -212,6 +222,7 @@ export function Editor2D() {
         st.select([
           ...Object.keys(st.plan.walls).map((id) => ({ kind: 'wall' as const, id })),
           ...Object.keys(st.plan.openings).map((id) => ({ kind: 'opening' as const, id })),
+          ...Object.keys(st.plan.furniture).map((id) => ({ kind: 'furniture' as const, id })),
         ])
         return
       }
@@ -249,6 +260,7 @@ export function Editor2D() {
           return
         }
         if (drawing) finishDrawing()
+        else if (st.placing) st.setPlacing(null)
         else {
           st.clearSelection()
           st.setTool('select')
@@ -272,8 +284,22 @@ export function Editor2D() {
         nudge(dx, dy)
         return
       }
+      if (!mod && key === 'r') {
+        const step = (e.shiftKey ? -1 : 1) * (Math.PI / 2)
+        if (st.placing) {
+          setPlaceAngle((a) => a + step)
+          return
+        }
+        const pieces = st.selection.filter((s) => s.kind === 'furniture' && st.plan.furniture[s.id])
+        if (pieces.length > 0) {
+          st.beginDrag()
+          st.dragFurniture(pieces.map((p) => ({ furnitureId: p.id, angle: st.plan.furniture[p.id].angle + step })))
+          st.endDrag()
+        }
+        return
+      }
       if (mod || e.altKey) return
-      const map: Record<string, typeof st.tool> = { v: 'select', w: 'wall', d: 'door', n: 'window', h: 'pan' }
+      const map: Record<string, typeof st.tool> = { v: 'select', w: 'wall', d: 'door', n: 'window', f: 'furniture', h: 'pan' }
       const t = map[key]
       if (t) {
         st.setTool(t)
@@ -353,6 +379,15 @@ export function Editor2D() {
     return { wallId: best.wall.id, offset, width }
   }, [cursor, tool, plan, threshold])
 
+  const placingItem = placing ? CATALOG_BY_KEY[placing] : null
+  const placementGhost = useMemo(() => {
+    if (!cursor || tool !== 'furniture' || !placingItem) return null
+    let pos = cursor
+    if (snapGrid && !ctrl) pos = { x: Math.round(pos.x / gridSize) * gridSize, y: Math.round(pos.y / gridSize) * gridSize }
+    const snap = ctrl ? null : snapFurnitureToWall(plan, placingItem, pos, placeAngle, Math.max(0.3, threshold * 3))
+    return snap ? { x: snap.x, y: snap.y, angle: snap.angle, wallId: snap.wallId } : { x: pos.x, y: pos.y, angle: placeAngle, wallId: null }
+  }, [cursor, tool, placingItem, placeAngle, plan, snapGrid, gridSize, ctrl, threshold])
+
   const onPointerDown = (e: React.PointerEvent) => {
     if (editing) setEditing(null)
     const target = e.target as Element
@@ -387,6 +422,16 @@ export function Editor2D() {
       }
       return
     }
+    if (tool === 'furniture') {
+      if (placementGhost && placing) {
+        const id = st.addFurniture(placing, { x: placementGhost.x, y: placementGhost.y }, placementGhost.angle)
+        if (id && placementGhost.wallId && autoHV) st.addConstraint({ type: 'furnitureWallGap', furnitureId: id, wallId: placementGhost.wallId, side: 'back', value: 0 })
+        st.setPlacing(null)
+        st.setTool('select')
+        if (id) st.select([{ kind: 'furniture', id }])
+      }
+      return
+    }
     if (tool === 'door' || tool === 'window') {
       if (hoveredWallForOpening) {
         const id = st.addOpening(hoveredWallForOpening.wallId, hoveredWallForOpening.offset, tool)
@@ -410,6 +455,11 @@ export function Editor2D() {
       const w = plan.walls[id]
       dragRef.current = { kind: 'wall', id, startA: { ...plan.points[w.a] }, startB: { ...plan.points[w.b] }, startCursor: world, moved: false }
     } else if (kind === 'opening') dragRef.current = { kind: 'opening', id, moved: false }
+    else if (kind === 'furniture') {
+      const f = plan.furniture[id]
+      if (hit.dataset.handle === 'rotate') dragRef.current = { kind: 'rotate', id, moved: false }
+      else dragRef.current = { kind: 'furniture', id, start: { x: f.x, y: f.y }, startAngle: f.angle, startCursor: world, moved: false, snappedWall: null }
+    }
   }
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -451,6 +501,32 @@ export function Editor2D() {
       ])
       return
     }
+    if (drag?.kind === 'furniture') {
+      const f = plan.furniture[drag.id]
+      if (!f) return
+      const delta = sub(world, drag.startCursor)
+      let pos = add(drag.start, delta)
+      if (snapGrid && !ctrl) pos = { x: Math.round(pos.x / gridSize) * gridSize, y: Math.round(pos.y / gridSize) * gridSize }
+      const wallSnap = ctrl ? null : snapFurnitureToWall(plan, f, pos, f.angle, Math.max(0.25, threshold * 2.5))
+      drag.moved = true
+      drag.snappedWall = wallSnap?.wallId ?? null
+      st.dragFurniture([wallSnap ? { furnitureId: f.id, x: wallSnap.x, y: wallSnap.y, angle: wallSnap.angle } : { furnitureId: f.id, x: pos.x, y: pos.y }])
+      return
+    }
+    if (drag?.kind === 'rotate') {
+      const f = plan.furniture[drag.id]
+      if (!f) return
+      const d = sub(world, { x: f.x, y: f.y })
+      // the handle sits on the back of the piece: back normal is (sin a, -cos a)
+      let angle = Math.atan2(d.x, -d.y)
+      if (!ctrl) {
+        const step = Math.PI / 12
+        angle = Math.round(angle / step) * step
+      }
+      drag.moved = true
+      st.dragFurniture([{ furnitureId: f.id, angle }])
+      return
+    }
     if (drag?.kind === 'opening') {
       const o = plan.openings[drag.id]
       if (!o) return
@@ -487,6 +563,7 @@ export function Editor2D() {
           const g = openingGeometry(plan, o)
           if (g && inside(g.start) && inside(g.end)) items.push({ kind: 'opening', id: o.id })
         }
+        for (const f of Object.values(plan.furniture)) if (inside({ x: f.x, y: f.y })) items.push({ kind: 'furniture', id: f.id })
         for (const p of Object.values(plan.points)) {
           // corners only when none of their walls made it in, so a marquee around a room selects walls, not corners
           if (inside(p) && !wallsAtPoint(plan, p.id).some((w) => items.some((i) => i.kind === 'wall' && i.id === w.id))) items.push({ kind: 'point', id: p.id })
@@ -505,9 +582,18 @@ export function Editor2D() {
       setSnap(null)
       return
     }
-    if (drag.kind === 'wall' || drag.kind === 'opening') {
+    if (drag.kind === 'wall' || drag.kind === 'opening' || drag.kind === 'rotate') {
       st.endDrag()
       setSnap(null)
+      return
+    }
+    if (drag.kind === 'furniture') {
+      st.endDrag()
+      if (drag.moved && drag.snappedWall && autoHV) {
+        const f = useEditor.getState().plan.furniture[drag.id]
+        const already = Object.values(useEditor.getState().plan.constraints).some((c) => c.type === 'furnitureWallGap' && c.furnitureId === drag.id && c.side === 'back' && c.wallId === drag.snappedWall)
+        if (f && !already) st.addConstraint({ type: 'furnitureWallGap', furnitureId: drag.id, wallId: drag.snappedWall, side: 'back', value: 0 })
+      }
     }
   }
 
@@ -561,7 +647,7 @@ export function Editor2D() {
     const cs = constraintsReferencing(plan, { walls: [wallId] })
     const badges: { label: string; violated: boolean; id: string }[] = []
     for (const c of cs) {
-      if (c.type === 'length') continue
+      if (c.type === 'length' || c.type === 'furnitureWallGap' || c.type === 'furnitureFixed') continue
       const label = { horizontal: 'H', vertical: 'V', parallel: '∥', perpendicular: '⟂', equalLength: '=', angle: '∠' }[c.type as string] ?? '?'
       badges.push({ label, violated: violated.has(c.id), id: c.id })
     }
@@ -573,7 +659,7 @@ export function Editor2D() {
   const showMinorGrid = vp.scale > 35
   const units = plan.settings.units
 
-  const cursorStyle = tool === 'pan' || space ? 'grab' : tool === 'wall' || tool === 'door' || tool === 'window' ? 'crosshair' : 'default'
+  const cursorStyle = tool === 'pan' || space ? 'grab' : tool === 'wall' || tool === 'door' || tool === 'window' || (tool === 'furniture' && placing) ? 'crosshair' : 'default'
 
   const selectedOpenings = selection.filter((s) => s.kind === 'opening').map((s) => plan.openings[s.id]).filter(Boolean)
   const editingValue = (() => {
@@ -710,6 +796,17 @@ export function Editor2D() {
               </g>
             )
           })}
+
+          {/* furniture */}
+          {Object.values(plan.furniture).map((f) => (
+            <FurnitureShape key={f.id} piece={f} selected={isSelected(selection, 'furniture', f.id)} hovered={hover?.kind === 'furniture' && hover.id === f.id && tool === 'select'} px={px} interactive={tool === 'select'} onHover={(h) => setHover(h ? { kind: 'furniture', id: f.id } : null)} />
+          ))}
+          {tool === 'select' && selection.filter((s) => s.kind === 'furniture' && plan.furniture[s.id]).map((s) => <FurnitureHandles key={s.id} piece={plan.furniture[s.id]} px={px} />)}
+          {placementGhost && placingItem && (
+            <g style={{ pointerEvents: 'none' }} opacity={0.75}>
+              <FurnitureShape piece={{ id: 'ghost', catalogKey: placingItem.key, name: placingItem.name, x: placementGhost.x, y: placementGhost.y, angle: placementGhost.angle, width: placingItem.width, depth: placingItem.depth, height: placingItem.height, elevation: placingItem.elevation }} selected hovered={false} px={px} interactive={false} onHover={() => {}} />
+            </g>
+          )}
 
           {/* opening placement preview */}
           {hoveredWallForOpening &&
@@ -854,6 +951,8 @@ export function Editor2D() {
         {tool === 'wall' && !drawing && 'Click to start a wall. Shift constrains to 45°, Ctrl/⌘ disables snapping.'}
         {tool === 'wall' && drawing && 'Click to place the next corner · Enter, Esc or right-click to finish'}
         {(tool === 'door' || tool === 'window') && `Click on a wall to place a ${tool}.`}
+        {tool === 'furniture' && !placing && 'Pick a piece of furniture in the panel on the right.'}
+        {tool === 'furniture' && placing && 'Click to place · R rotates · drops against walls lock the piece to the wall · Ctrl/⌘ disables snapping'}
         {tool === 'select' && 'Drag corners, walls or openings, or drag on empty space to marquee-select. Click a measurement to type a value. Press ? for shortcuts.'}
         {tool === 'pan' && 'Drag to pan · scroll to pan · Ctrl/⌘ + scroll to zoom'}
       </div>
@@ -938,5 +1037,33 @@ function ShortcutsPanel({ onClose }: { onClose: () => void }) {
         ))}
       </div>
     </div>
+  )
+}
+
+function FurnitureShape({ piece, selected, hovered, px, interactive, onHover }: { piece: Furniture; selected: boolean; hovered: boolean; px: number; interactive: boolean; onHover: (h: boolean) => void }) {
+  void interactive
+  const deg = (piece.angle * 180) / Math.PI
+  const side = Math.max(piece.width, piece.depth) * 1.02
+  const stroke = selected ? '#2f6fed' : hovered ? '#4a7ee8' : '#6b6b6b'
+  const wallMounted = piece.elevation > 0.9
+  return (
+    <g data-kind="furniture" data-id={piece.id} onPointerEnter={() => onHover(true)} onPointerLeave={() => onHover(false)} style={{ cursor: interactive ? 'move' : undefined }}>
+      <g transform={`translate(${piece.x} ${piece.y}) rotate(${deg})`}>
+        <rect x={-piece.width / 2} y={-piece.depth / 2} width={piece.width} height={piece.depth} fill={wallMounted ? 'rgba(255,255,255,0.35)' : 'white'} stroke={stroke} strokeWidth={px * (selected ? 2 : 1)} strokeDasharray={wallMounted ? `${4 * px} ${3 * px}` : undefined} />
+        <image href={planIconUrl(piece.catalogKey)} x={-side / 2} y={-side / 2} width={side} height={side} preserveAspectRatio="none" opacity={wallMounted ? 0.6 : 1} style={{ pointerEvents: 'none' }} />
+      </g>
+    </g>
+  )
+}
+
+/** rotation handle, drawn above every piece so it is never hidden by a neighbour */
+function FurnitureHandles({ piece, px }: { piece: Furniture; px: number }) {
+  const handle = localToPlan(piece, 0, -piece.depth / 2 - 22 * px)
+  const back = localToPlan(piece, 0, -piece.depth / 2)
+  return (
+    <g data-kind="furniture" data-id={piece.id} data-handle="rotate" style={{ cursor: 'grab' }}>
+      <line x1={back.x} y1={back.y} x2={handle.x} y2={handle.y} stroke="#2f6fed" strokeWidth={px} />
+      <circle cx={handle.x} cy={handle.y} r={6 * px} fill="white" stroke="#2f6fed" strokeWidth={px * 1.5} />
+    </g>
   )
 }

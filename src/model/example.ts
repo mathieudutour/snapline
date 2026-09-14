@@ -1,4 +1,5 @@
-import type { Constraint, Opening, Plan, Wall } from './types'
+import type { Constraint, Furniture, Opening, Plan, Wall } from './types'
+import { CATALOG_BY_KEY } from '../furniture/catalog'
 import { emptyPlan } from './types'
 
 /** A small two-bedroom apartment used as the onboarding example. */
@@ -73,5 +74,45 @@ export function examplePlan(): Plan {
     { id: 'c21', type: 'openingOffsetA', openingId: 'o1', value: 0.8 },
   ]
   for (const c of constraints) plan.constraints[c.id] = c
+
+  const HALF = Math.PI / 2
+  const furniture: [string, string, number, number, number, string | null, number?][] = [
+    // id, catalogue key, x, y, angle, wall to lock the back against, elevation
+    ['f1', 'b0-bed1', 2.9, 1.75, HALF, 'w9'],
+    ['f2', 'b0-bedsidetable2', 3.7, 0.79, HALF, 'w9'],
+    ['f3', 'b0-bedsidetable2', 3.7, 2.71, HALF, 'w9'],
+    ['f4', 'by-wardrobe', 0.585, 0.465, 0, 'w1'],
+    ['f5', 'b0-couch', 8.435, 1.75, HALF, 'w3'],
+    ['f6', 'by-coffeetable', 7.3, 1.75, HALF, null],
+    ['f7', 'b0-televisioncabinet', 4.405, 1.75, -HALF, 'w9'],
+    ['f8', 'by-biurko3', 6.5, 0.425, 0, 'w2'],
+    ['f9', 'kl-office-chair', 6.5, 1.15, Math.PI, null],
+    ['f10', 'b0-sinkcabinet2', 0.425, 6.07, Math.PI, 'w6'],
+    ['f11', 'b0-lowercabinet', 1.025, 6.07, Math.PI, 'w6'],
+    ['f12', 'b0-drawerscabinet', 1.625, 6.07, Math.PI, 'w6'],
+    ['f13', 'b0-lowercabinet', 2.225, 6.07, Math.PI, 'w6'],
+    ['f14', 'lp-frigo', 2.825, 6.06, Math.PI, 'w6'],
+    ['f15', 'b0-uppercabinet', 0.425, 6.17, Math.PI, 'w6', 1.5],
+    ['f16', 'b0-uppercabinet', 1.025, 6.17, Math.PI, 'w6', 1.5],
+    ['f17', 'by-table', 3.6, 4.6, 0, null],
+    ['f18', 'by-kitchenchair', 3.2, 3.9, 0, null],
+    ['f19', 'by-kitchenchair', 4.0, 3.9, 0, null],
+    ['f20', 'by-kitchenchair', 3.2, 5.3, Math.PI, null],
+    ['f21', 'by-kitchenchair', 4.0, 5.3, Math.PI, null],
+    ['f22', 'b0-toiletsunit', 8.53, 4.2, HALF, 'w4'],
+    ['f23', 'b0-washbasin', 7.6, 3.79, 0, 'w12'],
+    ['f24', 'co-shower-cabin', 8.425, 5.925, Math.PI, 'w5'],
+  ]
+  let n = 100
+  for (const [id, key, x, y, angle, wallId, elevation] of furniture) {
+    const item = CATALOG_BY_KEY[key]
+    if (!item) continue
+    const piece: Furniture = { id, catalogKey: key, name: item.name, x, y, angle, width: item.width, depth: item.depth, height: item.height, elevation: elevation ?? item.elevation }
+    plan.furniture[id] = piece
+    if (wallId) {
+      const cid = `c${n++}`
+      plan.constraints[cid] = { id: cid, type: 'furnitureWallGap', furnitureId: id, wallId, side: 'back', value: 0 }
+    }
+  }
   return plan
 }

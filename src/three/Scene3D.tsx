@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { OrbitControls, PointerLockControls, Sky } from '@react-three/drei'
+import { OrbitControls, PointerLockControls, Sky, useGLTF } from '@react-three/drei'
+import { Suspense } from 'react'
+import { CATALOG_BY_KEY, modelUrl } from '../furniture/catalog'
+import type { Furniture } from '../model/types'
 import * as THREE from 'three'
 import { useEditor } from '../model/store'
 import { buildScene, type OpeningMeshData, type SceneData } from './buildScene'
@@ -87,6 +90,50 @@ function WindowMesh({ o }: { o: OpeningMeshData }) {
   )
 }
 
+function FurnitureModel({ piece }: { piece: Furniture }) {
+  const { scene } = useGLTF(modelUrl(piece.catalogKey))
+  const cloned = useMemo(() => {
+    const c = scene.clone(true)
+    c.traverse((o) => {
+      const mesh = o as THREE.Mesh
+      if (mesh.isMesh) {
+        mesh.castShadow = true
+        mesh.receiveShadow = true
+      }
+    })
+    return c
+  }, [scene])
+  const item = CATALOG_BY_KEY[piece.catalogKey]
+  const sx = item ? piece.width / item.width : 1
+  const sy = item ? piece.height / item.height : 1
+  const sz = item ? piece.depth / item.depth : 1
+  return <primitive object={cloned} scale={[sx, sy, sz]} />
+}
+
+function FurniturePlaceholder({ piece }: { piece: Furniture }) {
+  return (
+    <mesh position={[0, piece.height / 2, 0]}>
+      <boxGeometry args={[piece.width, piece.height, piece.depth]} />
+      <meshStandardMaterial color="#c9c4bb" wireframe />
+    </mesh>
+  )
+}
+
+function FurnitureMeshes() {
+  const furniture = useEditor((s) => s.plan.furniture)
+  return (
+    <group>
+      {Object.values(furniture ?? {}).map((piece) => (
+        <group key={piece.id} position={[piece.x, piece.elevation, piece.y]} rotation={[0, -piece.angle, 0]}>
+          <Suspense fallback={<FurniturePlaceholder piece={piece} />}>
+            <FurnitureModel piece={piece} />
+          </Suspense>
+        </group>
+      ))}
+    </group>
+  )
+}
+
 function PlanMeshes({ data, showCeilings }: { data: SceneData; showCeilings: boolean }) {
   return (
     <group>
@@ -108,6 +155,7 @@ function PlanMeshes({ data, showCeilings }: { data: SceneData; showCeilings: boo
         </group>
       ))}
       {data.openings.map((o) => (o.opening.kind === 'door' ? <DoorMesh key={o.id} o={o} /> : <WindowMesh key={o.id} o={o} />))}
+      <FurnitureMeshes />
     </group>
   )
 }
@@ -192,7 +240,7 @@ function WalkController({ data, locked }: { data: SceneData; locked: boolean }) 
     velocity.current.lerp(wish, Math.min(1, dt * 12))
     const step = Math.min(dt, 0.05)
     camera.position.addScaledVector(velocity.current, step)
-    resolveCollisions(camera.position, data.blockers, 0.3)
+    resolveCollisions(camera.position, data.blockers, 0.3, data.furnitureBlockers)
     camera.position.y = eye
   })
   return null

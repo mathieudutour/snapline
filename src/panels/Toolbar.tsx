@@ -7,6 +7,7 @@ const TOOLS: { id: Tool; label: string; key: string; icon: string }[] = [
   { id: 'wall', label: 'Wall', key: 'W', icon: '▬' },
   { id: 'door', label: 'Door', key: 'D', icon: '◧' },
   { id: 'window', label: 'Window', key: 'N', icon: '▥' },
+  { id: 'furniture', label: 'Furniture', key: 'F', icon: '🛋' },
   { id: 'pan', label: 'Pan', key: 'H', icon: '✋' },
 ]
 
@@ -89,8 +90,8 @@ export function Toolbar() {
           <label className="toggle" title="Snap to the 5 cm grid">
             <input type="checkbox" checked={snapGrid} onChange={(e) => setSnapGrid(e.target.checked)} /> Grid snap
           </label>
-          <label className="toggle" title="Automatically lock walls drawn horizontally / vertically">
-            <input type="checkbox" checked={autoHV} onChange={(e) => setAutoHV(e.target.checked)} /> Auto H/V
+          <label className="toggle" title="Automatically lock walls drawn horizontally / vertically, and furniture dropped against a wall">
+            <input type="checkbox" checked={autoHV} onChange={(e) => setAutoHV(e.target.checked)} /> Auto-lock
           </label>
           <div className="seg small">
             <button className={units === 'm' ? 'active' : ''} onClick={() => setUnits('m')}>

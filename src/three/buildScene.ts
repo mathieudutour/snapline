@@ -34,11 +34,21 @@ export interface Blocker {
   halfThickness: number
 }
 
+/** rotated footprint of a piece of furniture the player cannot walk through */
+export interface FurnitureBlocker {
+  x: number
+  z: number
+  angle: number
+  hw: number
+  hd: number
+}
+
 export interface SceneData {
   walls: WallMeshData[]
   openings: OpeningMeshData[]
   floors: FloorMeshData[]
   blockers: Blocker[]
+  furnitureBlockers: FurnitureBlocker[]
   center: Vec2
   radius: number
   spawn: Vec2
@@ -194,6 +204,9 @@ export function buildScene(plan: Plan): SceneData {
       swingPositiveZ: o.swingRight,
     })
   }
+  const furnitureBlockers: FurnitureBlocker[] = Object.values(plan.furniture ?? {})
+    .filter((f) => f.elevation < 1.2 && f.elevation + f.height > 0.25 && Math.min(f.width, f.depth) > 0.15)
+    .map((f) => ({ x: f.x, z: f.y, angle: f.angle, hw: f.width / 2, hd: f.depth / 2 }))
   const rooms = findRooms(plan)
   const floors: FloorMeshData[] = rooms.map((r) => {
     const heights = r.pointIds.flatMap((pid) => Object.values(plan.walls).filter((w) => w.a === pid || w.b === pid).map((w) => w.height))
@@ -210,6 +223,7 @@ export function buildScene(plan: Plan): SceneData {
     openings,
     floors,
     blockers,
+    furnitureBlockers,
     center,
     radius,
     spawn,

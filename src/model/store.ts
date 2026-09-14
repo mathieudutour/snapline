@@ -1,14 +1,15 @@
 import { create } from 'zustand'
-import type { Constraint, ConstraintInput, Opening, OpeningKind, Plan, PlanPoint, Vec2, Wall } from './types'
+import type { Constraint, ConstraintInput, Furniture, Opening, OpeningKind, Plan, PlanPoint, Vec2, Wall } from './types'
+import { CATALOG_BY_KEY } from '../furniture/catalog'
 import { emptyPlan, newId } from './types'
-import { constraintsReferencing, solvePlan, type DragTarget, type SolveReport } from './constraints'
+import { constraintsReferencing, solvePlan, type DragTarget, type FurnitureDrag, type SolveReport } from './constraints'
 import { dist, projectOnSegment, wallLength, wallsAtPoint } from './geometry'
 import { examplePlan } from './example'
 
-export type Tool = 'select' | 'wall' | 'door' | 'window' | 'pan'
+export type Tool = 'select' | 'wall' | 'door' | 'window' | 'furniture' | 'pan'
 export type ViewMode = 'plan' | '3d' | 'walk'
 
-export type SelectionItem = { kind: 'point' | 'wall' | 'opening'; id: string }
+export type SelectionItem = { kind: 'point' | 'wall' | 'opening' | 'furniture'; id: string }
 
 export interface EditorState {
   plan: Plan
@@ -27,6 +28,9 @@ export interface EditorState {
   fitVersion: number
   showShortcuts: boolean
   toggleShortcuts: (v?: boolean) => void
+  /** catalogue key of the piece being placed with the furniture tool */
+  placing: string | null
+  setPlacing: (key: string | null) => void
 
   setTool: (tool: Tool) => void
   setMode: (mode: ViewMode) => void
@@ -42,6 +46,7 @@ export interface EditorState {
   beginDrag: () => void
   dragTo: (drags: DragTarget[]) => void
   dragOpening: (openingId: string, offset: number) => void
+  dragFurniture: (drags: FurnitureDrag[]) => void
   endDrag: () => void
 
   ensurePoint: (pos: Vec2, opts?: { onPointId?: string; onWall?: { wallId: string; t: number } }) => { plan: Plan; pointId: string }
@@ -50,6 +55,8 @@ export interface EditorState {
   updateWall: (id: string, patch: Partial<Wall>) => void
   updateOpening: (id: string, patch: Partial<Opening>) => void
   updatePoint: (id: string, patch: Partial<PlanPoint>) => void
+  addFurniture: (catalogKey: string, pos: Vec2, angle: number) => string | null
+  updateFurniture: (id: string, patch: Partial<Furniture>) => void
   setWallLength: (wallId: string, value: number, lock: boolean) => void
   addConstraint: (c: ConstraintInput) => void
   removeConstraint: (id: string) => void
@@ -84,6 +91,7 @@ export function normalizePlan(raw: Partial<Plan>): Plan {
     points: raw.points ?? {},
     walls: raw.walls ?? {},
     openings: raw.openings ?? {},
+    furniture: raw.furniture ?? {},
     constraints: raw.constraints ?? {},
     settings: { ...base.settings, ...(raw.settings ?? {}) },
   }
@@ -124,6 +132,10 @@ function withoutConflicting(plan: Plan, c: ConstraintInput): Record<string, Cons
       const samePair = (existing.wallA === c.wallA && existing.wallB === c.wallB) || (existing.wallA === c.wallB && existing.wallB === c.wallA)
       const angular = (t: string) => t === 'parallel' || t === 'perpendicular' || t === 'angle'
       drop = samePair && (existing.type === c.type || (angular(existing.type) && angular(c.type)))
+    } else if (c.type === 'furnitureWallGap' && existing.type === 'furnitureWallGap') {
+      drop = existing.furnitureId === c.furnitureId && existing.side === c.side
+    } else if (c.type === 'furnitureFixed' && existing.type === 'furnitureFixed') {
+      drop = existing.furnitureId === c.furnitureId
     } else if (c.type === 'distance' && existing.type === 'distance') {
       drop = (existing.pointA === c.pointA && existing.pointB === c.pointB) || (existing.pointA === c.pointB && existing.pointB === c.pointA)
     }
@@ -201,6 +213,10 @@ export function splitWall(plan: Plan, wallId: string, t: number): { plan: Plan; 
         const cid = newId('c')
         constraints[cid] = { id: cid, type: 'parallel', wallA: w1.id, wallB: w2.id }
       }
+    } else if (c.type === 'furnitureWallGap' && c.wallId === wallId) {
+      const f = plan.furniture[c.furnitureId]
+      const along = f ? ((f.x - a.x) * (b.x - a.x) + (f.y - a.y) * (b.y - a.y)) / (total * total || 1) : 0
+      constraints[c.id] = { ...c, wallId: along <= t ? w1.id : w2.id }
     } else if (c.type === 'parallel' || c.type === 'perpendicular' || c.type === 'equalLength' || c.type === 'angle') {
       if (c.wallA === wallId || c.wallB === wallId) {
         if (c.type === 'equalLength') delete constraints[c.id]
@@ -230,8 +246,10 @@ export const useEditor = create<EditorState>((set, get) => {
     fitVersion: 0,
     showShortcuts: false,
     toggleShortcuts: (v) => set({ showShortcuts: v ?? !get().showShortcuts }),
+    placing: null,
+    setPlacing: (placing) => set({ placing }),
 
-    setTool: (tool) => set({ tool, selection: tool === 'select' ? get().selection : [] }),
+    setTool: (tool) => set({ tool, selection: tool === 'select' ? get().selection : [], placing: tool === 'furniture' ? get().placing : null }),
     setMode: (mode) => set({ mode }),
     setSnapGrid: (snapGrid) => set({ snapGrid }),
     setAutoHV: (autoHV) => set({ autoHV }),
@@ -261,6 +279,7 @@ export const useEditor = create<EditorState>((set, get) => {
       const selection = get().selection.filter((s) => {
         if (s.kind === 'point') return !!solvedPlan.points[s.id]
         if (s.kind === 'wall') return !!solvedPlan.walls[s.id]
+        if (s.kind === 'furniture') return !!solvedPlan.furniture[s.id]
         return !!solvedPlan.openings[s.id]
       })
       set({ plan: solvedPlan, report, undoStack, redoStack: [], selection })
@@ -284,11 +303,16 @@ export const useEditor = create<EditorState>((set, get) => {
       // keep the user's requested offset unless a constraint overrides it
       set({ plan: solvedPlan, report })
     },
+    dragFurniture: (drags) => {
+      const { plan: solvedPlan, report } = solvePlan(get().plan, [], drags)
+      set({ plan: solvedPlan, report })
+    },
     endDrag: () => {
       const snapshot = get().dragSnapshot
       if (!snapshot) return
       const plan = get().plan
-      const changed = JSON.stringify(snapshot.points) !== JSON.stringify(plan.points) || JSON.stringify(snapshot.openings) !== JSON.stringify(plan.openings)
+      const changed =
+        JSON.stringify(snapshot.points) !== JSON.stringify(plan.points) || JSON.stringify(snapshot.openings) !== JSON.stringify(plan.openings) || JSON.stringify(snapshot.furniture) !== JSON.stringify(plan.furniture)
       if (changed) {
         set({ undoStack: [...get().undoStack, snapshot].slice(-MAX_UNDO), redoStack: [], dragSnapshot: null })
         scheduleSave(plan)
@@ -399,6 +423,21 @@ export const useEditor = create<EditorState>((set, get) => {
       get().commit({ ...plan, points: { ...plan.points, [id]: { ...plan.points[id], ...patch } } })
     },
 
+    addFurniture: (catalogKey, pos, angle) => {
+      const item = CATALOG_BY_KEY[catalogKey]
+      if (!item) return null
+      const plan = get().plan
+      const id = newId('f')
+      const piece: Furniture = { id, catalogKey, name: item.name, x: pos.x, y: pos.y, angle, width: item.width, depth: item.depth, height: item.height, elevation: item.elevation }
+      get().commit({ ...plan, furniture: { ...plan.furniture, [id]: piece } })
+      return id
+    },
+    updateFurniture: (id, patch) => {
+      const plan = get().plan
+      if (!plan.furniture[id]) return
+      get().commit({ ...plan, furniture: { ...plan.furniture, [id]: { ...plan.furniture[id], ...patch } } })
+    },
+
     setWallLength: (wallId, value, lock) => {
       const plan = get().plan
       const wall = plan.walls[wallId]
@@ -455,6 +494,14 @@ export const useEditor = create<EditorState>((set, get) => {
         for (const c of constraintsReferencing(plan, { openings: openingIds })) delete constraints[c.id]
         plan = { ...plan, openings, constraints }
       }
+      const furnitureIds = items.filter((i) => i.kind === 'furniture').map((i) => i.id)
+      if (furnitureIds.length) {
+        const furniture = { ...plan.furniture }
+        const constraints = { ...plan.constraints }
+        for (const id of furnitureIds) delete furniture[id]
+        for (const c of constraintsReferencing(plan, { furniture: furnitureIds })) delete constraints[c.id]
+        plan = { ...plan, furniture, constraints }
+      }
       if (wallIds.size) plan = removeWalls(plan, [...wallIds])
       get().commit(plan)
     },
@@ -500,6 +547,7 @@ export const useEditor = create<EditorState>((set, get) => {
         }
         if ((c.type === 'length' || c.type === 'horizontal' || c.type === 'vertical') && !walls[c.wallId]) delete constraints[c.id]
         if ((c.type === 'parallel' || c.type === 'perpendicular' || c.type === 'equalLength' || c.type === 'angle') && (!walls[c.wallA] || !walls[c.wallB])) delete constraints[c.id]
+        if (c.type === 'furnitureWallGap' && !walls[c.wallId]) delete constraints[c.id]
       }
       const openings = { ...plan.openings }
       for (const o of Object.values(openings)) {

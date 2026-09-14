@@ -1,4 +1,5 @@
-import type { Constraint, Opening, Plan, Wall } from './types'
+import type { Constraint, Furniture, Opening, Plan, Wall } from './types'
+import { furnitureSide } from './furniture'
 import { solveLM, type Residual } from './solver'
 import { dist, wallLength } from './geometry'
 
@@ -6,6 +7,13 @@ export interface DragTarget {
   pointId: string
   x: number
   y: number
+}
+
+export interface FurnitureDrag {
+  furnitureId: string
+  x?: number
+  y?: number
+  angle?: number
 }
 
 export interface SolveReport {
@@ -29,6 +37,8 @@ const W_REG_OPENING = 0.05
 interface VarMap {
   point: Map<string, number>
   opening: Map<string, number>
+  /** 3 variables per piece: x, y, angle */
+  furniture: Map<string, number>
   count: number
 }
 
@@ -44,7 +54,12 @@ function buildVarMap(plan: Plan): VarMap {
     opening.set(id, count)
     count += 1
   }
-  return { point, opening, count }
+  const furniture = new Map<string, number>()
+  for (const id of Object.keys(plan.furniture ?? {})) {
+    furniture.set(id, count)
+    count += 3
+  }
+  return { point, opening, furniture, count }
 }
 
 function wallResidualHelpers(plan: Plan, vars: VarMap) {
@@ -199,6 +214,43 @@ function constraintResidual(plan: Plan, vars: VarMap, c: Constraint): Residual |
         },
       }
     }
+    case 'furnitureWallGap': {
+      const f: Furniture | undefined = plan.furniture?.[c.furnitureId]
+      const w = wall(c.wallId)
+      if (!f || !w) return null
+      const k = vars.furniture.get(f.id)!
+      const ia = vars.point.get(w.a)!
+      // which side of the wall the piece sits on is decided once, from the current layout
+      const a0 = plan.points[w.a]
+      const b0 = plan.points[w.b]
+      const u0 = { x: b0.x - a0.x, y: b0.y - a0.y }
+      const n0 = { x: -u0.y, y: u0.x }
+      const s = Math.sign((f.x - a0.x) * n0.x + (f.y - a0.y) * n0.y) || 1
+      return {
+        vars: [...wallVars(w), k, k + 1, k + 2],
+        weight: W_CONSTRAINT,
+        fn: (x) => {
+          const d = wallVec(x, w)
+          const l = Math.hypot(d.x, d.y) || 1e-9
+          const u = { x: d.x / l, y: d.y / l }
+          const n = { x: -u.y, y: u.x }
+          const side = furnitureSide({ x: x[k], y: x[k + 1], angle: x[k + 2], width: f.width, depth: f.depth }, c.side)
+          const ax = x[ia]
+          const ay = x[ia + 1]
+          // 1. the side faces the wall: its outward normal equals -s·n (angle difference, so the piece cannot flip through the wall)
+          const orient = normalizeAngle(Math.atan2(side.normal.y, side.normal.x) - Math.atan2(-s * n.y, -s * n.x))
+          // 2. side face at the requested distance from the wall face
+          const dist = s * ((side.mid.x - ax) * n.x + (side.mid.y - ay) * n.y) - w.thickness / 2 - c.value
+          return [orient, dist]
+        },
+      }
+    }
+    case 'furnitureFixed': {
+      const f: Furniture | undefined = plan.furniture?.[c.furnitureId]
+      if (!f) return null
+      const k = vars.furniture.get(f.id)!
+      return { vars: [k, k + 1, k + 2], weight: W_CONSTRAINT, fn: (x) => [x[k] - c.x, x[k + 1] - c.y, normalizeAngle(x[k + 2] - c.angle)] }
+    }
   }
 }
 
@@ -207,7 +259,7 @@ function constraintResidual(plan: Plan, vars: VarMap, c: Constraint): Residual |
  * Points not being dragged are weakly pulled towards their current position, so the result
  * is the satisfying layout closest to what the user drew.
  */
-export function solvePlan(plan: Plan, drags: DragTarget[] = []): { plan: Plan; report: SolveReport } {
+export function solvePlan(plan: Plan, drags: DragTarget[] = [], furnitureDrags: FurnitureDrag[] = []): { plan: Plan; report: SolveReport } {
   const vars = buildVarMap(plan)
   const x0 = new Float64Array(vars.count)
   for (const [id, i] of vars.point) {
@@ -215,6 +267,12 @@ export function solvePlan(plan: Plan, drags: DragTarget[] = []): { plan: Plan; r
     x0[i + 1] = plan.points[id].y
   }
   for (const [id, k] of vars.opening) x0[k] = plan.openings[id].offset
+  for (const [id, k] of vars.furniture) {
+    const f = plan.furniture[id]
+    x0[k] = f.x
+    x0[k + 1] = f.y
+    x0[k + 2] = f.angle
+  }
 
   const residuals: Residual[] = []
   const constraintResiduals: { id: string; res: Residual }[] = []
@@ -233,8 +291,26 @@ export function solvePlan(plan: Plan, drags: DragTarget[] = []): { plan: Plan; r
     dragged.add(d.pointId)
     dragResiduals.push({ vars: [i, i + 1], weight: W_DRAG, fn: (x) => [x[i] - d.x, x[i + 1] - d.y] })
   }
+  const draggedFurniture = new Set<string>()
+  for (const d of furnitureDrags) {
+    const k = vars.furniture.get(d.furnitureId)
+    if (k === undefined) continue
+    draggedFurniture.add(d.furnitureId)
+    const tx = d.x
+    const ty = d.y
+    const ta = d.angle
+    if (tx !== undefined && ty !== undefined) dragResiduals.push({ vars: [k, k + 1], weight: W_DRAG, fn: (x) => [x[k] - tx, x[k + 1] - ty] })
+    if (ta !== undefined) dragResiduals.push({ vars: [k + 2], weight: W_DRAG, fn: (x) => [normalizeAngle(x[k + 2] - ta)] })
+  }
   const regularize = (anchor: Float64Array, weight: number, skipDragged: boolean): Residual[] => {
     const out: Residual[] = []
+    for (const [id, k] of vars.furniture) {
+      if (skipDragged && draggedFurniture.has(id)) continue
+      const fx = anchor[k]
+      const fy = anchor[k + 1]
+      const fa = anchor[k + 2]
+      out.push({ vars: [k, k + 1, k + 2], weight, fn: (x) => [x[k] - fx, x[k + 1] - fy, normalizeAngle(x[k + 2] - fa)] })
+    }
     for (const [id, i] of vars.point) {
       if (skipDragged && dragged.has(id)) continue
       const px = anchor[i]
@@ -261,7 +337,9 @@ export function solvePlan(plan: Plan, drags: DragTarget[] = []): { plan: Plan; r
   const points = { ...plan.points }
   for (const [id, i] of vars.point) points[id] = { ...plan.points[id], x: x[i], y: x[i + 1] }
   const openings = { ...plan.openings }
-  const next: Plan = { ...plan, points, openings }
+  const furniture = { ...plan.furniture }
+  for (const [id, k] of vars.furniture) furniture[id] = { ...plan.furniture[id], x: x[k], y: x[k + 1], angle: normalizeAngle(x[k + 2]) }
+  const next: Plan = { ...plan, points, openings, furniture }
   for (const [id, k] of vars.opening) {
     const o = plan.openings[id]
     const w = plan.walls[o.wallId]
@@ -322,6 +400,13 @@ export function describeConstraint(plan: Plan, c: Constraint): string {
       return `${openingName(c.openingId)} ${fmt(c.value)} from end`
     case 'openingCentered':
       return `${openingName(c.openingId)} centred on wall`
+    case 'furnitureWallGap': {
+      const f = plan.furniture?.[c.furnitureId]
+      const side = { back: 'back', front: 'front', left: 'left side', right: 'right side' }[c.side]
+      return `${f ? f.name : 'missing item'} ${side} ${c.value < 0.005 ? 'against' : fmt(c.value) + ' from'} ${wallName(c.wallId)}`
+    }
+    case 'furnitureFixed':
+      return `${plan.furniture?.[c.furnitureId]?.name ?? 'missing item'} anchored`
   }
 }
 
@@ -334,10 +419,11 @@ function fmt(m: number): string {
 }
 
 /** Constraints that reference the given entity ids. */
-export function constraintsReferencing(plan: Plan, ids: { walls?: string[]; points?: string[]; openings?: string[] }): Constraint[] {
+export function constraintsReferencing(plan: Plan, ids: { walls?: string[]; points?: string[]; openings?: string[]; furniture?: string[] }): Constraint[] {
   const walls = new Set(ids.walls ?? [])
   const points = new Set(ids.points ?? [])
   const openings = new Set(ids.openings ?? [])
+  const furniture = new Set(ids.furniture ?? [])
   return Object.values(plan.constraints).filter((c) => {
     switch (c.type) {
       case 'length':
@@ -357,6 +443,10 @@ export function constraintsReferencing(plan: Plan, ids: { walls?: string[]; poin
       case 'openingOffsetB':
       case 'openingCentered':
         return openings.has(c.openingId)
+      case 'furnitureWallGap':
+        return furniture.has(c.furnitureId) || walls.has(c.wallId)
+      case 'furnitureFixed':
+        return furniture.has(c.furnitureId)
     }
   })
 }

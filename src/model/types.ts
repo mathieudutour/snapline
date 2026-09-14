@@ -37,6 +37,25 @@ export interface Opening {
   swingRight: boolean
 }
 
+export type FurnitureSide = 'back' | 'front' | 'left' | 'right'
+
+export interface Furniture {
+  id: string
+  /** key into the furniture catalogue */
+  catalogKey: string
+  name: string
+  /** centre of the footprint in plan coordinates (m) */
+  x: number
+  y: number
+  /** rotation in radians; 0 means the front of the piece faces +y (down on the plan) */
+  angle: number
+  width: number
+  depth: number
+  height: number
+  /** height of the underside above the floor (wall cabinets, pictures) */
+  elevation: number
+}
+
 export type Constraint =
   | { id: string; type: 'length'; wallId: string; value: number }
   | { id: string; type: 'horizontal'; wallId: string }
@@ -50,6 +69,9 @@ export type Constraint =
   | { id: string; type: 'openingOffsetA'; openingId: string; value: number }
   | { id: string; type: 'openingOffsetB'; openingId: string; value: number }
   | { id: string; type: 'openingCentered'; openingId: string }
+  /** a side of a piece of furniture is parallel to a wall, `value` metres away from its face */
+  | { id: string; type: 'furnitureWallGap'; furnitureId: string; wallId: string; side: FurnitureSide; value: number }
+  | { id: string; type: 'furnitureFixed'; furnitureId: string; x: number; y: number; angle: number }
 
 export type ConstraintType = Constraint['type']
 
@@ -66,6 +88,7 @@ export interface Plan {
   points: Record<string, PlanPoint>
   walls: Record<string, Wall>
   openings: Record<string, Opening>
+  furniture: Record<string, Furniture>
   constraints: Record<string, Constraint>
   settings: PlanSettings
 }
@@ -83,6 +106,7 @@ export function emptyPlan(): Plan {
     points: {},
     walls: {},
     openings: {},
+    furniture: {},
     constraints: {},
     settings: { wallHeight: 2.5, wallThickness: 0.2, units: 'm' },
   }

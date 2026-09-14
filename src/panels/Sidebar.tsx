@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useEditor } from '../model/store'
-import type { Constraint, Opening, Wall } from '../model/types'
+import type { Constraint, Furniture, FurnitureSide, Opening, Wall } from '../model/types'
+import { nearestWallToSide, SIDE_LABELS } from '../model/furniture'
+import { CATALOG, CATEGORIES, creditsUrl, iconUrl } from '../furniture/catalog'
 import { constraintsReferencing, describeConstraint, pointDistance, shortId } from '../model/constraints'
 import { findRooms, wallLength } from '../model/geometry'
 import { formatArea, formatLength, parseLength } from '../model/units'
@@ -217,6 +219,157 @@ function OpeningProps({ opening }: { opening: Opening }) {
   )
 }
 
+const SIDES: FurnitureSide[] = ['back', 'left', 'right', 'front']
+
+function FurnitureProps({ piece }: { piece: Furniture }) {
+  const plan = useEditor((s) => s.plan)
+  const violated = useEditor((s) => s.report.violated)
+  const updateFurniture = useEditor((s) => s.updateFurniture)
+  const addConstraint = useEditor((s) => s.addConstraint)
+  const removeConstraint = useEditor((s) => s.removeConstraint)
+  const units = plan.settings.units
+  const cs = constraintsReferencing(plan, { furniture: [piece.id] })
+  const fixed = cs.find((c) => c.type === 'furnitureFixed')
+  const gaps = cs.filter((c): c is Extract<Constraint, { type: 'furnitureWallGap' }> => c.type === 'furnitureWallGap')
+  const [side, setSide] = useState<FurnitureSide>('back')
+  const [angleText, setAngleText] = useState(String(Math.round((piece.angle * 180) / Math.PI)))
+  useEffect(() => setAngleText(String(Math.round((piece.angle * 180) / Math.PI))), [piece.angle])
+  const attach = () => {
+    const near = nearestWallToSide(plan, piece, side)
+    if (!near) {
+      alert('No wall found facing that side of the piece.')
+      return
+    }
+    addConstraint({ type: 'furnitureWallGap', furnitureId: piece.id, wallId: near.wallId, side, value: Math.round(near.gap * 100) / 100 })
+  }
+  return (
+    <div className="props">
+      <h3>{piece.name}</h3>
+      <LengthField label="Width" units={units} value={piece.width} onChange={(v) => updateFurniture(piece.id, { width: v })} />
+      <LengthField label="Depth" units={units} value={piece.depth} onChange={(v) => updateFurniture(piece.id, { depth: v })} />
+      <LengthField label="Height" units={units} value={piece.height} onChange={(v) => updateFurniture(piece.id, { height: v })} />
+      <LengthField label="Elevation" units={units} value={piece.elevation} onChange={(v) => updateFurniture(piece.id, { elevation: v })} />
+      <label className="field">
+        <span>Rotation</span>
+        <span className="field-input">
+          <input
+            value={angleText}
+            onChange={(e) => setAngleText(e.target.value)}
+            onBlur={() => {
+              const v = parseFloat(angleText)
+              if (Number.isFinite(v)) updateFurniture(piece.id, { angle: (v * Math.PI) / 180 })
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+            }}
+          />
+          <em>°</em>
+        </span>
+      </label>
+      <div className="chips">
+        <button className="chip" onClick={() => updateFurniture(piece.id, { angle: piece.angle + Math.PI / 2 })}>
+          ↻ Rotate 90° <kbd>R</kbd>
+        </button>
+        <button className={fixed ? 'chip on' : 'chip'} onClick={() => (fixed ? removeConstraint(fixed.id) : addConstraint({ type: 'furnitureFixed', furnitureId: piece.id, x: piece.x, y: piece.y, angle: piece.angle }))}>
+          📌 {fixed ? 'Anchored' : 'Anchor'}
+        </button>
+      </div>
+      <h4>Wall constraints</h4>
+      {gaps.length === 0 && <p className="muted small">None yet. Drop the piece against a wall, or attach a side below.</p>}
+      {gaps.map((g) => (
+        <div className="row" key={g.id}>
+          <LengthField
+            label={`${SIDE_LABELS[g.side]} → wall ${shortId(g.wallId)}`}
+            units={units}
+            value={g.value}
+            onChange={(v) => addConstraint({ type: 'furnitureWallGap', furnitureId: piece.id, wallId: g.wallId, side: g.side, value: v })}
+          />
+          <button className={`lock on ${violated.has(g.id) ? 'bad' : ''}`} title="Remove constraint" onClick={() => removeConstraint(g.id)}>
+            🔒
+          </button>
+        </div>
+      ))}
+      <div className="row">
+        <select value={side} onChange={(e) => setSide(e.target.value as FurnitureSide)}>
+          {SIDES.map((s) => (
+            <option key={s} value={s}>
+              {SIDE_LABELS[s]}
+            </option>
+          ))}
+        </select>
+        <button onClick={attach}>Attach to nearest wall</button>
+      </div>
+      <p className="muted small">The gap is measured from that side to the wall face and stays locked while the wall moves.</p>
+    </div>
+  )
+}
+
+function FurnitureAndWallProps({ piece, wall }: { piece: Furniture; wall: Wall }) {
+  const plan = useEditor((s) => s.plan)
+  const addConstraint = useEditor((s) => s.addConstraint)
+  const units = plan.settings.units
+  const [side, setSide] = useState<FurnitureSide>('back')
+  const [gap, setGap] = useState(0)
+  return (
+    <div className="props">
+      <h3>
+        {piece.name} + wall {shortId(wall.id)}
+      </h3>
+      <div className="row">
+        <select value={side} onChange={(e) => setSide(e.target.value as FurnitureSide)}>
+          {SIDES.map((s) => (
+            <option key={s} value={s}>
+              {SIDE_LABELS[s]}
+            </option>
+          ))}
+        </select>
+        <LengthField label="Gap" units={units} value={gap} onChange={setGap} />
+      </div>
+      <button onClick={() => addConstraint({ type: 'furnitureWallGap', furnitureId: piece.id, wallId: wall.id, side, value: gap })}>Lock side against this wall</button>
+    </div>
+  )
+}
+
+function CataloguePanel() {
+  const placing = useEditor((s) => s.placing)
+  const setPlacing = useEditor((s) => s.setPlacing)
+  const [query, setQuery] = useState('')
+  const [category, setCategory] = useState<string>('All')
+  const q = query.trim().toLowerCase()
+  const items = CATALOG.filter((c) => (category === 'All' || c.category === category) && (!q || c.name.toLowerCase().includes(q) || c.category.toLowerCase().includes(q)))
+  return (
+    <div className="props catalogue">
+      <h3>Furniture</h3>
+      <input className="search" placeholder="Search…" value={query} onChange={(e) => setQuery(e.target.value)} />
+      <div className="chips">
+        {['All', ...CATEGORIES].map((c) => (
+          <button key={c} className={category === c ? 'chip on' : 'chip'} onClick={() => setCategory(c)}>
+            {c}
+          </button>
+        ))}
+      </div>
+      <p className="muted small">{placing ? 'Click on the plan to place it. Esc cancels.' : 'Pick a piece, then click on the plan. Pieces snap against walls and remember it.'}</p>
+      <div className="catalogue-grid">
+        {items.map((c) => (
+          <button key={c.key} className={placing === c.key ? 'tile on' : 'tile'} onClick={() => setPlacing(placing === c.key ? null : c.key)} title={`${c.name} · ${Math.round(c.width * 100)}×${Math.round(c.depth * 100)}×${Math.round(c.height * 100)} cm · ${c.creator} (${c.license})`}>
+            <img src={iconUrl(c.key)} alt="" loading="lazy" />
+            <span>{c.name}</span>
+            <small>
+              {Math.round(c.width * 100)}×{Math.round(c.depth * 100)}
+            </small>
+          </button>
+        ))}
+      </div>
+      <p className="muted small">
+        Models from the free <a href="https://www.sweethome3d.com/" target="_blank" rel="noreferrer">Sweet Home 3D</a> libraries (CC0, CC-BY and Free Art licences).{' '}
+        <a href={creditsUrl} target="_blank" rel="noreferrer">
+          Credits
+        </a>
+      </p>
+    </div>
+  )
+}
+
 function SettingsProps() {
   const settings = useEditor((s) => s.plan.settings)
   const setSettings = useEditor((s) => s.setSettings)
@@ -236,14 +389,20 @@ export function Sidebar() {
   const violated = useEditor((s) => s.report.violated)
   const removeConstraint = useEditor((s) => s.removeConstraint)
   const select = useEditor((s) => s.select)
+  const tool = useEditor((s) => s.tool)
   const rooms = useMemo(() => findRooms(plan), [plan])
 
   const walls = selection.filter((s) => s.kind === 'wall').map((s) => plan.walls[s.id]).filter(Boolean)
   const points = selection.filter((s) => s.kind === 'point').map((s) => s.id).filter((id) => plan.points[id])
   const openings = selection.filter((s) => s.kind === 'opening').map((s) => plan.openings[s.id]).filter(Boolean)
+  const furniture = selection.filter((s) => s.kind === 'furniture').map((s) => plan.furniture[s.id]).filter(Boolean)
 
   let props: React.ReactNode
-  if (openings.length === 1 && walls.length === 0 && points.length === 0) props = <OpeningProps opening={openings[0]} />
+  if (tool === 'furniture') props = <CataloguePanel />
+  else if (furniture.length === 1 && walls.length === 1 && points.length === 0 && openings.length === 0) props = <FurnitureAndWallProps piece={furniture[0]} wall={walls[0]} />
+  else if (furniture.length === 1 && walls.length === 0 && points.length === 0 && openings.length === 0) props = <FurnitureProps piece={furniture[0]} />
+  else if (furniture.length > 0) props = <div className="props muted small">{selection.length} items selected. Press Delete to remove them.</div>
+  else if (openings.length === 1 && walls.length === 0 && points.length === 0) props = <OpeningProps opening={openings[0]} />
   else if (walls.length === 1 && points.length === 0 && openings.length === 0) props = <WallProps wall={walls[0]} />
   else if (walls.length === 2 && points.length === 0 && openings.length === 0) props = <TwoWallsProps a={walls[0]} b={walls[1]} />
   else if (points.length === 1 && walls.length === 0 && openings.length === 0) props = <PointProps id={points[0]} />
@@ -272,6 +431,10 @@ export function Sidebar() {
           { kind: 'point', id: c.pointA },
           { kind: 'point', id: c.pointB },
         ])
+      case 'furnitureWallGap':
+        return select([{ kind: 'furniture', id: c.furnitureId }])
+      case 'furnitureFixed':
+        return select([{ kind: 'furniture', id: c.furnitureId }])
       default:
         return select([{ kind: 'opening', id: c.openingId }])
     }
