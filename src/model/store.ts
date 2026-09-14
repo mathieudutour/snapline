@@ -6,6 +6,7 @@ import { constraintsReferencing, solvePlan, type DragTarget, type FurnitureDrag,
 import { dist, projectOnSegment, wallLength, wallsAtPoint } from './geometry'
 import { exampleProject } from './example'
 import { defaultFloorName, floorElevation, newProject, normalizeProject, type Floor, type Project, type ProjectMeta, type Roof } from './project'
+import { deleteRemoteProject, fetchMe, getRemoteProject, listRemoteProjects, putRemoteProject, signOut as apiSignOut, type AccountUser } from '../sync/api'
 
 export type Tool = 'select' | 'wall' | 'door' | 'window' | 'furniture' | 'pan'
 export type ViewMode = 'plan' | '3d' | 'walk'
@@ -17,7 +18,17 @@ interface Snapshot {
   activeFloorId: string
 }
 
+export type SyncStatus = 'offline' | 'idle' | 'syncing' | 'synced' | 'error'
+
 export interface EditorState {
+  /** signed-in account; null when signed out, undefined until checked */
+  user: AccountUser | null | undefined
+  syncStatus: SyncStatus
+  /** check the session cookie and, when signed in, merge local and remote projects */
+  initAccount: () => Promise<void>
+  signOut: () => Promise<void>
+  syncNow: () => Promise<void>
+
   /** the current project; `plan` mirrors the active floor's plan */
   project: Project
   activeFloorId: string
@@ -177,10 +188,17 @@ export function normalizePlan(raw: Partial<Plan>): Plan {
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
+let syncTimer: ReturnType<typeof setTimeout> | null = null
+/** set by the store so saves can also push to the account when signed in */
+let pushProject: ((project: Project) => void) | null = null
 function scheduleSave(project: Project) {
   if (!hasStorage()) return
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(() => saveProjectNow(project), 300)
+  if (pushProject) {
+    if (syncTimer) clearTimeout(syncTimer)
+    syncTimer = setTimeout(() => pushProject?.(project), 1500)
+  }
 }
 
 function withFloorPlan(project: Project, floorId: string, plan: Plan): Project {
@@ -399,7 +417,74 @@ export const useEditor = create<EditorState>((set, get) => {
     saveProjectNow(withSolved)
   }
 
+  const push = async (project: Project) => {
+    if (!get().user) return
+    set({ syncStatus: 'syncing' })
+    try {
+      await putRemoteProject(project)
+      set({ syncStatus: 'synced' })
+    } catch {
+      set({ syncStatus: 'error' })
+    }
+  }
+  pushProject = (project) => void push(project)
+
+  /** merge the account's projects with the local ones: newer copy wins, missing ones are copied both ways */
+  const mergeWithRemote = async () => {
+    set({ syncStatus: 'syncing' })
+    try {
+      const remote = await listRemoteProjects()
+      const remoteById = new Map(remote.map((r) => [r.id, r]))
+      let list = get().projects
+      const localIds = new Set(list.map((p) => p.id))
+      for (const r of remote) {
+        const local = list.find((p) => p.id === r.id)
+        const localProject = local ? loadProject(r.id) : null
+        if (!localProject || localProject.updatedAt < r.updatedAt) {
+          const { project } = await getRemoteProject(r.id)
+          const normalized = normalizeProject(project, normalizePlan)
+          saveProjectNow(normalized)
+          list = list.some((p) => p.id === normalized.id) ? list.map((p) => (p.id === normalized.id ? { id: normalized.id, name: normalized.name, updatedAt: normalized.updatedAt } : p)) : [...list, { id: normalized.id, name: normalized.name, updatedAt: normalized.updatedAt }]
+          if (normalized.id === get().project.id) openProjectState(normalized)
+        }
+      }
+      for (const id of localIds) {
+        const local = loadProject(id)
+        if (!local) continue
+        const r = remoteById.get(id)
+        if (!r || r.updatedAt < local.updatedAt) await putRemoteProject(local)
+      }
+      writeIndex({ activeId: get().project.id, list })
+      set({ projects: list, syncStatus: 'synced' })
+    } catch {
+      set({ syncStatus: 'error' })
+    }
+  }
+
   return {
+    user: undefined,
+    syncStatus: 'offline',
+    initAccount: async () => {
+      try {
+        const user = await fetchMe()
+        set({ user, syncStatus: user ? 'idle' : 'offline' })
+        if (user) await mergeWithRemote()
+      } catch {
+        // no worker behind the app (plain vite dev) or network down: work locally
+        set({ user: null, syncStatus: 'offline' })
+      }
+    },
+    signOut: async () => {
+      try {
+        await apiSignOut()
+      } finally {
+        set({ user: null, syncStatus: 'offline' })
+      }
+    },
+    syncNow: async () => {
+      if (get().user) await mergeWithRemote()
+    },
+
     project: initialProject,
     activeFloorId: initialFloorId,
     projects,
@@ -816,6 +901,7 @@ export const useEditor = create<EditorState>((set, get) => {
     deleteProject: (id) => {
       const { projects, project } = get()
       const list = projects.filter((p) => p.id !== id)
+      if (get().user) void deleteRemoteProject(id).catch(() => set({ syncStatus: 'error' }))
       if (hasStorage()) {
         try {
           localStorage.removeItem(projectKey(id))

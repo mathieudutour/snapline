@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { useEditor, type Tool, type ViewMode } from '../model/store'
+import { useEditor, type SyncStatus, type Tool, type ViewMode } from '../model/store'
+import { signInUrl, type AccountUser } from '../sync/api'
 
 const TOOLS: { id: Tool; label: string; key: string; icon: string }[] = [
   { id: 'select', label: 'Select', key: 'V', icon: '↖' },
@@ -40,6 +41,10 @@ export function Toolbar() {
   const renameProject = useEditor((s) => s.renameProject)
   const importProject = useEditor((s) => s.importProject)
   const [menuOpen, setMenuOpen] = useState(false)
+  const user = useEditor((s) => s.user)
+  const syncStatus = useEditor((s) => s.syncStatus)
+  const signOut = useEditor((s) => s.signOut)
+  const syncNow = useEditor((s) => s.syncNow)
   const menuRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!menuOpen) return
@@ -177,6 +182,7 @@ export function Toolbar() {
           </div>
         )}
       </div>
+      <AccountButton user={user} syncStatus={syncStatus} onSignOut={signOut} onSync={syncNow} />
       <div className="seg">
         <button onClick={() => toggleShortcuts()} title="Keyboard shortcuts (?)">
           ?
@@ -194,5 +200,60 @@ export function Toolbar() {
         />
       </div>
     </div>
+  )
+}
+
+const SYNC_LABEL: Record<SyncStatus, string> = { offline: 'Local only', idle: 'Signed in', syncing: 'Saving…', synced: 'Saved to your account', error: 'Sync failed, retrying on next change' }
+
+function AccountButton({ user, syncStatus, onSignOut, onSync }: { user: AccountUser | null | undefined; syncStatus: SyncStatus; onSignOut: () => void; onSync: () => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    window.addEventListener('pointerdown', close)
+    return () => window.removeEventListener('pointerdown', close)
+  }, [open])
+  if (user === undefined) return null
+  if (!user) {
+    return (
+      <a className="button signin" href={signInUrl()} title="Sign in to save projects to your account and use them on other devices">
+        <GoogleMark /> Sign in
+      </a>
+    )
+  }
+  return (
+    <div className="project-menu" ref={ref}>
+      <button className={`account ${syncStatus}`} onClick={() => setOpen((o) => !o)} title={SYNC_LABEL[syncStatus]}>
+        {user.picture ? <img src={user.picture} alt="" referrerPolicy="no-referrer" /> : <span className="avatar">{(user.name || user.email).slice(0, 1).toUpperCase()}</span>}
+        <span className={`dot ${syncStatus}`} />
+      </button>
+      {open && (
+        <div className="menu">
+          <div className="menu-title">{user.email}</div>
+          <div className="menu-item muted">{SYNC_LABEL[syncStatus]}</div>
+          <button className="menu-item" onClick={() => (onSync(), setOpen(false))}>
+            Sync now
+          </button>
+          <div className="menu-sep" />
+          <button className="menu-item" onClick={() => (onSignOut(), setOpen(false))}>
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function GoogleMark() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 48 48" aria-hidden="true">
+      <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.5l6.7-6.7C35.6 2.4 30.2 0 24 0 14.6 0 6.5 5.4 2.6 13.3l7.8 6C12.3 13.6 17.7 9.5 24 9.5z" />
+      <path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8C43.8 38 46.5 31.8 46.5 24.5z" />
+      <path fill="#FBBC05" d="M10.4 28.7c-.5-1.5-.8-3-.8-4.7s.3-3.2.8-4.7l-7.8-6C.9 16.5 0 20.1 0 24s.9 7.5 2.6 10.7l7.8-6z" />
+      <path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.5-5.8c-2.1 1.4-4.9 2.3-8.4 2.3-6.3 0-11.7-4.1-13.6-9.8l-7.8 6C6.5 42.6 14.6 48 24 48z" />
+    </svg>
   )
 }

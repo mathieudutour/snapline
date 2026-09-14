@@ -62,6 +62,54 @@ Esc to go back to the Select tool. Press `?` in the app for the full list.
 | Projects | Click the project name in the toolbar to switch, create, rename, import, export or delete projects. Old single-plan saves are migrated automatically. |
 | 3D / walkthrough | Use the tabs at the top. All floors and the roof are shown; tick "Cut above current floor" to look inside. In the walkthrough click to capture the mouse, move with WASD or arrows, Shift to run, Esc to release. The walkthrough runs on the floor selected in the strip. |
 
+## Accounts and sync (Cloudflare)
+
+The app works entirely in the browser, but it can also run on Cloudflare Workers with Google sign-in so
+projects are saved to an account and available on other devices. The Worker in `worker/` serves the built
+app, handles the Google OAuth flow itself (authorization code with PKCE, ID token verified against
+Google's published keys) and keeps users, sessions and projects in a D1 database. Sessions are random
+tokens stored hashed, sent as an `HttpOnly`, `SameSite=Lax` cookie; mutations require a matching `Origin`.
+
+Nothing else is stored: no passwords, no emails sent. On the Workers free plan this costs nothing at hobby
+scale; the paid plan is $5/month.
+
+### Deploy
+
+1. Create a Google OAuth client (Google Cloud Console → APIs & Services → Credentials → OAuth client ID,
+   type "Web application"). Add `https://<your-domain>/auth/google/callback` as an authorised redirect URI
+   (and `http://localhost:8787/auth/google/callback` for local development).
+2. Create the database and put its id in `wrangler.jsonc`:
+   ```sh
+   npx wrangler login
+   npx wrangler d1 create snapline
+   npm run db:migrate
+   ```
+3. Store the Google credentials as secrets:
+   ```sh
+   npx wrangler secret put GOOGLE_CLIENT_ID
+   npx wrangler secret put GOOGLE_CLIENT_SECRET
+   ```
+4. Deploy: `npm run deploy` (builds the app and uploads it with the Worker). The default
+   `*.workers.dev` URL works; add a custom domain in the Cloudflare dashboard if you like, and register its
+   callback URL with Google.
+
+### Local development with sign-in
+
+```sh
+cp .dev.vars.example .dev.vars   # fill in the Google client id and secret
+npm run db:migrate:local
+npm run build && npm run dev:worker   # http://localhost:8787 serves the built app + API
+```
+
+Or run `npm run dev` (Vite with hot reload) alongside `npm run dev:worker`: Vite proxies `/api` and
+`/auth` to the Worker. Without a Worker the app simply stays in local-only mode.
+
+### How sync works
+
+Projects are always saved in the browser. When signed in, every change is also pushed to the account a
+second later, and on start-up the local and remote project lists are merged: a project missing on one
+side is copied over, and when both have it the more recently updated copy wins.
+
 ## How the solver works
 
 Every corner contributes two variables (x, y) and every opening one (its offset along the wall).
@@ -103,6 +151,8 @@ src/editor     2D SVG editor, snapping, dimension labels
 src/panels     toolbar and side panel
 src/three      3D scene builder, orbit view, walkthrough and collisions
 src/furniture  catalogue metadata and asset URLs
+src/sync       API client for the account and project sync
+worker         Cloudflare Worker: Google sign-in, sessions, projects API, D1 schema
 public/furniture  generated GLB models, thumbnails, plan symbols and credits
 scripts        catalogue import and icon rendering
 ```

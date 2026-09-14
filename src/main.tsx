@@ -12,3 +12,4 @@ createRoot(document.getElementById('root')!).render(
 // expose the store for debugging / scripting in the console
 import { useEditor } from './model/store'
 ;(window as unknown as { snapline: typeof useEditor }).snapline = useEditor
+void useEditor.getState().initAccount()

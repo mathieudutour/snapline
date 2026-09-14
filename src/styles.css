@@ -595,3 +595,63 @@ input[type='number'] {
   background: transparent;
   text-align: right;
 }
+
+a.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 9px;
+  color: inherit;
+  text-decoration: none;
+}
+a.button:hover {
+  background: #f0f0f3;
+}
+button.account {
+  position: relative;
+  padding: 2px;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+}
+button.account img,
+button.account .avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 12px;
+}
+.dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 2px solid var(--panel);
+  background: #9a9a9a;
+}
+.dot.synced,
+.dot.idle {
+  background: #2ea44f;
+}
+.dot.syncing {
+  background: #f0a020;
+}
+.dot.error {
+  background: var(--danger);
+}
+.menu-item.muted {
+  color: var(--muted);
+  cursor: default;
+}
