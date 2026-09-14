@@ -3,6 +3,7 @@ import { isReadOnly, useEditor } from '../model/store'
 import { Hierarchy } from './Hierarchy'
 import { CataloguePanel } from './Sidebar'
 import { ShareDialog } from './Share'
+import { ExportDialog } from './Export'
 import { navigate } from '../router'
 
 function ProjectMenu() {
@@ -17,6 +18,7 @@ function ProjectMenu() {
   const isEditor = meta?.role === 'editor' || meta?.role === 'viewer'
   const [open, setOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
@@ -27,16 +29,6 @@ function ProjectMenu() {
     window.addEventListener('pointerdown', close)
     return () => window.removeEventListener('pointerdown', close)
   }, [open])
-  const exportJson = () => {
-    const current = useEditor.getState().project
-    const blob = new Blob([JSON.stringify({ version: 2, ...current }, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${current.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'project'}.snapline.json`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
   return (
     <div className="popover-anchor project-head" ref={ref}>
       <button className="project-name" onClick={() => setOpen((o) => !o)} title="Project menu">
@@ -72,8 +64,8 @@ function ProjectMenu() {
               Import…
             </button>
           )}
-          <button className="menu-item" onClick={() => (exportJson(), setOpen(false))}>
-            Export
+          <button className="menu-item" onClick={() => (setExportOpen(true), setOpen(false))}>
+            Export…
           </button>
           {!viewLink && (
             <>
@@ -92,6 +84,7 @@ function ProjectMenu() {
         </div>
       )}
       {shareOpen && <ShareDialog projectId={project.id} onClose={() => setShareOpen(false)} />}
+      {exportOpen && <ExportDialog onClose={() => setExportOpen(false)} />}
       <input
         ref={fileRef}
         type="file"

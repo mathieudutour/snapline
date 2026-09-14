@@ -78,6 +78,7 @@ canvas in the middle with a floating toolbar at the bottom, and an inspector for
 | Anchor a corner | Select a corner and click "Anchor in place" so the plan does not drift. |
 | Floors | Floors list in the left panel: click to switch, `+` to add, hover a floor for duplicate / remove, double-click to rename; PageUp / PageDown switch floors. With nothing selected the inspector edits the floor's name and height. |
 | Roof | With nothing selected, pick the roof type, pitch, ridge direction, overhang and colour in the inspector. |
+| Export | Project menu → Export…: the plan as a PDF to scale (1:50, 1:100, 1:200 or fitted, A4/A3/Letter, one page per floor with a title block and a 1 m scale bar), as a PNG at a chosen resolution, the building as a glTF binary (.glb: walls with openings, floors, ceilings, roof, structures, furniture as boxes), or the project file to re-import. |
 | Projects | The project name at the top of the left panel opens a menu (rename, import, export, delete); the Projects rail tab lists all projects. |
 | Preferences | The Prefs rail tab: metric (m or cm) or imperial (feet and inches), grid snap, auto-lock, ghost of the floor below. |
 | Sharing | Project menu → Share… invites people by the email of their Google account as editors or read-only viewers (the owner can change the role later); they see the project in their list. Owners remove people or delete the project; invited people can leave it. |

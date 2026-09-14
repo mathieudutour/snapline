@@ -1730,3 +1730,32 @@ button.small {
 .tree-row.comment.resolved {
   opacity: 0.6;
 }
+
+/* ---------- export ---------- */
+.export-kinds {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.export-kind {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.export-kind.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.export-kind > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.export-kind input {
+  margin-top: 3px;
+}

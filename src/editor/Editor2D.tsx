@@ -845,6 +845,7 @@ export function Editor2D() {
   return (
     <div ref={containerRef} className="editor2d" style={{ cursor: cursorStyle }}>
       <svg
+        id="plan-svg"
         ref={svgRef}
         width={size.width}
         height={size.height}
@@ -868,15 +869,15 @@ export function Editor2D() {
           </pattern>
         </defs>
         <g transform={`translate(${size.width / 2 - vp.cx * vp.scale} ${size.height / 2 - vp.cy * vp.scale}) scale(${vp.scale})`}>
-          <rect x={visibleMin.x} y={visibleMin.y} width={visibleMax.x - visibleMin.x} height={visibleMax.y - visibleMin.y} fill="url(#grid-major)" />
+          <rect data-export="skip" x={visibleMin.x} y={visibleMin.y} width={visibleMax.x - visibleMin.x} height={visibleMax.y - visibleMin.y} fill="url(#grid-major)" />
           {/* axes */}
-          <line x1={visibleMin.x} y1={0} x2={visibleMax.x} y2={0} stroke="#c4c4c4" strokeWidth={px * 1.5} />
-          <line x1={0} y1={visibleMin.y} x2={0} y2={visibleMax.y} stroke="#c4c4c4" strokeWidth={px * 1.5} />
+          <line data-export="skip" x1={visibleMin.x} y1={0} x2={visibleMax.x} y2={0} stroke="#c4c4c4" strokeWidth={px * 1.5} />
+          <line data-export="skip" x1={0} y1={visibleMin.y} x2={0} y2={visibleMax.y} stroke="#c4c4c4" strokeWidth={px * 1.5} />
 
           {underlay && <UnderlayImage underlay={underlay} interactive={tool === 'select' && !underlay.locked && !readOnly} />}
           {/* ghost of the floor below */}
           {showFloorBelow && below && (
-            <g style={{ pointerEvents: 'none' }} opacity={0.18}>
+            <g data-export="skip" style={{ pointerEvents: 'none' }} opacity={0.18}>
               {Object.values(below.walls).map((w) => (
                 <polygon key={w.id} points={wallPolygon(below, w).map((p) => `${p.x},${p.y}`).join(' ')} fill="#1d3a8a" />
               ))}
@@ -891,9 +892,9 @@ export function Editor2D() {
           {/* guides */}
           {snap?.guides.map((g, i) =>
             g.axis === 'x' ? (
-              <line key={i} x1={g.value} y1={visibleMin.y} x2={g.value} y2={visibleMax.y} stroke="#f0a020" strokeWidth={px} strokeDasharray={`${6 * px} ${4 * px}`} />
+              <line data-export="skip" key={i} x1={g.value} y1={visibleMin.y} x2={g.value} y2={visibleMax.y} stroke="#f0a020" strokeWidth={px} strokeDasharray={`${6 * px} ${4 * px}`} />
             ) : (
-              <line key={i} x1={visibleMin.x} y1={g.value} x2={visibleMax.x} y2={g.value} stroke="#f0a020" strokeWidth={px} strokeDasharray={`${6 * px} ${4 * px}`} />
+              <line data-export="skip" key={i} x1={visibleMin.x} y1={g.value} x2={visibleMax.x} y2={g.value} stroke="#f0a020" strokeWidth={px} strokeDasharray={`${6 * px} ${4 * px}`} />
             ),
           )}
 
@@ -1057,6 +1058,7 @@ export function Editor2D() {
           })}
 
           {/* points */}
+          <g data-export="skip">
           {Object.values(plan.points).map((p) => {
             const sel = isSelected(selection, 'point', p.id)
             const hov = hover?.kind === 'point' && hover.id === p.id && tool === 'select'
@@ -1068,6 +1070,7 @@ export function Editor2D() {
               </g>
             )
           })}
+          </g>
 
           {/* drawing preview */}
           {tool === 'wall' && drawing && snap && (
@@ -1093,6 +1096,7 @@ export function Editor2D() {
           )}
           {marquee && (
             <rect
+              data-export="skip"
               x={Math.min(marquee.a.x, marquee.b.x)}
               y={Math.min(marquee.a.y, marquee.b.y)}
               width={Math.abs(marquee.b.x - marquee.a.x)}
@@ -1104,17 +1108,21 @@ export function Editor2D() {
             />
           )}
           {snap && (snap.pointId || snap.wall) && dragRef.current?.kind === 'point' && (
-            <circle cx={snap.pos.x} cy={snap.pos.y} r={9 * px} fill="none" stroke="#e0891d" strokeWidth={px * 2} style={{ pointerEvents: 'none' }} />
+            <circle data-export="skip" cx={snap.pos.x} cy={snap.pos.y} r={9 * px} fill="none" stroke="#e0891d" strokeWidth={px * 2} style={{ pointerEvents: 'none' }} />
           )}
           {alt && tool === 'select' && selection.length === 1 && selection[0].kind === 'wall' && measureTarget && measureTarget !== selection[0].id && plan.walls[selection[0].id] && plan.walls[measureTarget] && (
-            <GapMeasure gap={wallGap(plan, plan.walls[selection[0].id], plan.walls[measureTarget])} px={px} units={units} />
+            <g data-export="skip">
+              <GapMeasure gap={wallGap(plan, plan.walls[selection[0].id], plan.walls[measureTarget])} px={px} units={units} />
+            </g>
           )}
           {/* comment pins */}
+          <g data-export="skip">
           {Object.values(plan.comments ?? {})
             .filter((c) => showResolved || !c.resolved || c.id === openComment)
             .map((c) => (
               <CommentPin key={c.id} comment={c} px={px} open={openComment === c.id} onOpen={() => (setComposer(null), setOpenComment(openComment === c.id ? null : c.id))} />
             ))}
+          </g>
           {/* room names and areas, above the furniture */}
           {rooms.map((r, i) => (
             <g key={'label' + r.id} style={{ pointerEvents: 'none' }}>
@@ -1126,8 +1134,10 @@ export function Editor2D() {
               </text>
             </g>
           ))}
-          {calibrating?.a && <circle cx={calibrating.a.x} cy={calibrating.a.y} r={5 * px} fill="none" stroke="#e0245e" strokeWidth={2 * px} style={{ pointerEvents: 'none' }} />}
-          <PeerCursors px={px} />
+          {calibrating?.a && <circle data-export="skip" cx={calibrating.a.x} cy={calibrating.a.y} r={5 * px} fill="none" stroke="#e0245e" strokeWidth={2 * px} style={{ pointerEvents: 'none' }} />}
+          <g data-export="skip">
+            <PeerCursors px={px} />
+          </g>
         </g>
       </svg>
       {north !== undefined && (
