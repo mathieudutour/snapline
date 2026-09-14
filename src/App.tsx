@@ -11,6 +11,7 @@ import { Landing } from './pages/Landing'
 import { Login } from './pages/Login'
 import { navigate, useRoute } from './router'
 import { ConflictDialog, Notice } from './panels/Conflict'
+import { MOBILE_QUERY, useMedia } from './panels/useMedia'
 import { ViewLinkPage } from './pages/ViewLink'
 
 const Scene3D = lazy(() => import('./three/Scene3D').then((m) => ({ default: m.Scene3D })))
@@ -18,9 +19,13 @@ const Scene3D = lazy(() => import('./three/Scene3D').then((m) => ({ default: m.S
 export function EditorApp() {
   const mode = useEditor((s) => s.mode)
   const prefsOpen = useEditor((s) => s.prefsOpen)
+  const drawer = useEditor((s) => s.drawer)
+  const setDrawer = useEditor((s) => s.setDrawer)
+  const mobile = useMedia(MOBILE_QUERY)
   return (
-    <div className="app">
+    <div className={`app ${mobile ? 'mobile' : ''} ${mobile && drawer ? `drawer-${drawer}` : ''}`}>
       <Rail />
+      {mobile && drawer && <div className="drawer-backdrop" onClick={() => setDrawer(null)} />}
       <LeftPanel />
       <div className="canvas-area">
         {mode === 'plan' ? (

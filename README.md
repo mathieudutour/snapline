@@ -83,6 +83,10 @@ canvas in the middle with a floating toolbar at the bottom, and an inspector for
 | Site and sun | With nothing selected, the Site section takes the building's latitude and longitude ("Use my location" fills them in) and the compass bearing of the top of the plan; a north arrow then shows on the 2D canvas. In 3D and walkthrough, pick the season (June solstice, equinox, December solstice) and drag the time of day to see where the real sun stands and how the shadows move; night dims the scene. |
 | 3D / walkthrough | Switch with 2D / 3D / Walk in the inspector header. In 3D tick "Cut above" to look inside; the walkthrough runs on the floor selected in the Floors list. |
 
+## Phones and tablets
+
+On screens narrower than 900 px the side panels become drawers: the Layers and Furniture buttons open the left one, Inspect opens the right one. On the plan, one finger pans, two fingers pinch to zoom, a tap selects; the 3D view orbits with one finger and pans or zooms with two. The walkthrough needs a mouse and keyboard and is hidden on touch devices.
+
 ## Furniture catalogue
 
 The models come from the free libraries distributed with [Sweet Home 3D](https://www.sweethome3d.com/)

@@ -3,6 +3,7 @@ import { SelectionInspector } from './Sidebar'
 import { AccountButton } from './Account'
 import { PeerAvatars } from '../editor/Peers'
 import { SunControls } from './Sun'
+import { COARSE_POINTER_QUERY, useMedia } from './useMedia'
 
 const MODES: { id: ViewMode; label: string }[] = [
   { id: 'plan', label: '2D' },
@@ -22,11 +23,13 @@ export function Inspector() {
   const canUndo = useEditor((s) => s.undoStack.length > 0)
   const undo = useEditor((s) => s.undo)
   const readOnly = useEditor(isReadOnly)
+  const coarse = useMedia(COARSE_POINTER_QUERY)
+  const modes = coarse ? MODES.filter((m) => m.id !== 'walk') : MODES // the walkthrough needs a mouse and a keyboard
   return (
     <aside className="inspector">
       <div className="inspector-head">
         <div className="seg">
-          {MODES.map((m) => (
+          {modes.map((m) => (
             <button key={m.id} className={mode === m.id ? 'active' : ''} onClick={() => setMode(m.id)}>
               {m.label}
             </button>

@@ -17,6 +17,10 @@ import { Compass } from '../panels/Site'
 
 type DragState =
   | { kind: 'pan'; startScreen: Vec2; startVp: Viewport }
+  /** one finger: pan once it moves, select what it tapped otherwise */
+  | { kind: 'touch'; startScreen: Vec2; startVp: Viewport; moved: boolean; target: SelectionItem | null }
+  /** two fingers: pinch to zoom around the midpoint and pan with it */
+  | { kind: 'pinch'; startVp: Viewport; startDist: number; startMid: Vec2; startWorld: Vec2 }
   | { kind: 'point'; id: string; moved: boolean; snap: SnapResult | null; start: Vec2 }
   | { kind: 'wall'; id: string; startA: Vec2; startB: Vec2; startCursor: Vec2; moved: boolean }
   | { kind: 'opening'; id: string; moved: boolean }
@@ -81,6 +85,8 @@ export function Editor2D() {
   const belowPoints = useMemo(() => (showFloorBelow && below ? Object.values(below.points).map((p) => ({ x: p.x, y: p.y })) : []), [showFloorBelow, below])
   const showShortcuts = useEditor((s) => s.showShortcuts)
   const dragRef = useRef<DragState | null>(null)
+  /** active touch points by pointer id (for pinch zoom) */
+  const touchesRef = useRef(new Map<number, Vec2>())
 
   useEffect(() => {
     const el = containerRef.current
@@ -425,6 +431,25 @@ export function Editor2D() {
     const svg = svgRef.current!
     svg.setPointerCapture(e.pointerId)
     const screen = { x: e.clientX, y: e.clientY }
+    if (e.pointerType === 'touch') {
+      touchesRef.current.set(e.pointerId, screen)
+      const touches = [...touchesRef.current.values()]
+      if (touches.length >= 2) {
+        // a second finger turns whatever was going on into a pinch
+        const [a, b] = touches
+        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+        const rect = svg.getBoundingClientRect()
+        dragRef.current = { kind: 'pinch', startVp: vp, startDist: Math.max(1, Math.hypot(b.x - a.x, b.y - a.y)), startMid: mid, startWorld: screenToWorld(vp, { x: mid.x - rect.left, y: mid.y - rect.top }, size.width, size.height) }
+        setMarquee(null)
+        return
+      }
+      if (tool === 'select' || tool === 'pan') {
+        const hit = target.closest('[data-kind]')
+        const item = hit ? ({ kind: hit.getAttribute('data-kind'), id: hit.getAttribute('data-id') } as SelectionItem) : null
+        dragRef.current = { kind: 'touch', startScreen: screen, startVp: vp, moved: false, target: item }
+        return
+      }
+    }
     if (e.button === 1 || tool === 'pan' || space) {
       dragRef.current = { kind: 'pan', startScreen: screen, startVp: vp }
       return
@@ -499,6 +524,28 @@ export function Editor2D() {
     setLiveCursor(world)
     const drag = dragRef.current
     const st = useEditor.getState()
+    if (e.pointerType === 'touch' && touchesRef.current.has(e.pointerId)) touchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (drag?.kind === 'pinch') {
+      const touches = [...touchesRef.current.values()]
+      if (touches.length < 2) return
+      const [a, b] = touches
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+      const k = Math.hypot(b.x - a.x, b.y - a.y) / drag.startDist
+      const scale = Math.min(800, Math.max(4, drag.startVp.scale * k))
+      const rect = svgRef.current!.getBoundingClientRect()
+      // keep the world point that was under the fingers' midpoint under it
+      const local = { x: mid.x - rect.left, y: mid.y - rect.top }
+      setVp({ scale, cx: drag.startWorld.x - (local.x - size.width / 2) / scale, cy: drag.startWorld.y - (local.y - size.height / 2) / scale })
+      return
+    }
+    if (drag?.kind === 'touch') {
+      const dx = e.clientX - drag.startScreen.x
+      const dy = e.clientY - drag.startScreen.y
+      if (!drag.moved && Math.hypot(dx, dy) < 8) return
+      drag.moved = true
+      setVp({ ...drag.startVp, cx: drag.startVp.cx - dx / drag.startVp.scale, cy: drag.startVp.cy - dy / drag.startVp.scale })
+      return
+    }
     if (drag?.kind === 'pan') {
       const dx = (e.clientX - drag.startScreen.x) / drag.startVp.scale
       const dy = (e.clientY - drag.startScreen.y) / drag.startVp.scale
@@ -578,8 +625,25 @@ export function Editor2D() {
 
   const onPointerUp = (e: React.PointerEvent) => {
     const drag = dragRef.current
-    dragRef.current = null
     const st = useEditor.getState()
+    if (e.pointerType === 'touch') {
+      touchesRef.current.delete(e.pointerId)
+      if (drag?.kind === 'pinch') {
+        // lifting one finger ends the pinch; the other finger starts a fresh pan
+        const rest = [...touchesRef.current.entries()]
+        dragRef.current = rest.length === 1 ? { kind: 'touch', startScreen: rest[0][1], startVp: vp, moved: true, target: null } : null
+        return
+      }
+      if (drag?.kind === 'touch') {
+        dragRef.current = null
+        if (!drag.moved) {
+          if (drag.target && tool === 'select') st.select([drag.target])
+          else st.clearSelection()
+        }
+        return
+      }
+    }
+    dragRef.current = null
     if (!drag) return
     if (drag.kind === 'click-empty') {
       const moved = Math.hypot(e.clientX - drag.startScreen.x, e.clientY - drag.startScreen.y) > 3

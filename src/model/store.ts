@@ -99,6 +99,9 @@ export interface EditorState {
   setRailTab: (tab: 'layers' | 'furniture') => void
   prefsOpen: boolean
   setPrefsOpen: (v: boolean) => void
+  /** on narrow screens the side panels are drawers over the canvas */
+  drawer: 'left' | 'right' | null
+  setDrawer: (d: 'left' | 'right' | null) => void
   /** models imported by the user (metadata; files live in IndexedDB and, when signed in, in the account) */
   customModels: CustomModel[]
   /** load imported models from the browser and expose their files */
@@ -917,6 +920,8 @@ export const useEditor = create<EditorState>((set, get) => {
     setRailTab: (railTab) => set({ railTab }),
     prefsOpen: false,
     setPrefsOpen: (prefsOpen) => set({ prefsOpen }),
+    drawer: null,
+    setDrawer: (drawer) => set({ drawer }),
     customModels: [],
     loadCustomModels: async () => {
       const list = loadCustomModelMeta()
