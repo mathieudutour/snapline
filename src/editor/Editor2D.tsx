@@ -1026,7 +1026,10 @@ function EditBox({ screen, initial, units, onCommit, onCancel }: { screen: Vec2;
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') onCommit(value, e.shiftKey ? !lock : lock)
-            if (e.key === 'Escape') onCancel()
+            if (e.key === 'Escape') {
+              e.preventDefault() // consumed here, so the browser does not leave fullscreen
+              onCancel()
+            }
           }}
         />
         <span className="edit-unit">{units}</span>
