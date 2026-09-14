@@ -7,6 +7,26 @@ export interface Floor {
   id: string
   name: string
   plan: Plan
+  /** a scanned plan or photo traced over */
+  underlay?: Underlay
+}
+
+export interface Underlay {
+  /** file key (see src/files/planFiles.ts) */
+  key: string
+  name: string
+  /** image size in pixels */
+  width: number
+  height: number
+  /** plan metres per image pixel */
+  scale: number
+  /** plan position of the image's top-left corner */
+  x: number
+  y: number
+  /** degrees, clockwise */
+  rotation: number
+  opacity: number
+  locked: boolean
 }
 
 export type RoofType = 'none' | 'flat' | 'gable' | 'hip'
@@ -78,6 +98,7 @@ export function normalizeProject(raw: unknown, normalizePlan: (p: Partial<Plan>)
       id: f.id ?? newId('fl'),
       name: f.name ?? defaultFloorName(i),
       plan: normalizePlan((f.plan ?? {}) as Partial<Plan>),
+      ...(f.underlay && typeof f.underlay === 'object' && typeof f.underlay.key === 'string' ? { underlay: f.underlay } : {}),
     }))
     if (floors.length === 0) floors.push({ id: newId('fl'), name: 'Ground floor', plan: emptyPlan() })
     const now = Date.now()

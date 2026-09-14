@@ -303,4 +303,31 @@ describe('worker app', () => {
     // changing the role of an existing member is still fine at the cap
     expect((await handle(new Request(`${ORIGIN}/api/projects/prj1/members`, { method: 'POST', headers: auth, body: JSON.stringify({ email: 'p1@example.com', role: 'viewer' }) }))).status).toBe(200)
   })
+
+  it('stores plan underlay images per project for members and view links', async () => {
+    const cb = await signIn()
+    const token = parseCookies(setCookieHeaders(cb).find((c) => c.startsWith(SESSION_COOKIE))!.split(';')[0])[SESSION_COOKIE]
+    const auth = { Cookie: `${SESSION_COOKIE}=${token}`, Origin: ORIGIN, 'Content-Type': 'application/json' }
+    const project = { id: 'prj1', name: 'House', floors: [{ id: 'f', name: 'Ground', plan: {} }], roof: { type: 'none' } }
+    await handle(new Request(`${ORIGIN}/api/projects/prj1`, { method: 'PUT', headers: auth, body: JSON.stringify({ project, baseVersion: 0 }) }))
+    const png = new Uint8Array([137, 80, 78, 71])
+    expect((await handle(new Request(`${ORIGIN}/api/projects/prj1/files/uf-abcd`, { method: 'PUT', headers: { ...auth, 'Content-Type': 'text/html' }, body: png }))).status).toBe(415)
+    expect((await handle(new Request(`${ORIGIN}/api/projects/prj1/files/uf-abcd`, { method: 'PUT', headers: { ...auth, 'Content-Type': 'image/png' }, body: png }))).status).toBe(200)
+    const got = await handle(new Request(`${ORIGIN}/api/projects/prj1/files/uf-abcd`, { headers: auth }))
+    expect(got.status).toBe(200)
+    expect(got.headers.get('Content-Type')).toBe('image/png')
+    // a viewer can read, not write; a link visitor can read
+    await handle(new Request(`${ORIGIN}/api/projects/prj1/members`, { method: 'POST', headers: auth, body: JSON.stringify({ email: 'other@example.com', role: 'viewer' }) }))
+    resetJwksCache()
+    const cb2 = await signIn({ sub: 'google-sub-2', email: 'other@example.com' })
+    const token2 = parseCookies(setCookieHeaders(cb2).find((c) => c.startsWith(SESSION_COOKIE))!.split(';')[0])[SESSION_COOKIE]
+    const auth2 = { ...auth, Cookie: `${SESSION_COOKIE}=${token2}` }
+    expect((await handle(new Request(`${ORIGIN}/api/projects/prj1/files/uf-abcd`, { headers: auth2 }))).status).toBe(200)
+    expect((await handle(new Request(`${ORIGIN}/api/projects/prj1/files/uf-abcd`, { method: 'PUT', headers: { ...auth2, 'Content-Type': 'image/png' }, body: png }))).status).toBe(403)
+    const linked = await body(await handle(new Request(`${ORIGIN}/api/projects/prj1/link`, { method: 'POST', headers: auth })))
+    expect((await handle(new Request(`${ORIGIN}/api/view/${linked.token}/files/uf-abcd`))).status).toBe(200)
+    expect((await handle(new Request(`${ORIGIN}/api/view/${linked.token}/files/uf-nope`))).status).toBe(404)
+    expect((await handle(new Request(`${ORIGIN}/api/projects/prj1/files/uf-abcd`, { method: 'DELETE', headers: auth }))).status).toBe(200)
+    expect((await handle(new Request(`${ORIGIN}/api/projects/prj1/files/uf-abcd`, { headers: auth }))).status).toBe(404)
+  })
 })

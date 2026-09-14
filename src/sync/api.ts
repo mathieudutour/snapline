@@ -169,3 +169,20 @@ export async function getRemoteModelFile(key: string, part: 'glb' | 'plan' | 'th
 export async function deleteRemoteModel(key: string): Promise<void> {
   await call(`/api/models/${key}`, { method: 'DELETE' })
 }
+
+// ---- files attached to a project (plan underlays) ----
+export async function putProjectFile(projectId: string, key: string, blob: Blob): Promise<void> {
+  const res = await fetch(`/api/projects/${projectId}/files/${key}`, { method: 'PUT', body: blob, headers: { 'Content-Type': blob.type }, credentials: 'same-origin' })
+  if (!res.ok) throw new ApiError(res.status, `upload file → ${res.status}`)
+}
+
+/** download a project file; `viewToken` when looking through a view link */
+export async function getProjectFile(projectId: string, key: string, viewToken?: string | null): Promise<Blob> {
+  const res = await fetch(viewToken ? `/api/view/${viewToken}/files/${key}` : `/api/projects/${projectId}/files/${key}`, { credentials: 'same-origin' })
+  if (!res.ok) throw new ApiError(res.status, `download file → ${res.status}`)
+  return res.blob()
+}
+
+export async function deleteProjectFile(projectId: string, key: string): Promise<void> {
+  await call(`/api/projects/${projectId}/files/${key}`, { method: 'DELETE' })
+}

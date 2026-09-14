@@ -15,6 +15,8 @@ import { roomName } from '../model/rooms'
 import { PeerCursors, usePeerSelections } from './Peers'
 import { Compass } from '../panels/Site'
 import { CommentComposer, CommentPin, CommentThread } from './Comments'
+import { ensureFileUrl, fileUrl, onFileUrls } from '../files/planFiles'
+import type { Underlay } from '../model/project'
 
 type DragState =
   | { kind: 'pan'; startScreen: Vec2; startVp: Viewport }
@@ -28,6 +30,8 @@ type DragState =
   | { kind: 'furniture'; id: string; start: Vec2; startAngle: number; startCursor: Vec2; moved: boolean; snappedWall: string | null }
   | { kind: 'rotate'; id: string; moved: boolean }
   | { kind: 'click-empty'; startScreen: Vec2; startWorld: Vec2 }
+  /** moving the underlay image (unlocked) */
+  | { kind: 'underlay'; start: Vec2; startCursor: Vec2; moved: boolean }
 
 type Editing = { kind: 'wallLength'; wallId: string; screen: Vec2 } | { kind: 'openingOffset'; openingId: string; end: 'a' | 'b'; screen: Vec2 }
 
@@ -65,6 +69,8 @@ export function Editor2D() {
   const gridSize = useEditor((s) => s.gridSize)
   const rooms = useMemo(() => findRooms(plan), [plan])
   const readOnly = useEditor(isReadOnly)
+  const underlay = useEditor((s) => s.project.floors.find((f) => f.id === s.activeFloorId)?.underlay)
+  const calibrating = useEditor((s) => s.calibrating)
 
   const [cursor, setCursor] = useState<Vec2 | null>(null)
   const [hover, setHover] = useState<SelectionItem | null>(null)
@@ -477,6 +483,28 @@ export function Editor2D() {
     }
     if (composer) setComposer(null)
     if (st.openComment && !target.closest('[data-kind="comment"]')) st.setOpenComment(null)
+    if (calibrating && underlay) {
+      e.preventDefault()
+      if (!calibrating.a) {
+        st.setCalibrating({ a: world })
+        return
+      }
+      const measured = dist(calibrating.a, world)
+      st.setCalibrating(null)
+      if (measured < 1e-6) return
+      const raw = prompt('Real distance between the two points', formatLength(measured, units))
+      const real = raw ? parseLength(raw, units) : null
+      if (!real || real <= 0) return
+      // scale the image about the first point so it stays put
+      const k = real / measured
+      const a = calibrating.a
+      st.setUnderlay({ scale: underlay.scale * k, x: a.x + (underlay.x - a.x) * k, y: a.y + (underlay.y - a.y) * k })
+      return
+    }
+    if (tool === 'select' && underlay && !underlay.locked && !readOnly && target.closest('[data-kind="underlay"]')) {
+      dragRef.current = { kind: 'underlay', start: { x: underlay.x, y: underlay.y }, startCursor: world, moved: false }
+      return
+    }
     if (tool === 'wall') {
       const s = computeSnap(world, { from: drawing?.pos })
       if (!drawing) {
@@ -564,6 +592,11 @@ export function Editor2D() {
       if (!drag.moved && Math.hypot(dx, dy) < 8) return
       drag.moved = true
       setVp({ ...drag.startVp, cx: drag.startVp.cx - dx / drag.startVp.scale, cy: drag.startVp.cy - dy / drag.startVp.scale })
+      return
+    }
+    if (drag?.kind === 'underlay') {
+      drag.moved = true
+      st.setUnderlay({ x: drag.start.x + (world.x - drag.startCursor.x), y: drag.start.y + (world.y - drag.startCursor.y) })
       return
     }
     if (drag?.kind === 'pan') {
@@ -839,6 +872,7 @@ export function Editor2D() {
           <line x1={visibleMin.x} y1={0} x2={visibleMax.x} y2={0} stroke="#c4c4c4" strokeWidth={px * 1.5} />
           <line x1={0} y1={visibleMin.y} x2={0} y2={visibleMax.y} stroke="#c4c4c4" strokeWidth={px * 1.5} />
 
+          {underlay && <UnderlayImage underlay={underlay} interactive={tool === 'select' && !underlay.locked && !readOnly} />}
           {/* ghost of the floor below */}
           {showFloorBelow && below && (
             <g style={{ pointerEvents: 'none' }} opacity={0.18}>
@@ -850,7 +884,7 @@ export function Editor2D() {
 
           {/* rooms */}
           {rooms.map((r) => (
-            <polygon key={r.id} points={r.polygon.map((p) => `${p.x},${p.y}`).join(' ')} fill="#f6f1e7" style={{ pointerEvents: 'none' }} />
+            <polygon key={r.id} points={r.polygon.map((p) => `${p.x},${p.y}`).join(' ')} fill="#f6f1e7" fillOpacity={underlay ? 0.35 : 1} style={{ pointerEvents: 'none' }} />
           ))}
 
           {/* guides */}
@@ -1091,6 +1125,7 @@ export function Editor2D() {
               </text>
             </g>
           ))}
+          {calibrating?.a && <circle cx={calibrating.a.x} cy={calibrating.a.y} r={5 * px} fill="none" stroke="#e0245e" strokeWidth={2 * px} style={{ pointerEvents: 'none' }} />}
           <PeerCursors px={px} />
         </g>
       </svg>
@@ -1126,7 +1161,8 @@ export function Editor2D() {
       {openComment && plan.comments?.[openComment] && <CommentThread comment={plan.comments[openComment]} screen={toScreen({ x: plan.comments[openComment].x, y: plan.comments[openComment].y })} onClose={() => setOpenComment(null)} />}
 
       <div className="editor-hint">
-        {tool === 'comment' && 'Click on the plan to pin a comment. Click a pin to read and reply.'}
+        {calibrating && (calibrating.a ? 'Click the second point on the underlay.' : 'Click the first of two points a known distance apart on the underlay.')}
+        {!calibrating && tool === 'comment' && 'Click on the plan to pin a comment. Click a pin to read and reply.'}
         {tool === 'wall' && !drawing && 'Click to start a wall. Shift constrains to 45°, Ctrl/⌘ disables snapping.'}
         {tool === 'wall' && drawing && 'Click to place the next corner · Enter, Esc or right-click to finish'}
         {(tool === 'door' || tool === 'window') && `Click on a wall to place a ${tool}.`}
@@ -1287,6 +1323,31 @@ function GapMeasure({ gap, px, units }: { gap: ReturnType<typeof wallGap>; px: n
           {label}
         </text>
       </g>
+    </g>
+  )
+}
+
+/** the floor's underlay image, resolved from the local file store or the account */
+function UnderlayImage({ underlay, interactive }: { underlay: Underlay; interactive: boolean }) {
+  const projectId = useEditor((s) => s.project.id)
+  const viewToken = useEditor((s) => s.viewLink?.token ?? null)
+  const [url, setUrl] = useState<string | null>(() => fileUrl(underlay.key))
+  useEffect(() => {
+    let live = true
+    setUrl(fileUrl(underlay.key))
+    void ensureFileUrl(projectId, underlay.key, viewToken).then((u) => live && setUrl(u))
+    const off = onFileUrls(() => live && setUrl(fileUrl(underlay.key)))
+    return () => {
+      live = false
+      off()
+    }
+  }, [underlay.key, projectId, viewToken])
+  const w = underlay.width * underlay.scale
+  const h = underlay.height * underlay.scale
+  return (
+    <g data-kind="underlay" transform={`translate(${underlay.x} ${underlay.y}) rotate(${underlay.rotation})`} style={{ cursor: interactive ? 'move' : undefined, pointerEvents: interactive ? 'auto' : 'none' }}>
+      {url ? <image href={url} x={0} y={0} width={w} height={h} opacity={underlay.opacity} preserveAspectRatio="none" /> : <rect width={w} height={h} fill="#eee" stroke="#bbb" strokeDasharray="0.1 0.1" />}
+      {interactive && <rect width={w} height={h} fill="none" stroke="#e0245e" strokeDasharray="0.08 0.08" strokeWidth={0.02} />}
     </g>
   )
 }

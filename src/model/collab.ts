@@ -7,7 +7,7 @@
  * same state without a merge step. This file is shared by the app and the Worker's room.
  */
 import type { Plan, PlanSettings } from './types'
-import type { Floor, Project, Roof } from './project'
+import type { Floor, Project, Roof, Underlay } from './project'
 import type { Site } from './sun'
 
 export type Collection = 'points' | 'walls' | 'openings' | 'furniture' | 'constraints' | 'rooms' | 'comments'
@@ -16,7 +16,7 @@ export const COLLECTIONS: Collection[] = ['points', 'walls', 'openings', 'furnit
 export type Op =
   | { k: 'entity'; floorId: string; coll: Collection; id: string; v: unknown | null }
   | { k: 'settings'; floorId: string; v: PlanSettings }
-  | { k: 'floor'; id: string; v: { name: string; plan?: Plan } | null; index?: number }
+  | { k: 'floor'; id: string; v: { name: string; plan?: Plan; underlay?: Underlay | null } | null; index?: number }
   | { k: 'floors'; order: string[] }
   | { k: 'project'; v: { name?: string; roof?: Roof; slabThickness?: number; site?: Site | null } }
   /** whole-project replacement (used when a client decides to overwrite the room) */
@@ -39,10 +39,10 @@ export function diffProjects(prev: Project, next: Project): Op[] {
   next.floors.forEach((f, index) => {
     const before = prevFloors.get(f.id)
     if (!before) {
-      ops.push({ k: 'floor', id: f.id, v: { name: f.name, plan: f.plan }, index })
+      ops.push({ k: 'floor', id: f.id, v: { name: f.name, plan: f.plan, underlay: f.underlay ?? null }, index })
       return
     }
-    if (before.name !== f.name) ops.push({ k: 'floor', id: f.id, v: { name: f.name } })
+    if (before.name !== f.name || !same(before.underlay, f.underlay)) ops.push({ k: 'floor', id: f.id, v: { name: f.name, underlay: f.underlay ?? null } })
     if (before.plan === f.plan) return
     if (!same(before.plan.settings, f.plan.settings)) ops.push({ k: 'settings', floorId: f.id, v: f.plan.settings })
     for (const coll of COLLECTIONS) {
@@ -88,10 +88,21 @@ export function applyOps(project: Project, ops: Op[]): Project {
         }
         const existing = p.floors.find((f) => f.id === op.id)
         if (existing) {
-          p = { ...p, floors: p.floors.map((f) => (f.id === op.id ? { ...f, name: op.v!.name, plan: op.v!.plan ?? f.plan } : f)) }
+          p = {
+            ...p,
+            floors: p.floors.map((f) => {
+              if (f.id !== op.id) return f
+              const next: Floor = { ...f, name: op.v!.name, plan: op.v!.plan ?? f.plan }
+              if (op.v!.underlay !== undefined) {
+                if (op.v!.underlay) next.underlay = op.v!.underlay
+                else delete next.underlay
+              }
+              return next
+            }),
+          }
         } else if (op.v.plan) {
           const floors = [...p.floors]
-          floors.splice(Math.min(op.index ?? floors.length, floors.length), 0, { id: op.id, name: op.v.name, plan: op.v.plan })
+          floors.splice(Math.min(op.index ?? floors.length, floors.length), 0, { id: op.id, name: op.v.name, plan: op.v.plan, ...(op.v.underlay ? { underlay: op.v.underlay } : {}) })
           p = { ...p, floors }
         }
         break

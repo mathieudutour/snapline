@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { SiteProps } from './Site'
+import { UnderlayProps } from './Underlay'
 import { useEditor } from '../model/store'
 import type { Constraint, Furniture, FurnitureSide, Opening, Wall } from '../model/types'
 import { nearestWallToSide, SIDE_LABELS } from '../model/furniture'
@@ -494,6 +495,7 @@ function SettingsProps() {
         <LengthField label="Slab between floors" units={units} value={project.slabThickness} onChange={setSlabThickness} />
         <p className="muted small">The roof covers the top floor's outline, aligned with its longest wall. Select a wall, corner, door, window or piece of furniture to edit it.</p>
       </div>
+      <UnderlayProps />
       <SiteProps />
     </>
   )

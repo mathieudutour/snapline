@@ -6,7 +6,9 @@ import { emptyPlan, newId } from './types'
 import { constraintsReferencing, solvePlan, type DragTarget, type FurnitureDrag, type SolveReport } from './constraints'
 import { dist, projectOnSegment, wallLength, wallsAtPoint, type WallSide } from './geometry'
 import { exampleProject } from './example'
-import { defaultFloorName, floorElevation, newProject, normalizeProject, type Floor, type Project, type ProjectMeta, type Roof } from './project'
+import { defaultFloorName, floorElevation, newProject, normalizeProject, type Floor, type Project, type ProjectMeta, type Roof, type Underlay } from './project'
+import { addFile, newFileKey, rasterize, removeFile } from '../files/planFiles'
+import { deleteProjectFile, putProjectFile } from '../sync/api'
 import type { Units } from './units'
 import type { Season, Site } from './sun'
 import { applyOps, diffProjects, floorsTouched, type Op, type Peer, type Presence } from './collab'
@@ -192,6 +194,13 @@ export interface EditorState {
   removeFloor: (id: string) => void
   renameFloor: (id: string, name: string) => void
   setRoof: (patch: Partial<Roof>) => void
+  /** underlay image of the active floor */
+  setUnderlay: (patch: Partial<Underlay> | null) => void
+  /** import an image or PDF as the active floor's underlay */
+  importUnderlay: (file: File) => Promise<void>
+  /** two clicks on the underlay and a typed distance set its scale */
+  calibrating: { a: Vec2 | null } | null
+  setCalibrating: (v: { a: Vec2 | null } | null) => void
   /** location and orientation of the building; null removes it */
   setSite: (site: Site | null) => void
   /** moment shown by the sun in 3D (a view setting, not part of the project) */
@@ -1448,6 +1457,43 @@ export const useEditor = create<EditorState>((set, get) => {
       const { project } = get()
       commitProject({ ...project, roof: { ...project.roof, ...patch } })
     },
+    setUnderlay: (patch) => {
+      const { project, activeFloorId } = get()
+      const floor = project.floors.find((f) => f.id === activeFloorId)
+      if (!floor) return
+      if (patch === null) {
+        if (!floor.underlay) return
+        const key = floor.underlay.key
+        void removeFile(key)
+        if (get().user && !get().viewLink) void deleteProjectFile(project.id, key).catch(() => undefined)
+        const { underlay: _drop, ...rest } = floor
+        void _drop
+        commitProject({ ...project, floors: project.floors.map((f) => (f.id === floor.id ? rest : f)) })
+        return
+      }
+      if (!floor.underlay) return
+      commitProject({ ...project, floors: project.floors.map((f) => (f.id === floor.id ? { ...f, underlay: { ...floor.underlay!, ...patch } } : f)) })
+    },
+    importUnderlay: async (file) => {
+      if (readOnly()) return
+      const { blob, width, height } = await rasterize(file)
+      const key = newFileKey()
+      await addFile(key, blob)
+      const { project, activeFloorId, plan } = get()
+      const floor = project.floors.find((f) => f.id === activeFloorId)
+      if (!floor) return
+      // start at a plausible size (12 m across) centred on the existing plan, or at the origin
+      const scale = 12 / Math.max(width, height)
+      const pts = Object.values(plan.points)
+      const cx = pts.length ? pts.reduce((a, p) => a + p.x, 0) / pts.length : 6
+      const cy = pts.length ? pts.reduce((a, p) => a + p.y, 0) / pts.length : 4
+      const underlay: Underlay = { key, name: file.name, width, height, scale, x: cx - (width * scale) / 2, y: cy - (height * scale) / 2, rotation: 0, opacity: 0.6, locked: false }
+      if (floor.underlay) void removeFile(floor.underlay.key)
+      commitProject({ ...project, floors: project.floors.map((f) => (f.id === floor.id ? { ...f, underlay } : f)) })
+      if (get().user && !get().viewLink) await putProjectFile(project.id, key, blob).catch(() => set({ notice: 'The underlay stays on this device: it could not be uploaded to the account.' }))
+    },
+    calibrating: null,
+    setCalibrating: (calibrating) => set({ calibrating }),
     setSite: (site) => {
       const { project } = get()
       const next = { ...project }

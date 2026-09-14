@@ -8,6 +8,8 @@ const SESSION_TTL_MS = 30 * 24 * 3600 * 1000
 const MAX_PROJECT_BYTES = 2 * 1024 * 1024
 const MAX_MODEL_BYTES = 15 * 1024 * 1024
 const MAX_ICON_BYTES = 512 * 1024
+const MAX_PLAN_FILE_BYTES = 12 * 1024 * 1024
+const FILE_KEY = /^[A-Za-z0-9_-]{4,64}$/
 /** per-account and per-project caps, so one account cannot fill the database */
 export const LIMITS = { projectsPerUser: 200, membersPerProject: 50, modelsPerUser: 100 }
 
@@ -63,6 +65,12 @@ export function createApp(cfg: AppConfig) {
     const url = new URL(req.url)
     const path = url.pathname
     const redirectUri = `${url.origin}/auth/google/callback`
+    const serveFile = async (objectKey: string) => {
+      if (!cfg.objects) return error(503, 'file storage is not configured')
+      const obj = await cfg.objects.get(objectKey)
+      if (!obj) return error(404, 'not found')
+      return new Response(obj.body, { headers: { 'Content-Type': obj.contentType, 'Cache-Control': 'private, max-age=31536000, immutable' } })
+    }
 
     if (cfg.limiter) {
       const strict = path.startsWith('/auth/') || path.startsWith('/api/view/') || path.endsWith('/live') || (req.method === 'POST' && /\/members$/.test(path))
@@ -116,11 +124,12 @@ export function createApp(cfg: AppConfig) {
       const me = await currentUser(req)
       if (path === '/api/me' && req.method === 'GET') return json({ user: me ? publicUser(me.user) : null })
       // ---- view links need no account ----
-      const view = /^\/api\/view\/([A-Za-z0-9_-]{8,64})(\/live)?$/.exec(path)
+      const view = /^\/api\/view\/([A-Za-z0-9_-]{8,64})(\/live|\/files\/([A-Za-z0-9_-]{4,64}))?$/.exec(path)
       if (view && req.method === 'GET') {
         const row = await cfg.store.getProjectByViewToken(view[1])
         if (!row) return error(404, 'this link is not valid any more')
-        if (view[2]) {
+        if (view[3]) return serveFile(`projects/${row.id}/${view[3]}`)
+        if (view[2] === '/live') {
           if (!cfg.live) return error(503, 'live collaboration is not configured')
           const guest: User = me?.user ?? { id: 'guest', googleSub: '', email: '', name: 'Guest', picture: '', createdAt: 0 }
           return cfg.live(req, { projectId: row.id, user: guest, role: 'viewer' })
@@ -156,6 +165,31 @@ export function createApp(cfg: AppConfig) {
           await cfg.store.setViewToken(link[1], null)
           return json({ token: null })
         }
+      }
+      // ---- files attached to a project (plan underlays) ----
+      const pf = /^\/api\/projects\/([A-Za-z0-9_-]{1,64})\/files\/([A-Za-z0-9_-]{4,64})$/.exec(path)
+      if (pf) {
+        const meta = await cfg.store.getProjectMeta(access, pf[1])
+        if (!meta) return error(404, 'not found')
+        const objectKey = `projects/${pf[1]}/${pf[2]}`
+        if (req.method === 'GET') return serveFile(objectKey)
+        if (!cfg.objects) return error(503, 'file storage is not configured')
+        if (roleOf(meta) === 'viewer') return error(403, 'this project is shared with you read-only')
+        if (req.method === 'PUT') {
+          if (!FILE_KEY.test(pf[2])) return error(400, 'bad key')
+          const type = req.headers.get('Content-Type') ?? ''
+          if (!/^image\/(png|jpeg|webp|gif|svg\+xml)$/.test(type)) return error(415, 'images only')
+          if (Number(req.headers.get('content-length') ?? '0') > MAX_PLAN_FILE_BYTES) return error(413, 'file too large')
+          const buf = await req.arrayBuffer()
+          if (buf.byteLength > MAX_PLAN_FILE_BYTES) return error(413, 'file too large')
+          await cfg.objects.put(objectKey, buf, type)
+          return json({ ok: true })
+        }
+        if (req.method === 'DELETE') {
+          await cfg.objects.delete(objectKey)
+          return json({ ok: true })
+        }
+        return error(404, 'not found')
       }
       const m = /^\/api\/projects\/([A-Za-z0-9_-]{1,64})(?:\/members(?:\/([^/]{1,254}))?)?$/.exec(path)
       if (m) {
