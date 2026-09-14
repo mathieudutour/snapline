@@ -191,6 +191,15 @@ export function Editor2D() {
     st.endDrag()
   }, [])
 
+  // In fullscreen, browsers exit on Escape before the page sees it. Chromium's keyboard lock hands
+  // Escape to the page instead (the user holds it to leave fullscreen); other browsers ignore this.
+  useEffect(() => {
+    const kb = (navigator as Navigator & { keyboard?: { lock?: (keys: string[]) => Promise<void>; unlock?: () => void } }).keyboard
+    if (!kb?.lock) return
+    kb.lock(['Escape']).catch(() => undefined)
+    return () => kb.unlock?.()
+  }, [])
+
   // ---- keyboard (Figma-style single-key tools and modifiers) ----
   useEffect(() => {
     const isField = (t: EventTarget | null) => t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement
@@ -266,6 +275,7 @@ export function Editor2D() {
         return
       }
       if (e.key === 'Escape') {
+        e.preventDefault() // Escape is ours: do not let the browser act on it as well
         setEditing(null)
         setMarquee(null)
         if (st.showShortcuts) {
@@ -1042,6 +1052,7 @@ const SHORTCUTS: [string, string][] = [
   ['Shift + 0', 'Zoom to 100%'],
   ['Shift + 1', 'Zoom to fit'],
   ['⌥ + hover', 'Distance from the selected wall to another wall'],
+  ['Esc / Enter / right-click', 'Finish drawing walls'],
   ['Shift + 2', 'Zoom to selection'],
   ['Shift + click', 'Add to selection'],
   ['Drag on empty space', 'Marquee select'],
