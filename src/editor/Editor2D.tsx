@@ -12,6 +12,7 @@ import { Dimension } from './Dimension'
 import { setLiveCursor } from '../sync/liveController'
 import { wallGap } from '../model/measure'
 import { PeerCursors, usePeerSelections } from './Peers'
+import { Compass } from '../panels/Site'
 
 type DragState =
   | { kind: 'pan'; startScreen: Vec2; startVp: Viewport }
@@ -101,6 +102,7 @@ export function Editor2D() {
   const toScreen = useCallback((p: Vec2): Vec2 => worldToScreen(vp, p, size.width, size.height), [vp, size])
 
   const peerSelections = usePeerSelections()
+  const north = useEditor((s) => s.project.site?.north)
   /** wall under the pointer for Option-hover measuring; hovering a door or window counts as its wall */
   const measureTarget = hover?.kind === 'wall' ? hover.id : hover?.kind === 'opening' ? plan.openings[hover.id]?.wallId : null
   /** the side a wall's dimension is drawn on (away from rooms) and its outward normal */
@@ -982,6 +984,11 @@ export function Editor2D() {
           <PeerCursors px={px} />
         </g>
       </svg>
+      {north !== undefined && (
+        <div className="north-arrow" title={`North is at ${Math.round(north)}° from the top of the plan`}>
+          <Compass north={north} size={36} />
+        </div>
+      )}
 
       {editing && (
         <EditBox

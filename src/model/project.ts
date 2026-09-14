@@ -1,4 +1,5 @@
 import type { Plan, Vec2 } from './types'
+import type { Site } from './sun'
 import { emptyPlan, newId } from './types'
 import { dist, polygonArea, wallLength } from './geometry'
 
@@ -30,6 +31,8 @@ export interface Project {
   roof: Roof
   /** concrete slab between floors, metres */
   slabThickness: number
+  /** where the building stands and how the plan is oriented; drives the sun in 3D */
+  site?: Site
   createdAt: number
   updatedAt: number
 }
@@ -84,6 +87,7 @@ export function normalizeProject(raw: unknown, normalizePlan: (p: Partial<Plan>)
       floors,
       roof: { ...DEFAULT_ROOF, type: 'none', ...((r.roof as Partial<Roof>) ?? {}) },
       slabThickness: typeof r.slabThickness === 'number' ? r.slabThickness : 0.25,
+      site: normalizeSite(r.site),
       createdAt: typeof r.createdAt === 'number' ? r.createdAt : now,
       updatedAt: typeof r.updatedAt === 'number' ? r.updatedAt : now,
     }
@@ -238,4 +242,10 @@ export function roofFootprint(plan: Plan): RoofRect | null {
 
 export function samePoint(a: Vec2, b: Vec2): boolean {
   return dist(a, b) < 1e-6
+}
+
+function normalizeSite(raw: unknown): Site | undefined {
+  const r = raw as Partial<Site> | null | undefined
+  if (!r || typeof r.lat !== 'number' || typeof r.lng !== 'number' || !Number.isFinite(r.lat) || !Number.isFinite(r.lng)) return undefined
+  return { lat: Math.max(-90, Math.min(90, r.lat)), lng: Math.max(-180, Math.min(180, r.lng)), north: typeof r.north === 'number' && Number.isFinite(r.north) ? ((r.north % 360) + 360) % 360 : 0 }
 }

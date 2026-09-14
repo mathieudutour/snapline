@@ -2,6 +2,7 @@ import { isReadOnly, useEditor, type ViewMode } from '../model/store'
 import { SelectionInspector } from './Sidebar'
 import { AccountButton } from './Account'
 import { PeerAvatars } from '../editor/Peers'
+import { SunControls } from './Sun'
 
 const MODES: { id: ViewMode; label: string }[] = [
   { id: 'plan', label: '2D' },
@@ -65,6 +66,7 @@ export function Inspector() {
             <p className="muted small">Drag to orbit, right-drag to pan, scroll to zoom. Pick the floor to cut at in the Floors list.</p>
           </div>
         )}
+        {(mode === '3d' || mode === 'walk') && <SunControls />}
         {mode === 'walk' && (
           <div className="props">
             <h3>Walkthrough</h3>

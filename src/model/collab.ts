@@ -8,6 +8,7 @@
  */
 import type { Plan, PlanSettings } from './types'
 import type { Floor, Project, Roof } from './project'
+import type { Site } from './sun'
 
 export type Collection = 'points' | 'walls' | 'openings' | 'furniture' | 'constraints'
 export const COLLECTIONS: Collection[] = ['points', 'walls', 'openings', 'furniture', 'constraints']
@@ -17,7 +18,7 @@ export type Op =
   | { k: 'settings'; floorId: string; v: PlanSettings }
   | { k: 'floor'; id: string; v: { name: string; plan?: Plan } | null; index?: number }
   | { k: 'floors'; order: string[] }
-  | { k: 'project'; v: { name?: string; roof?: Roof; slabThickness?: number } }
+  | { k: 'project'; v: { name?: string; roof?: Roof; slabThickness?: number; site?: Site | null } }
   /** whole-project replacement (used when a client decides to overwrite the room) */
   | { k: 'replace'; project: Project }
 
@@ -27,10 +28,11 @@ const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.s
 export function diffProjects(prev: Project, next: Project): Op[] {
   const ops: Op[] = []
   if (prev === next) return ops
-  const proj: { name?: string; roof?: Roof; slabThickness?: number } = {}
+  const proj: { name?: string; roof?: Roof; slabThickness?: number; site?: Site | null } = {}
   if (prev.name !== next.name) proj.name = next.name
   if (!same(prev.roof, next.roof)) proj.roof = next.roof
   if (prev.slabThickness !== next.slabThickness) proj.slabThickness = next.slabThickness
+  if (!same(prev.site, next.site)) proj.site = next.site ?? null
   if (Object.keys(proj).length) ops.push({ k: 'project', v: proj })
 
   const prevFloors = new Map(prev.floors.map((f) => [f.id, f]))
@@ -66,9 +68,12 @@ export function applyOps(project: Project, ops: Op[]): Project {
       case 'replace':
         p = op.project
         break
-      case 'project':
-        p = { ...p, ...op.v }
+      case 'project': {
+        const { site, ...rest } = op.v
+        p = { ...p, ...rest }
+        if (site !== undefined) p = { ...p, site: site ?? undefined }
         break
+      }
       case 'floors': {
         const byId = new Map(p.floors.map((f) => [f.id, f]))
         const ordered = op.order.map((id) => byId.get(id)).filter((f): f is Floor => !!f)

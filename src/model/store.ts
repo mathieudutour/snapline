@@ -7,6 +7,7 @@ import { dist, projectOnSegment, wallLength, wallsAtPoint, type WallSide } from 
 import { exampleProject } from './example'
 import { defaultFloorName, floorElevation, newProject, normalizeProject, type Floor, type Project, type ProjectMeta, type Roof } from './project'
 import type { Units } from './units'
+import type { Season, Site } from './sun'
 import { applyOps, diffProjects, floorsTouched, type Op, type Peer, type Presence } from './collab'
 import { CUSTOM_CATEGORY, type CatalogItem } from '../furniture/catalog'
 import { deleteModelBlobs, getModelBlobs, loadCustomModelMeta, newModelKey, parseModelFile, putModelBlobs, registerModelUrls, saveCustomModelMeta, unregisterModelUrls, type CustomModel } from '../furniture/customModels'
@@ -175,6 +176,11 @@ export interface EditorState {
   removeFloor: (id: string) => void
   renameFloor: (id: string, name: string) => void
   setRoof: (patch: Partial<Roof>) => void
+  /** location and orientation of the building; null removes it */
+  setSite: (site: Site | null) => void
+  /** moment shown by the sun in 3D (a view setting, not part of the project) */
+  sun: { season: Season; hour: number }
+  setSun: (patch: Partial<{ season: Season; hour: number }>) => void
   setSlabThickness: (v: number) => void
   renameProject: (name: string) => void
   newProject: () => void
@@ -1365,6 +1371,15 @@ export const useEditor = create<EditorState>((set, get) => {
       const { project } = get()
       commitProject({ ...project, roof: { ...project.roof, ...patch } })
     },
+    setSite: (site) => {
+      const { project } = get()
+      const next = { ...project }
+      if (site) next.site = site
+      else delete next.site
+      commitProject(next)
+    },
+    sun: { season: 'summer', hour: 14 },
+    setSun: (patch) => set({ sun: { ...get().sun, ...patch } }),
     setSlabThickness: (v) => {
       const { project } = get()
       commitProject({ ...project, slabThickness: Math.max(0, v) })

@@ -6,6 +6,7 @@ import { resolveModelUrl } from '../furniture/catalog'
 import { isCustomKey } from '../furniture/customModels'
 import type { Furniture } from '../model/types'
 import * as THREE from 'three'
+import { SEASON_DAY, sunPosition, sunVector, type SunPosition } from '../model/sun'
 import { useEditor } from '../model/store'
 import { floorElevation, floorHeight, projectTopElevation } from '../model/project'
 import { buildRoofGeometry, buildScene, type OpeningMeshData, type SceneData } from './buildScene'
@@ -228,14 +229,35 @@ function Ground({ center, radius }: { center: { x: number; y: number }; radius: 
   )
 }
 
+/** direction to the sun and how bright it is: from the site and the chosen moment, or a pleasant default */
+function useSun(radius: number): { dir: [number, number, number]; intensity: number; color: string; sky: number; position: SunPosition | null } {
+  const site = useEditor((s) => s.project.site)
+  const sun = useEditor((s) => s.sun)
+  return useMemo(() => {
+    if (!site) return { dir: [radius, radius * 1.6 + 6, radius * 0.6].map((v) => v / Math.hypot(radius, radius * 1.6 + 6, radius * 0.6)) as [number, number, number], intensity: 1.6, color: '#ffffff', sky: 1, position: null }
+    const position = sunPosition(site, SEASON_DAY[sun.season], sun.hour)
+    const dir = sunVector(position, site.north)
+    const up = Math.max(0, Math.sin((position.elevation * Math.PI) / 180))
+    // dim and warm near the horizon, off at night
+    const intensity = position.elevation <= 0 ? 0 : 0.4 + 1.6 * Math.min(1, up * 1.5)
+    const warmth = Math.min(1, Math.max(0, 1 - position.elevation / 25))
+    const color = `rgb(255, ${Math.round(255 - 70 * warmth)}, ${Math.round(255 - 130 * warmth)})`
+    const sky = position.elevation <= -6 ? 0.15 : position.elevation <= 0 ? 0.15 + (0.35 * (position.elevation + 6)) / 6 : 0.5 + 0.5 * Math.min(1, up * 2)
+    return { dir, intensity, color, sky, position }
+  }, [site, sun, radius])
+}
+
 function Lights({ center, radius }: { center: { x: number; y: number }; radius: number }) {
   const d = Math.max(10, radius * 1.5)
+  const sun = useSun(radius)
+  const dist = radius * 3 + 10
   return (
     <>
-      <hemisphereLight args={['#ffffff', '#8a7f6a', 0.7]} />
+      <hemisphereLight args={['#ffffff', '#8a7f6a', 0.7 * sun.sky]} />
       <directionalLight
-        position={[center.x + radius, radius * 1.6 + 6, center.y + radius * 0.6]}
-        intensity={1.6}
+        position={[center.x + sun.dir[0] * dist, Math.max(0.5, sun.dir[1] * dist), center.y + sun.dir[2] * dist]}
+        intensity={sun.intensity}
+        color={sun.color}
         castShadow
         shadow-mapSize={[2048, 2048]}
         shadow-camera-left={-d}
@@ -248,9 +270,21 @@ function Lights({ center, radius }: { center: { x: number; y: number }; radius: 
         shadow-normalBias={0.03}
         target-position={[center.x, 0, center.y]}
       />
-      <ambientLight intensity={0.25} />
+      <ambientLight intensity={0.25 * Math.max(0.5, sun.sky)} />
     </>
   )
+}
+
+/** sky dome that follows the sun; the clear colour behind it darkens at night */
+function SunSky({ radius }: { radius: number }) {
+  const sun = useSun(radius)
+  const { gl } = useThree()
+  useEffect(() => {
+    const k = sun.sky
+    gl.setClearColor(new THREE.Color(0.22 + 0.65 * k, 0.28 + 0.63 * k, 0.4 + 0.54 * k))
+  }, [gl, sun.sky])
+  const pos: [number, number, number] = [sun.dir[0] * 100, Math.max(sun.dir[1] * 100, sun.position ? -2 : 5), sun.dir[2] * 100]
+  return <Sky sunPosition={pos} turbidity={sun.position && sun.position.elevation < 10 ? 10 : 6} rayleigh={sun.position && sun.position.elevation < 10 ? 3 : 1.5} distance={400} />
 }
 
 function WalkController({ data, locked, elevation }: { data: SceneData; locked: boolean; elevation: number }) {
@@ -345,7 +379,7 @@ export function Scene3D({ walk }: { walk: boolean }) {
   return (
     <div className="scene3d">
       <Canvas shadows="percentage" camera={{ fov: walk ? 75 : 50, near: 0.05, far: 500 }} gl={{ antialias: true }} onCreated={({ gl }) => gl.setClearColor('#dfe7f0')}>
-        <Sky sunPosition={[bounds.center.x + bounds.radius, bounds.radius * 1.6 + 6, bounds.center.y + bounds.radius * 0.6]} turbidity={6} rayleigh={1.5} distance={400} />
+        <SunSky radius={bounds.radius} />
         <Lights center={bounds.center} radius={bounds.radius} />
         <Ground center={bounds.center} radius={bounds.radius} />
         {visible.map((s) => (
