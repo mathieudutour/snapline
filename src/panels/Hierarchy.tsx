@@ -38,6 +38,12 @@ export function Hierarchy() {
   const units = useEditor((s) => s.units)
   const rooms = useMemo(() => findRooms(plan), [plan])
   const nameRoom = useEditor((s) => s.nameRoom)
+  const comments = useMemo(() => Object.values(plan.comments ?? {}).sort((a, b) => a.createdAt - b.createdAt), [plan])
+  const openComment = useEditor((s) => s.openComment)
+  const setOpenComment = useEditor((s) => s.setOpenComment)
+  const showResolved = useEditor((s) => s.showResolved)
+  const setShowResolved = useEditor((s) => s.setShowResolved)
+  const setMode = useEditor((s) => s.setMode)
   const readOnly = useEditor(isReadOnly)
   const rename = (room: Room, index: number) => {
     const name = prompt('Room name', roomName(plan, room, index))
@@ -193,6 +199,25 @@ export function Hierarchy() {
           </div>
         ))}
         {violated.size > 0 && <div className="tree-empty warn">Highlighted constraints conflict; the solver found the closest compromise.</div>}
+      </Group>
+      <Group title="Comments" count={comments.filter((c) => !c.resolved).length}>
+        {comments.length === 0 && <div className="tree-empty">Press C and click on the plan to pin a comment.</div>}
+        {comments
+          .filter((c) => showResolved || !c.resolved)
+          .map((c) => (
+            <div key={c.id} className={`tree-row comment ${c.resolved ? 'resolved' : ''} ${openComment === c.id ? 'on' : ''}`} onClick={() => (setMode('plan'), setOpenComment(openComment === c.id ? null : c.id))}>
+              <span className="tree-icon">{c.resolved ? '✓' : '💬'}</span>
+              <span className="tree-label">
+                <b>{c.author.name}</b> {c.text.length > 60 ? c.text.slice(0, 60) + '…' : c.text}
+                {c.replies.length > 0 && <span className="muted"> · {c.replies.length} repl{c.replies.length > 1 ? 'ies' : 'y'}</span>}
+              </span>
+            </div>
+          ))}
+        {comments.some((c) => c.resolved) && (
+          <label className="toggle block tree-empty">
+            <input type="checkbox" checked={showResolved} onChange={(e) => setShowResolved(e.target.checked)} /> Show resolved
+          </label>
+        )}
       </Group>
     </div>
   )

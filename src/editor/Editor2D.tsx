@@ -14,6 +14,7 @@ import { wallGap } from '../model/measure'
 import { roomName } from '../model/rooms'
 import { PeerCursors, usePeerSelections } from './Peers'
 import { Compass } from '../panels/Site'
+import { CommentComposer, CommentPin, CommentThread } from './Comments'
 
 type DragState =
   | { kind: 'pan'; startScreen: Vec2; startVp: Viewport }
@@ -72,6 +73,11 @@ export function Editor2D() {
   const [snap, setSnap] = useState<SnapResult | null>(null)
   const [drawing, setDrawing] = useState<{ pos: Vec2; pointId?: string; wall?: { wallId: string; t: number }; startPointId?: string } | null>(null)
   const [editing, setEditing] = useState<Editing | null>(null)
+  /** a comment being written at a spot on the plan */
+  const [composer, setComposer] = useState<Vec2 | null>(null)
+  const openComment = useEditor((s) => s.openComment)
+  const setOpenComment = useEditor((s) => s.setOpenComment)
+  const showResolved = useEditor((s) => s.showResolved)
   const [shift, setShift] = useState(false)
   const [ctrl, setCtrl] = useState(false)
   const [space, setSpace] = useState(false)
@@ -288,6 +294,11 @@ export function Editor2D() {
         e.preventDefault() // Escape is ours: do not let the browser act on it as well
         setEditing(null)
         setMarquee(null)
+        setComposer(null)
+        if (st.openComment) {
+          st.setOpenComment(null)
+          return
+        }
         if (st.showShortcuts) {
           st.toggleShortcuts(false)
           return
@@ -332,7 +343,7 @@ export function Editor2D() {
         return
       }
       if (mod || e.altKey) return
-      const map: Record<string, typeof st.tool> = { v: 'select', w: 'wall', d: 'door', n: 'window', f: 'furniture', h: 'pan' }
+      const map: Record<string, typeof st.tool> = { v: 'select', w: 'wall', d: 'door', n: 'window', f: 'furniture', h: 'pan', c: 'comment' }
       const t = map[key]
       if (t) {
         st.setTool(t)
@@ -457,6 +468,15 @@ export function Editor2D() {
     if (e.button !== 0) return
     const world = toWorld(e)
     const st = useEditor.getState()
+    if (tool === 'comment') {
+      if (readOnly) return
+      e.preventDefault() // no mousedown afterwards, so the composer keeps the focus it takes
+      st.setOpenComment(null)
+      setComposer(world)
+      return
+    }
+    if (composer) setComposer(null)
+    if (st.openComment && !target.closest('[data-kind="comment"]')) st.setOpenComment(null)
     if (tool === 'wall') {
       const s = computeSnap(world, { from: drawing?.pos })
       if (!drawing) {
@@ -1054,6 +1074,12 @@ export function Editor2D() {
           {alt && tool === 'select' && selection.length === 1 && selection[0].kind === 'wall' && measureTarget && measureTarget !== selection[0].id && plan.walls[selection[0].id] && plan.walls[measureTarget] && (
             <GapMeasure gap={wallGap(plan, plan.walls[selection[0].id], plan.walls[measureTarget])} px={px} units={units} />
           )}
+          {/* comment pins */}
+          {Object.values(plan.comments ?? {})
+            .filter((c) => showResolved || !c.resolved || c.id === openComment)
+            .map((c) => (
+              <CommentPin key={c.id} comment={c} px={px} open={openComment === c.id} onOpen={() => (setComposer(null), setOpenComment(openComment === c.id ? null : c.id))} />
+            ))}
           {/* room names and areas, above the furniture */}
           {rooms.map((r, i) => (
             <g key={'label' + r.id} style={{ pointerEvents: 'none' }}>
@@ -1085,7 +1111,22 @@ export function Editor2D() {
         />
       )}
 
+      {composer && (
+        <CommentComposer
+          screen={toScreen(composer)}
+          onCancel={() => setComposer(null)}
+          onSubmit={(text) => {
+            const id = useEditor.getState().addComment(composer, text)
+            setComposer(null)
+            if (id) useEditor.getState().setOpenComment(id)
+            useEditor.getState().setTool('select')
+          }}
+        />
+      )}
+      {openComment && plan.comments?.[openComment] && <CommentThread comment={plan.comments[openComment]} screen={toScreen({ x: plan.comments[openComment].x, y: plan.comments[openComment].y })} onClose={() => setOpenComment(null)} />}
+
       <div className="editor-hint">
+        {tool === 'comment' && 'Click on the plan to pin a comment. Click a pin to read and reply.'}
         {tool === 'wall' && !drawing && 'Click to start a wall. Shift constrains to 45°, Ctrl/⌘ disables snapping.'}
         {tool === 'wall' && drawing && 'Click to place the next corner · Enter, Esc or right-click to finish'}
         {(tool === 'door' || tool === 'window') && `Click on a wall to place a ${tool}.`}
@@ -1147,6 +1188,7 @@ const SHORTCUTS: [string, string][] = [
   ['Shift + 1', 'Zoom to fit'],
   ['⌥ + hover', 'Distance from the selected wall to another wall'],
   ['Esc / Enter / right-click', 'Finish drawing walls'],
+  ['C', 'Comment: click on the plan to pin one'],
   ['Shift + 2', 'Zoom to selection'],
   ['Shift + click', 'Add to selection'],
   ['Drag on empty space', 'Marquee select'],

@@ -69,6 +69,7 @@ canvas in the middle with a floating toolbar at the bottom, and an inspector for
 | Doors / windows | `D` / `N`, then click on a wall. Select an opening to lock its distance from either wall end. |
 | Furniture | `F` or the Furniture rail tab opens the catalogue in the left panel; click a piece, then click on the plan. `R` rotates. Dropping a piece against a wall snaps its back to the wall and locks the gap. |
 | Your own models | "Import…" in the catalogue takes a `.glb` or `.gltf` file, measures it (pick the file's units if the size looks wrong) and renders its plan symbol and thumbnail in the browser. Imported models live under "My models", are kept in the browser, and are copied to your account when signed in. Only import models you are allowed to use. |
+| Comments | `C` then click on the plan pins a comment; click a pin to read, reply, resolve or delete. Comments are part of the project, so collaborators see them (live too) and the Layers panel lists the open ones. |
 | Measure between walls | Select a wall, hold ⌥ (Option / Alt) and hover another wall: the clear distance between their facing sides appears in red, like Figma. Parallel walls are measured across their overlap (or in front of the hovered wall with a dashed extension); other pairs show the shortest distance. |
 | Relate two walls | Shift-click two walls, then choose parallel / perpendicular / equal / angle in the inspector. |
 | Anchor a corner | Select a corner and click "Anchor in place" so the plan does not drift. |

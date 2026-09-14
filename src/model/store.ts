@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Constraint, ConstraintInput, Furniture, Opening, OpeningKind, Plan, PlanPoint, Room, Vec2, Wall } from './types'
+import type { Author, Constraint, ConstraintInput, Furniture, Opening, OpeningKind, Plan, PlanPoint, Room, Vec2, Wall } from './types'
 import { roomLabel } from './rooms'
 import { CATALOG_BY_KEY } from '../furniture/catalog'
 import { emptyPlan, newId } from './types'
@@ -15,7 +15,7 @@ import { deleteModelBlobs, getModelBlobs, loadCustomModelMeta, newModelKey, pars
 import { renderModelIcons } from '../furniture/renderIcon'
 import { ConflictError, deleteRemoteModel, deleteRemoteProject, fetchMe, getRemoteModelFile, getRemoteProject, getViewedProject, listRemoteModels, listRemoteProjects, putRemoteModelFile, putRemoteModelMeta, putRemoteProject, signOut as apiSignOut, type AccountUser, type Person, type RemoteProjectMeta } from '../sync/api'
 
-export type Tool = 'select' | 'wall' | 'door' | 'window' | 'furniture' | 'pan'
+export type Tool = 'select' | 'wall' | 'door' | 'window' | 'furniture' | 'pan' | 'comment'
 export type ViewMode = 'plan' | '3d' | 'walk'
 
 export type SelectionItem = { kind: 'point' | 'wall' | 'opening' | 'furniture'; id: string }
@@ -164,6 +164,16 @@ export interface EditorState {
   addConstraint: (c: ConstraintInput) => void
   /** name a room (a label pinned at its centroid; an empty name removes it) */
   nameRoom: (room: Room, name: string) => void
+  // comments pinned on the plan
+  addComment: (pos: Vec2, text: string) => string | null
+  replyComment: (id: string, text: string) => void
+  setCommentResolved: (id: string, resolved: boolean) => void
+  deleteComment: (id: string) => void
+  /** thread open in the editor */
+  openComment: string | null
+  setOpenComment: (id: string | null) => void
+  showResolved: boolean
+  setShowResolved: (v: boolean) => void
   removeConstraint: (id: string) => void
   deleteSelection: () => void
   deleteItems: (items: SelectionItem[]) => void
@@ -310,6 +320,7 @@ export function normalizePlan(raw: Partial<Plan>): Plan {
     furniture: raw.furniture ?? {},
     constraints: raw.constraints ?? {},
     rooms: raw.rooms ?? {},
+    comments: raw.comments ?? {},
     settings: { ...base.settings, ...(raw.settings ?? {}) },
   }
 }
@@ -366,7 +377,7 @@ function clonePlanWithNewIds(plan: Plan): Plan {
     const id = newId('rm')
     rooms[id] = { ...r, id }
   }
-  return { ...plan, points, walls, openings, furniture, constraints, rooms }
+  return { ...plan, points, walls, openings, furniture, constraints, rooms, comments: {} }
 }
 
 const MAX_UNDO = 100
@@ -512,6 +523,11 @@ export const useEditor = create<EditorState>((set, get) => {
     return nextProject
   }
   const readOnly = () => isReadOnly(get())
+  /** who signs comments: the account, or "Me" when working locally */
+  const author = (): Author => {
+    const u = get().user
+    return u ? { name: u.name || u.email, email: u.email } : { name: 'Me', email: '' }
+  }
   /** structural project change with an undo entry; re-solves the active floor */
   const commitProject = (nextProject: Project, activeFloorId = get().activeFloorId, extra: Partial<EditorState> = {}) => {
     if (readOnly()) return
@@ -1229,6 +1245,39 @@ export const useEditor = create<EditorState>((set, get) => {
       constraints[id] = { ...c, id } as Constraint
       get().commit({ ...plan, constraints })
     },
+    addComment: (pos, text) => {
+      const body = text.trim().slice(0, 2000)
+      if (!body || readOnly()) return null
+      const plan = get().plan
+      const id = newId('cm')
+      get().commit({ ...plan, comments: { ...plan.comments, [id]: { id, x: pos.x, y: pos.y, text: body, author: author(), createdAt: Date.now(), replies: [] } } })
+      return id
+    },
+    replyComment: (id, text) => {
+      const body = text.trim().slice(0, 2000)
+      const plan = get().plan
+      const c = plan.comments[id]
+      if (!body || !c) return
+      get().commit({ ...plan, comments: { ...plan.comments, [id]: { ...c, replies: [...c.replies, { id: newId('cr'), text: body, author: author(), createdAt: Date.now() }] } } })
+    },
+    setCommentResolved: (id, resolved) => {
+      const plan = get().plan
+      const c = plan.comments[id]
+      if (!c) return
+      get().commit({ ...plan, comments: { ...plan.comments, [id]: { ...c, resolved } } })
+    },
+    deleteComment: (id) => {
+      const plan = get().plan
+      if (!plan.comments[id]) return
+      const comments = { ...plan.comments }
+      delete comments[id]
+      if (get().openComment === id) set({ openComment: null })
+      get().commit({ ...plan, comments })
+    },
+    openComment: null,
+    setOpenComment: (openComment) => set({ openComment }),
+    showResolved: false,
+    setShowResolved: (showResolved) => set({ showResolved }),
     nameRoom: (room, name) => {
       const plan = get().plan
       const existing = roomLabel(plan, room)

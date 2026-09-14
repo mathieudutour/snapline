@@ -94,6 +94,30 @@ export interface RoomLabel {
   y: number
 }
 
+export interface Author {
+  name: string
+  email: string
+}
+
+export interface CommentReply {
+  id: string
+  text: string
+  author: Author
+  createdAt: number
+}
+
+/** a discussion pinned to a spot on the plan */
+export interface PlanComment {
+  id: string
+  x: number
+  y: number
+  text: string
+  author: Author
+  createdAt: number
+  resolved?: boolean
+  replies: CommentReply[]
+}
+
 export interface Plan {
   points: Record<string, PlanPoint>
   walls: Record<string, Wall>
@@ -101,6 +125,7 @@ export interface Plan {
   furniture: Record<string, Furniture>
   constraints: Record<string, Constraint>
   rooms: Record<string, RoomLabel>
+  comments: Record<string, PlanComment>
   settings: PlanSettings
 }
 
@@ -120,6 +145,7 @@ export function emptyPlan(): Plan {
     furniture: {},
     constraints: {},
     rooms: {},
+    comments: {},
     settings: { wallHeight: 2.5, wallThickness: 0.2, units: 'm' },
   }
 }
