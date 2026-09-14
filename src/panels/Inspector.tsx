@@ -19,6 +19,9 @@ export function Inspector() {
   const cutAboveActive = useEditor((s) => s.cutAboveActive)
   const setCutAboveActive = useEditor((s) => s.setCutAboveActive)
   const activeFloor = useEditor((s) => s.project.floors.find((f) => f.id === s.activeFloorId)?.name)
+  const floors = useEditor((s) => s.project.floors)
+  const activeFloorId = useEditor((s) => s.activeFloorId)
+  const setActiveFloor = useEditor((s) => s.setActiveFloor)
   const violations = useEditor((s) => s.report.violated.size)
   const canUndo = useEditor((s) => s.undoStack.length > 0)
   const undo = useEditor((s) => s.undo)
@@ -73,8 +76,20 @@ export function Inspector() {
         {mode === 'walk' && (
           <div className="props">
             <h3>Walkthrough</h3>
+            {floors.length > 1 && (
+              <label className="field">
+                <span>Floor</span>
+                <select value={activeFloorId} onChange={(e) => setActiveFloor(e.target.value)}>
+                  {[...floors].reverse().map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <p className="muted small">
-              You are on <strong>{activeFloor}</strong>. Click the view to capture the mouse, move with WASD or the arrow keys, hold Shift to run, Esc to release. Pick another floor in the Floors list.
+              You are on <strong>{activeFloor}</strong>. Click the view to capture the mouse, move with WASD or the arrow keys, hold Shift to run, Esc to release.
             </p>
           </div>
         )}

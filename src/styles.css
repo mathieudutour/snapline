@@ -867,6 +867,13 @@ button.account .avatar {
   position: relative;
   min-width: 0;
 }
+/* the walkthrough hides the layers panel: the view gets the room */
+.app.walking {
+  grid-template-columns: 52px minmax(0, 1fr) 280px;
+}
+.app.walking.mobile {
+  grid-template-columns: 52px minmax(0, 1fr);
+}
 .rail {
   display: flex;
   flex-direction: column;

@@ -23,10 +23,10 @@ export function EditorApp() {
   const setDrawer = useEditor((s) => s.setDrawer)
   const mobile = useMedia(MOBILE_QUERY)
   return (
-    <div className={`app ${mobile ? 'mobile' : ''} ${mobile && drawer ? `drawer-${drawer}` : ''}`}>
+    <div className={`app ${mobile ? 'mobile' : ''} ${mobile && drawer ? `drawer-${drawer}` : ''} ${mode === 'walk' ? 'walking' : ''}`}>
       <Rail />
       {mobile && drawer && <div className="drawer-backdrop" onClick={() => setDrawer(null)} />}
-      <LeftPanel />
+      {mode !== 'walk' && <LeftPanel />}
       <div className="canvas-area">
         {mode === 'plan' ? (
           <Editor2D />
