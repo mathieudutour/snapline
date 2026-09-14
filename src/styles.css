@@ -658,7 +658,7 @@ button.account .avatar {
 
 /* ---------- landing & login ---------- */
 .landing {
-  min-height: 100%;
+  height: 100%;
   overflow-y: auto;
   background: linear-gradient(180deg, #ffffff 0%, #f4f4f5 60%);
   color: var(--text);
@@ -809,7 +809,8 @@ button.account .avatar {
   }
 }
 .login {
-  min-height: 100%;
+  height: 100%;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1185,7 +1186,7 @@ button.account .avatar {
   color: var(--text);
 }
 .projects-page {
-  min-height: 100%;
+  height: 100%;
   background: var(--bg);
   overflow-y: auto;
 }
