@@ -1019,11 +1019,18 @@ button.account .avatar {
   color: var(--accent);
 }
 .row-actions {
-  display: none;
+  /* always laid out (so the row keeps its height) and only shown on hover */
+  display: inline-flex;
   gap: 2px;
+  visibility: hidden;
 }
 .floor-row:hover .row-actions {
-  display: inline-flex;
+  visibility: visible;
+}
+.row-actions .icon-btn {
+  height: 18px;
+  padding: 0 4px;
+  line-height: 18px;
 }
 .tree-group {
   margin: 2px 0;
