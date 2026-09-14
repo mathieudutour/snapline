@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Furniture, Opening, Plan, Vec2, Wall } from '../model/types'
 import { furnitureCorners, localToPlan, snapFurnitureToWall } from '../model/furniture'
 import { CATALOG_BY_KEY, planIconUrl } from '../furniture/catalog'
-import { add, dist, dot, findRooms, normalize, perp, planBounds, pointInPolygon, projectOnSegment, scale, sub, wallLength, wallPolygon, wallsAtPoint } from '../model/geometry'
+import { add, dimensionSide, dist, dot, findRooms, normalize, oppositeSide, perp, planBounds, projectOnSegment, scale, sideNormal, sub, wallFace, wallLength, wallPolygon, wallsAtPoint } from '../model/geometry'
 import { floorBelow, isSelected, useEditor, type SelectionItem } from '../model/store'
 import { constraintsReferencing } from '../model/constraints'
 import { formatArea, formatLength, parseLength, type Units } from '../model/units'
@@ -95,19 +95,9 @@ export function Editor2D() {
   )
   const toScreen = useCallback((p: Vec2): Vec2 => worldToScreen(vp, p, size.width, size.height), [vp, size])
 
-  const wallSide = useCallback(
-    (w: Wall): Vec2 => {
-      const a = plan.points[w.a]
-      const b = plan.points[w.b]
-      const u = normalize(sub(b, a))
-      const n = perp(u)
-      const mid = scale(add(a, b), 0.5)
-      const probe = add(mid, scale(n, w.thickness / 2 + 0.3))
-      const inside = rooms.some((r) => pointInPolygon(probe, r.polygon))
-      return inside ? scale(n, -1) : n
-    },
-    [plan, rooms],
-  )
+  /** the side a wall's dimension is drawn on (away from rooms) and its outward normal */
+  const wallSide = useCallback((w: Wall) => dimensionSide(plan, rooms, w), [plan, rooms])
+  const DIM_GAP = 0.35
 
   // ---- view helpers ----
   const latest = useRef({ vp, size, drawing })
@@ -615,21 +605,27 @@ export function Editor2D() {
   // ---- inline editing ----
   const startEditWall = (w: Wall, e: React.MouseEvent | React.PointerEvent) => {
     e.stopPropagation()
-    const a = plan.points[w.a]
-    const b = plan.points[w.b]
-    const mid = scale(add(a, b), 0.5)
     const side = wallSide(w)
-    const pos = add(mid, scale(side, w.thickness / 2 + 0.35))
+    const face = wallFace(plan, w, side)
+    const pos = add(scale(add(face.a, face.b), 0.5), scale(sideNormal(plan, w, side), DIM_GAP))
     setEditing({ kind: 'wallLength', wallId: w.id, screen: toScreen(pos) })
+  }
+  /** opening dimensions sit on the face opposite the wall's own dimension (usually the room side) */
+  const openingFace = (o: Opening) => {
+    const w = plan.walls[o.wallId]
+    const side = oppositeSide(wallSide(w))
+    const face = wallFace(plan, w, side)
+    const n = sideNormal(plan, w, side)
+    const u = normalize(sub(plan.points[w.b], plan.points[w.a]))
+    const onFace = (s: number) => add(add(plan.points[w.a], scale(u, s)), scale(n, w.thickness / 2))
+    const len = wallLength(plan, w)
+    return { w, side, face, n, start: onFace(o.offset), end: onFace(o.offset + o.width), fromA: o.offset - face.insetA, fromB: len - o.offset - o.width - face.insetB }
   }
   const startEditOpening = (o: Opening, end: 'a' | 'b', e: React.MouseEvent | React.PointerEvent) => {
     e.stopPropagation()
-    const g = openingGeometry(plan, o)
-    const w = plan.walls[o.wallId]
-    if (!g) return
-    const side = scale(wallSide(w), -1)
-    const p = end === 'a' ? scale(add(plan.points[w.a], g.start), 0.5) : scale(add(g.end, plan.points[w.b]), 0.5)
-    setEditing({ kind: 'openingOffset', openingId: o.id, end, screen: toScreen(add(p, scale(side, w.thickness / 2 + 0.35))) })
+    const f = openingFace(o)
+    const p = end === 'a' ? scale(add(f.face.a, f.start), 0.5) : scale(add(f.end, f.face.b), 0.5)
+    setEditing({ kind: 'openingOffset', openingId: o.id, end, screen: toScreen(add(p, scale(f.n, DIM_GAP))) })
   }
 
   const commitEdit = (raw: string, lock: boolean) => {
@@ -637,14 +633,14 @@ export function Editor2D() {
     const value = parseLength(raw, units)
     const st = useEditor.getState()
     if (value !== null && value > 0) {
-      if (editing.kind === 'wallLength') st.setWallLength(editing.wallId, value, lock)
+      if (editing.kind === 'wallLength') st.setWallLength(editing.wallId, value, lock, wallSide(plan.walls[editing.wallId]))
       else {
         const o = plan.openings[editing.openingId]
-        const w = plan.walls[o.wallId]
-        if (lock) st.addConstraint({ type: editing.end === 'a' ? 'openingOffsetA' : 'openingOffsetB', openingId: o.id, value })
+        const f = openingFace(o)
+        if (lock) st.addConstraint({ type: editing.end === 'a' ? 'openingOffsetA' : 'openingOffsetB', openingId: o.id, value, side: f.side })
         else {
-          const len = wallLength(plan, w)
-          st.updateOpening(o.id, { offset: editing.end === 'a' ? value : len - o.width - value })
+          const len = wallLength(plan, f.w)
+          st.updateOpening(o.id, { offset: editing.end === 'a' ? value + f.face.insetA : len - o.width - value - f.face.insetB })
         }
       }
     }
@@ -677,11 +673,12 @@ export function Editor2D() {
   const selectedOpenings = selection.filter((s) => s.kind === 'opening').map((s) => plan.openings[s.id]).filter(Boolean)
   const editingValue = (() => {
     if (!editing) return ''
-    if (editing.kind === 'wallLength') return formatLength(wallLength(plan, plan.walls[editing.wallId]), units, false)
-    const o = plan.openings[editing.openingId]
-    const w = plan.walls[o.wallId]
-    const len = wallLength(plan, w)
-    return formatLength(editing.end === 'a' ? o.offset : len - o.offset - o.width, units, false)
+    if (editing.kind === 'wallLength') {
+      const w = plan.walls[editing.wallId]
+      return formatLength(wallFace(plan, w, wallSide(w)).length, units, false)
+    }
+    const f = openingFace(plan.openings[editing.openingId])
+    return formatLength(editing.end === 'a' ? f.fromA : f.fromB, units, false)
   })()
 
   return (
@@ -843,21 +840,23 @@ export function Editor2D() {
           {Object.values(plan.walls).map((w) => {
             const a = plan.points[w.a]
             const b = plan.points[w.b]
-            const len = dist(a, b)
             const lc = lengthConstraintFor(w.id)
             const side = wallSide(w)
+            const n = sideNormal(plan, w, side)
+            const face = wallFace(plan, w, side)
+            if (face.length < 0.01) return null
             const badges = wallBadges(w.id)
-            const mid = scale(add(a, b), 0.5)
-            const badgePos = add(mid, scale(side, w.thickness / 2 + 0.35 + 14 * px))
+            const mid = scale(add(face.a, face.b), 0.5)
+            const badgePos = add(mid, scale(n, DIM_GAP + 14 * px))
             const u = normalize(sub(b, a))
             return (
               <g key={w.id}>
                 <Dimension
-                  p1={a}
-                  p2={b}
-                  side={side}
-                  distance={w.thickness / 2 + 0.35}
-                  text={formatLength(len, units)}
+                  p1={face.a}
+                  p2={face.b}
+                  side={n}
+                  distance={DIM_GAP}
+                  text={formatLength(face.length, units)}
                   px={px}
                   locked={!!lc}
                   violated={!!lc && violated.has(lc.id)}
@@ -880,26 +879,20 @@ export function Editor2D() {
 
           {/* opening dimensions for selected openings */}
           {selectedOpenings.map((o) => {
-            const g = openingGeometry(plan, o)
-            const w = plan.walls[o.wallId]
-            if (!g) return null
-            const a = plan.points[w.a]
-            const b = plan.points[w.b]
-            const len = dist(a, b)
-            const side = scale(wallSide(w), -1)
-            const d = w.thickness / 2 + 0.35
+            if (!plan.walls[o.wallId]) return null
+            const f = openingFace(o)
             const cs = constraintsReferencing(plan, { openings: [o.id] })
             const ca = cs.find((c) => c.type === 'openingOffsetA')
             const cb = cs.find((c) => c.type === 'openingOffsetB')
             const cc = cs.find((c) => c.type === 'openingCentered')
             return (
               <g key={o.id}>
-                {o.offset > 0.01 && (
-                  <Dimension p1={a} p2={g.start} side={side} distance={d} text={formatLength(o.offset, units)} px={px} locked={!!ca || !!cc} violated={(ca && violated.has(ca.id)) || (cc && violated.has(cc.id))} onClick={(e) => startEditOpening(o, 'a', e)} />
+                {f.fromA > 0.01 && (
+                  <Dimension p1={f.face.a} p2={f.start} side={f.n} distance={DIM_GAP} text={formatLength(f.fromA, units)} px={px} locked={!!ca || !!cc} violated={(ca && violated.has(ca.id)) || (cc && violated.has(cc.id))} onClick={(e) => startEditOpening(o, 'a', e)} />
                 )}
-                <Dimension p1={g.start} p2={g.end} side={side} distance={d} text={formatLength(o.width, units)} px={px} muted />
-                {len - o.offset - o.width > 0.01 && (
-                  <Dimension p1={g.end} p2={b} side={side} distance={d} text={formatLength(len - o.offset - o.width, units)} px={px} locked={!!cb || !!cc} violated={(cb && violated.has(cb.id)) || (cc && violated.has(cc.id))} onClick={(e) => startEditOpening(o, 'b', e)} />
+                <Dimension p1={f.start} p2={f.end} side={f.n} distance={DIM_GAP} text={formatLength(o.width, units)} px={px} muted />
+                {f.fromB > 0.01 && (
+                  <Dimension p1={f.end} p2={f.face.b} side={f.n} distance={DIM_GAP} text={formatLength(f.fromB, units)} px={px} locked={!!cb || !!cc} violated={(cb && violated.has(cb.id)) || (cc && violated.has(cc.id))} onClick={(e) => startEditOpening(o, 'b', e)} />
                 )}
               </g>
             )

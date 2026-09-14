@@ -57,7 +57,8 @@ export interface Furniture {
 }
 
 export type Constraint =
-  | { id: string; type: 'length'; wallId: string; value: number }
+  /** face-to-face length on `side` (left = +normal of A→B); no side = centreline length (legacy) */
+  | { id: string; type: 'length'; wallId: string; value: number; side?: 'left' | 'right' }
   | { id: string; type: 'horizontal'; wallId: string }
   | { id: string; type: 'vertical'; wallId: string }
   | { id: string; type: 'perpendicular'; wallA: string; wallB: string }
@@ -66,9 +67,10 @@ export type Constraint =
   | { id: string; type: 'angle'; wallA: string; wallB: string; degrees: number }
   | { id: string; type: 'fixed'; pointId: string; x: number; y: number }
   | { id: string; type: 'distance'; pointA: string; pointB: string; value: number }
-  | { id: string; type: 'openingOffsetA'; openingId: string; value: number }
-  | { id: string; type: 'openingOffsetB'; openingId: string; value: number }
-  | { id: string; type: 'openingCentered'; openingId: string }
+  /** distance from the wall's face corner (on `side`) to the opening; no side = from the centreline endpoint (legacy) */
+  | { id: string; type: 'openingOffsetA'; openingId: string; value: number; side?: 'left' | 'right' }
+  | { id: string; type: 'openingOffsetB'; openingId: string; value: number; side?: 'left' | 'right' }
+  | { id: string; type: 'openingCentered'; openingId: string; side?: 'left' | 'right' }
   /** a side of a piece of furniture is parallel to a wall, `value` metres away from its face */
   | { id: string; type: 'furnitureWallGap'; furnitureId: string; wallId: string; side: FurnitureSide; value: number }
   | { id: string; type: 'furnitureFixed'; furnitureId: string; x: number; y: number; angle: number }

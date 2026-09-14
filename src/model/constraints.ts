@@ -1,7 +1,7 @@
 import type { Constraint, Furniture, Opening, Plan, Wall } from './types'
 import { furnitureSide } from './furniture'
 import { solveLM, type Residual } from './solver'
-import { dist, wallLength } from './geometry'
+import { dist, wallFace, wallFacePointIds, wallLength, type PointGetter } from './geometry'
 
 export interface DragTarget {
   pointId: string
@@ -63,6 +63,12 @@ function buildVarMap(plan: Plan): VarMap {
 }
 
 function wallResidualHelpers(plan: Plan, vars: VarMap) {
+  /** variables of every point that shapes the wall's faces */
+  const faceVars = (w: Wall) => wallFacePointIds(plan, w).flatMap((id) => [vars.point.get(id)!, vars.point.get(id)! + 1])
+  const getter = (x: Float64Array): PointGetter => (id) => {
+    const i = vars.point.get(id)!
+    return { x: x[i], y: x[i + 1] }
+  }
   const wallVars = (w: Wall) => {
     const ia = vars.point.get(w.a)!
     const ib = vars.point.get(w.b)!
@@ -73,11 +79,7 @@ function wallResidualHelpers(plan: Plan, vars: VarMap) {
     const ib = vars.point.get(w.b)!
     return { x: x[ib] - x[ia], y: x[ib + 1] - x[ia + 1] }
   }
-  const openingVars = (o: Opening) => {
-    const w = plan.walls[o.wallId]
-    return [...wallVars(w), vars.opening.get(o.id)!]
-  }
-  return { wallVars, wallVec, openingVars }
+  return { wallVars, wallVec, faceVars, getter }
 }
 
 function angleBetween(d1: { x: number; y: number }, d2: { x: number; y: number }): number {
@@ -92,13 +94,17 @@ function normalizeAngle(a: number): number {
 
 /** Build a residual for a constraint; returns null if it references missing entities. */
 function constraintResidual(plan: Plan, vars: VarMap, c: Constraint): Residual | null {
-  const { wallVars, wallVec, openingVars } = wallResidualHelpers(plan, vars)
+  const { wallVars, wallVec, faceVars, getter } = wallResidualHelpers(plan, vars)
   const wall = (id: string): Wall | undefined => plan.walls[id]
   const opening = (id: string): Opening | undefined => plan.openings[id]
   switch (c.type) {
     case 'length': {
       const w = wall(c.wallId)
       if (!w) return null
+      if (c.side) {
+        const side = c.side
+        return { vars: faceVars(w), weight: W_CONSTRAINT, fn: (x) => [wallFace(plan, w, side, getter(x)).length - c.value] }
+      }
       return { vars: wallVars(w), weight: W_CONSTRAINT, fn: (x) => [Math.hypot(wallVec(x, w).x, wallVec(x, w).y) - c.value] }
     }
     case 'horizontal': {
@@ -182,8 +188,13 @@ function constraintResidual(plan: Plan, vars: VarMap, c: Constraint): Residual |
     }
     case 'openingOffsetA': {
       const o = opening(c.openingId)
-      if (!o || !plan.walls[o.wallId]) return null
+      const w = o && plan.walls[o.wallId]
+      if (!o || !w) return null
       const k = vars.opening.get(o.id)!
+      if (c.side) {
+        const side = c.side
+        return { vars: [k, ...faceVars(w)], weight: W_CONSTRAINT, fn: (x) => [x[k] - wallFace(plan, w, side, getter(x)).insetA - c.value] }
+      }
       return { vars: [k], weight: W_CONSTRAINT, fn: (x) => [x[k] - c.value] }
     }
     case 'openingOffsetB': {
@@ -191,12 +202,14 @@ function constraintResidual(plan: Plan, vars: VarMap, c: Constraint): Residual |
       const w = o && plan.walls[o.wallId]
       if (!o || !w) return null
       const k = vars.opening.get(o.id)!
+      const side = c.side
       return {
-        vars: openingVars(o),
+        vars: [k, ...faceVars(w)],
         weight: W_CONSTRAINT,
         fn: (x) => {
           const d = wallVec(x, w)
-          return [Math.hypot(d.x, d.y) - x[k] - o.width - c.value]
+          const inset = side ? wallFace(plan, w, side, getter(x)).insetB : 0
+          return [Math.hypot(d.x, d.y) - x[k] - o.width - inset - c.value]
         },
       }
     }
@@ -205,12 +218,16 @@ function constraintResidual(plan: Plan, vars: VarMap, c: Constraint): Residual |
       const w = o && plan.walls[o.wallId]
       if (!o || !w) return null
       const k = vars.opening.get(o.id)!
+      const side = c.side
       return {
-        vars: openingVars(o),
+        vars: [k, ...faceVars(w)],
         weight: W_CONSTRAINT,
         fn: (x) => {
           const d = wallVec(x, w)
-          return [x[k] + o.width / 2 - Math.hypot(d.x, d.y) / 2]
+          const L = Math.hypot(d.x, d.y)
+          if (!side) return [x[k] + o.width / 2 - L / 2]
+          const f = wallFace(plan, w, side, getter(x))
+          return [x[k] + o.width / 2 - (f.insetA + (L - f.insetA - f.insetB) / 2)]
         },
       }
     }
@@ -377,7 +394,7 @@ export function describeConstraint(plan: Plan, c: Constraint): string {
   }
   switch (c.type) {
     case 'length':
-      return `${wallName(c.wallId)} length = ${fmt(c.value)}`
+      return `${wallName(c.wallId)} length = ${fmt(c.value)}${c.side ? '' : ' (centreline)'}`
     case 'horizontal':
       return `${wallName(c.wallId)} horizontal`
     case 'vertical':
@@ -395,9 +412,9 @@ export function describeConstraint(plan: Plan, c: Constraint): string {
     case 'distance':
       return `distance ${shortId(c.pointA)}–${shortId(c.pointB)} = ${fmt(c.value)}`
     case 'openingOffsetA':
-      return `${openingName(c.openingId)} ${fmt(c.value)} from start`
+      return `${openingName(c.openingId)} ${fmt(c.value)} from start${c.side ? '' : ' (centreline)'}`
     case 'openingOffsetB':
-      return `${openingName(c.openingId)} ${fmt(c.value)} from end`
+      return `${openingName(c.openingId)} ${fmt(c.value)} from end${c.side ? '' : ' (centreline)'}`
     case 'openingCentered':
       return `${openingName(c.openingId)} centred on wall`
     case 'furnitureWallGap': {

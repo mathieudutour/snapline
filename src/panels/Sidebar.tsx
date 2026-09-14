@@ -4,7 +4,8 @@ import type { Constraint, Furniture, FurnitureSide, Opening, Wall } from '../mod
 import { nearestWallToSide, SIDE_LABELS } from '../model/furniture'
 import { CATALOG, CATEGORIES, creditsUrl, iconUrl } from '../furniture/catalog'
 import { constraintsReferencing, pointDistance, shortId } from '../model/constraints'
-import { wallLength } from '../model/geometry'
+import { useMemo } from 'react'
+import { dimensionSide, findRooms, oppositeSide, wallFace, wallLength } from '../model/geometry'
 import { formatLength, parseLength, type Units } from '../model/units'
 
 export function LengthField({ value, onChange, label, units }: { value: number; onChange: (v: number) => void; label: string; units: Units }) {
@@ -41,7 +42,10 @@ function WallProps({ wall }: { wall: Wall }) {
   const addConstraint = useEditor((s) => s.addConstraint)
   const removeConstraint = useEditor((s) => s.removeConstraint)
   const units = useEditor((s) => s.units)
-  const len = wallLength(plan, wall)
+  const rooms = useMemo(() => findRooms(plan), [plan])
+  const side = dimensionSide(plan, rooms, wall)
+  const face = wallFace(plan, wall, side)
+  const len = face.length
   const cs = constraintsReferencing(plan, { walls: [wall.id] })
   const lengthC = cs.find((c) => c.type === 'length')
   const hasH = cs.some((c) => c.type === 'horizontal')
@@ -56,12 +60,14 @@ function WallProps({ wall }: { wall: Wall }) {
     <div className="props">
       <h3>Wall {shortId(wall.id)}</h3>
       <div className="row">
-        <LengthField label="Length" units={units} value={lengthC && lengthC.type === 'length' ? lengthC.value : len} onChange={(v) => setWallLength(wall.id, v, true)} />
-        <button className={`lock ${lengthC ? 'on' : ''} ${lengthC && violated.has(lengthC.id) ? 'bad' : ''}`} title={lengthC ? 'Unlock length' : 'Lock length'} onClick={() => (lengthC ? removeConstraint(lengthC.id) : addConstraint({ type: 'length', wallId: wall.id, value: len }))}>
+        <LengthField label="Length" units={units} value={lengthC && lengthC.type === 'length' && lengthC.side ? lengthC.value : len} onChange={(v) => setWallLength(wall.id, v, true, side)} />
+        <button className={`lock ${lengthC ? 'on' : ''} ${lengthC && violated.has(lengthC.id) ? 'bad' : ''}`} title={lengthC ? 'Unlock length' : 'Lock length'} onClick={() => (lengthC ? removeConstraint(lengthC.id) : addConstraint({ type: 'length', wallId: wall.id, value: len, side }))}>
           {lengthC ? '🔒' : '🔓'}
         </button>
       </div>
-      <p className="muted small">Typing a length locks it. Unlock with the padlock.</p>
+      <p className="muted small">
+        Face to face, as drawn on the plan. Centreline {formatLength(wallLength(plan, wall), units)}. Typing a length locks it.
+      </p>
       <LengthField label="Thickness" units={units} value={wall.thickness} onChange={(v) => updateWall(wall.id, { thickness: v })} />
       <LengthField label="Height" units={units} value={wall.height} onChange={(v) => updateWall(wall.id, { height: v })} />
       <div className="chips">
@@ -175,11 +181,15 @@ function OpeningProps({ opening }: { opening: Opening }) {
   const units = useEditor((s) => s.units)
   const wall = plan.walls[opening.wallId]
   const len = wallLength(plan, wall)
+  const rooms = useMemo(() => findRooms(plan), [plan])
+  const side = oppositeSide(dimensionSide(plan, rooms, wall))
+  const face = wallFace(plan, wall, side)
   const cs = constraintsReferencing(plan, { openings: [opening.id] })
   const ca = cs.find((c) => c.type === 'openingOffsetA')
   const cb = cs.find((c) => c.type === 'openingOffsetB')
   const cc = cs.find((c) => c.type === 'openingCentered')
-  const fromB = len - opening.offset - opening.width
+  const fromA = opening.offset - face.insetA
+  const fromB = len - opening.offset - opening.width - face.insetB
   return (
     <div className="props">
       <h3>
@@ -189,19 +199,19 @@ function OpeningProps({ opening }: { opening: Opening }) {
       <LengthField label="Height" units={units} value={opening.height} onChange={(v) => updateOpening(opening.id, { height: v })} />
       {opening.kind === 'window' && <LengthField label="Sill height" units={units} value={opening.sill} onChange={(v) => updateOpening(opening.id, { sill: v })} />}
       <div className="row">
-        <LengthField label="From start" units={units} value={ca && ca.type === 'openingOffsetA' ? ca.value : opening.offset} onChange={(v) => addConstraint({ type: 'openingOffsetA', openingId: opening.id, value: v })} />
-        <button className={`lock ${ca ? 'on' : ''} ${ca && violated.has(ca.id) ? 'bad' : ''}`} onClick={() => (ca ? removeConstraint(ca.id) : addConstraint({ type: 'openingOffsetA', openingId: opening.id, value: opening.offset }))}>
+        <LengthField label="From start" units={units} value={ca && ca.type === 'openingOffsetA' && ca.side ? ca.value : fromA} onChange={(v) => addConstraint({ type: 'openingOffsetA', openingId: opening.id, value: v, side })} />
+        <button className={`lock ${ca ? 'on' : ''} ${ca && violated.has(ca.id) ? 'bad' : ''}`} onClick={() => (ca ? removeConstraint(ca.id) : addConstraint({ type: 'openingOffsetA', openingId: opening.id, value: fromA, side }))}>
           {ca ? '🔒' : '🔓'}
         </button>
       </div>
       <div className="row">
-        <LengthField label="From end" units={units} value={cb && cb.type === 'openingOffsetB' ? cb.value : fromB} onChange={(v) => addConstraint({ type: 'openingOffsetB', openingId: opening.id, value: v })} />
-        <button className={`lock ${cb ? 'on' : ''} ${cb && violated.has(cb.id) ? 'bad' : ''}`} onClick={() => (cb ? removeConstraint(cb.id) : addConstraint({ type: 'openingOffsetB', openingId: opening.id, value: fromB }))}>
+        <LengthField label="From end" units={units} value={cb && cb.type === 'openingOffsetB' && cb.side ? cb.value : fromB} onChange={(v) => addConstraint({ type: 'openingOffsetB', openingId: opening.id, value: v, side })} />
+        <button className={`lock ${cb ? 'on' : ''} ${cb && violated.has(cb.id) ? 'bad' : ''}`} onClick={() => (cb ? removeConstraint(cb.id) : addConstraint({ type: 'openingOffsetB', openingId: opening.id, value: fromB, side }))}>
           {cb ? '🔒' : '🔓'}
         </button>
       </div>
       <div className="chips">
-        <button className={cc ? 'chip on' : 'chip'} onClick={() => (cc ? removeConstraint(cc.id) : addConstraint({ type: 'openingCentered', openingId: opening.id }))}>
+        <button className={cc ? 'chip on' : 'chip'} onClick={() => (cc ? removeConstraint(cc.id) : addConstraint({ type: 'openingCentered', openingId: opening.id, side }))}>
           Centre on wall
         </button>
         {opening.kind === 'door' && (

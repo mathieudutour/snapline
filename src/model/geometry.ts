@@ -60,35 +60,98 @@ function lineIntersection(p1: Vec2, d1: Vec2, p2: Vec2, d2: Vec2): Vec2 | null {
  * Corner point of a wall at endpoint P, on side `side` (+1 = left of `away`), mitred with the
  * single other wall meeting at that point when there is exactly one.
  */
-function endCorner(plan: Plan, wall: Wall, pointId: string, away: Vec2, side: 1 | -1): Vec2 {
-  const P = plan.points[pointId]
+export type PointGetter = (id: string) => Vec2
+export type WallSide = 'left' | 'right'
+export const oppositeSide = (s: WallSide): WallSide => (s === 'left' ? 'right' : 'left')
+
+function endCorner(plan: Plan, wall: Wall, pointId: string, away: Vec2, side: 1 | -1, get: PointGetter): Vec2 {
+  const P = get(pointId)
   const n = perp(away)
   const base = add(P, scale(n, (side * wall.thickness) / 2))
-  const others = wallsAtPoint(plan, pointId).filter((w) => w.id !== wall.id)
-  if (others.length !== 1) return base
-  const other = others[0]
-  const otherFar = plan.points[other.a === pointId ? other.b : other.a]
-  const away2 = normalize(sub(otherFar, P))
-  const n2 = perp(away2)
-  const base2 = add(P, scale(n2, (-side * other.thickness) / 2))
-  const hit = lineIntersection(base, away, base2, away2)
-  if (!hit) return base
-  const maxReach = Math.max(wall.thickness, other.thickness) * 3
-  if (dist(hit, P) > maxReach) return base
-  return hit
+  const others = wallsAtPoint(plan, pointId)
+    .filter((w) => w.id !== wall.id)
+    .map((w) => ({ wall: w, away: normalize(sub(get(w.a === pointId ? w.b : w.a), P)) }))
+  if (others.length === 1 && Math.abs(cross(away, others[0].away)) > 0.05) {
+    // plain corner between two walls: mitre
+    const { wall: other, away: away2 } = others[0]
+    const n2 = perp(away2)
+    const base2 = add(P, scale(n2, (-side * other.thickness) / 2))
+    const hit = lineIntersection(base, away, base2, away2)
+    if (!hit) return base
+    const maxReach = Math.max(wall.thickness, other.thickness) * 3
+    if (dist(hit, P) > maxReach) return base
+    return hit
+  }
+  // butt end (free end, T-junction or crossing): this face stops at the face of any wall lying on its side
+  let inset = 0
+  for (const { wall: other, away: away2 } of others) {
+    const sin = Math.abs(cross(away, away2))
+    if (sin < 0.2) continue // collinear continuation: the face runs on
+    if (dot(away2, scale(n, side)) <= 0.1) continue // that wall is on the other side of this face
+    inset = Math.max(inset, Math.min(other.thickness / 2 / sin, other.thickness * 3))
+  }
+  return add(base, scale(away, inset))
 }
 
 /** Plan-view outline of a wall (4 points, convex), with mitred corners where two walls meet. */
-export function wallPolygon(plan: Plan, wall: Wall): Vec2[] {
-  const [a, b] = wallEnds(plan, wall)
+export function wallPolygon(plan: Plan, wall: Wall, get: PointGetter = (id) => plan.points[id]): Vec2[] {
+  const a = get(wall.a)
+  const b = get(wall.b)
   const u = normalize(sub(b, a))
   const uBack = scale(u, -1)
-  const aLeft = endCorner(plan, wall, wall.a, u, 1)
-  const aRight = endCorner(plan, wall, wall.a, u, -1)
+  const aLeft = endCorner(plan, wall, wall.a, u, 1, get)
+  const aRight = endCorner(plan, wall, wall.a, u, -1, get)
   // at B, "away" is -u; the left of -u is the right of u
-  const bRight = endCorner(plan, wall, wall.b, uBack, 1)
-  const bLeft = endCorner(plan, wall, wall.b, uBack, -1)
+  const bRight = endCorner(plan, wall, wall.b, uBack, 1, get)
+  const bLeft = endCorner(plan, wall, wall.b, uBack, -1, get)
   return [aLeft, bLeft, bRight, aRight]
+}
+
+export interface WallFace {
+  /** corner of the face at the A end and at the B end */
+  a: Vec2
+  b: Vec2
+  /** face-to-face length */
+  length: number
+  /** how far each face corner sits inside the centreline endpoint, along the wall (negative = sticks out) */
+  insetA: number
+  insetB: number
+}
+
+/** One face of a wall (left = +normal side of A→B), mitred with the neighbouring walls: what a tape measure reads. */
+export function wallFace(plan: Plan, wall: Wall, side: WallSide, get: PointGetter = (id) => plan.points[id]): WallFace {
+  const A = get(wall.a)
+  const B = get(wall.b)
+  const u = normalize(sub(B, A))
+  const sign: 1 | -1 = side === 'left' ? 1 : -1
+  const a = endCorner(plan, wall, wall.a, u, sign, get)
+  const b = endCorner(plan, wall, wall.b, scale(u, -1), (-sign) as 1 | -1, get)
+  return { a, b, length: dist(a, b), insetA: dot(sub(a, A), u), insetB: dot(sub(B, b), u) }
+}
+
+/** ids of every point whose position influences a wall's faces (its ends and the far ends of single neighbours) */
+export function wallFacePointIds(plan: Plan, wall: Wall): string[] {
+  const ids = [wall.a, wall.b]
+  for (const end of [wall.a, wall.b]) {
+    const others = wallsAtPoint(plan, end).filter((w) => w.id !== wall.id)
+    if (others.length === 1) ids.push(others[0].a === end ? others[0].b : others[0].a)
+  }
+  return [...new Set(ids)]
+}
+
+/** outward unit normal of a wall side */
+export function sideNormal(plan: Plan, wall: Wall, side: WallSide): Vec2 {
+  const n = perp(wallDir(plan, wall))
+  return side === 'left' ? n : scale(n, -1)
+}
+
+/** the side on which a wall's dimension is drawn: away from any room it bounds */
+export function dimensionSide(plan: Plan, rooms: Room[], wall: Wall): WallSide {
+  const [a, b] = wallEnds(plan, wall)
+  const n = perp(normalize(sub(b, a)))
+  const mid = scale(add(a, b), 0.5)
+  const probe = add(mid, scale(n, wall.thickness / 2 + 0.3))
+  return rooms.some((r) => pointInPolygon(probe, r.polygon)) ? 'right' : 'left'
 }
 
 /** Clip a convex polygon to the slab s0 <= dot(p - origin, u) <= s1 */

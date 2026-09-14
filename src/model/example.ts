@@ -1,5 +1,26 @@
 import type { Constraint, Furniture, Opening, Plan, Wall } from './types'
 import { CATALOG_BY_KEY } from '../furniture/catalog'
+import { dimensionSide, findRooms, oppositeSide, wallFace } from './geometry'
+
+/** turn centreline lengths / offsets into face-based constraints measured where the plan draws its dimensions */
+function faceBased(plan: Plan): void {
+  const rooms = findRooms(plan)
+  for (const c of Object.values(plan.constraints)) {
+    if (c.type === 'length' && !c.side) {
+      const side = dimensionSide(plan, rooms, plan.walls[c.wallId])
+      plan.constraints[c.id] = { ...c, side, value: Math.round(wallFace(plan, plan.walls[c.wallId], side).length * 1000) / 1000 }
+    }
+    if ((c.type === 'openingOffsetA' || c.type === 'openingOffsetB' || c.type === 'openingCentered') && !c.side) {
+      const o = plan.openings[c.openingId]
+      const w = plan.walls[o.wallId]
+      const side = oppositeSide(dimensionSide(plan, rooms, w))
+      const f = wallFace(plan, w, side)
+      if (c.type === 'openingOffsetA') plan.constraints[c.id] = { ...c, side, value: Math.round((o.offset - f.insetA) * 1000) / 1000 }
+      else if (c.type === 'openingOffsetB') plan.constraints[c.id] = { ...c, side, value: Math.round((Math.hypot(plan.points[w.b].x - plan.points[w.a].x, plan.points[w.b].y - plan.points[w.a].y) - o.offset - o.width - f.insetB) * 1000) / 1000 }
+      else plan.constraints[c.id] = { ...c, side }
+    }
+  }
+}
 import { emptyPlan } from './types'
 
 /** A small two-bedroom apartment used as the onboarding example. */
@@ -74,6 +95,7 @@ export function examplePlan(): Plan {
     { id: 'c21', type: 'openingOffsetA', openingId: 'o1', value: 0.8 },
   ]
   for (const c of constraints) plan.constraints[c.id] = c
+  faceBased(plan)
 
   const HALF = Math.PI / 2
   const furniture: [string, string, number, number, number, string | null, number?][] = [
@@ -161,6 +183,7 @@ export function exampleProject(): Project {
     { id: newId('c'), type: 'fixed', pointId: 'q1', x: 0, y: 0 },
   ]
   for (const c of constraints) upper.constraints[c.id] = c
+  faceBased(upper)
   const HALF = Math.PI / 2
   const furniture: [string, number, number, number, string | null][] = [
     ['sc-bed1', 1.7, 2.0, HALF, 'u8'],

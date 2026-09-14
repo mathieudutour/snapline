@@ -3,7 +3,7 @@ import type { Constraint, ConstraintInput, Furniture, Opening, OpeningKind, Plan
 import { CATALOG_BY_KEY } from '../furniture/catalog'
 import { emptyPlan, newId } from './types'
 import { constraintsReferencing, solvePlan, type DragTarget, type FurnitureDrag, type SolveReport } from './constraints'
-import { dist, projectOnSegment, wallLength, wallsAtPoint } from './geometry'
+import { dist, projectOnSegment, wallLength, wallsAtPoint, type WallSide } from './geometry'
 import { exampleProject } from './example'
 import { defaultFloorName, floorElevation, newProject, normalizeProject, type Floor, type Project, type ProjectMeta, type Roof } from './project'
 import type { Units } from './units'
@@ -93,7 +93,8 @@ export interface EditorState {
   updatePoint: (id: string, patch: Partial<PlanPoint>) => void
   addFurniture: (catalogKey: string, pos: Vec2, angle: number) => string | null
   updateFurniture: (id: string, patch: Partial<Furniture>) => void
-  setWallLength: (wallId: string, value: number, lock: boolean) => void
+  /** set a wall length; with `side` the value is the face-to-face length on that side */
+  setWallLength: (wallId: string, value: number, lock: boolean, side?: WallSide) => void
   addConstraint: (c: ConstraintInput) => void
   removeConstraint: (id: string) => void
   deleteSelection: () => void
@@ -757,12 +758,12 @@ export const useEditor = create<EditorState>((set, get) => {
       get().commit({ ...plan, furniture: { ...plan.furniture, [id]: { ...plan.furniture[id], ...patch } } })
     },
 
-    setWallLength: (wallId, value, lock) => {
+    setWallLength: (wallId, value, lock, side) => {
       const plan = get().plan
       const wall = plan.walls[wallId]
       if (!wall || value <= 0) return
       if (lock) {
-        get().addConstraint({ type: 'length', wallId, value })
+        get().addConstraint({ type: 'length', wallId, value, side })
         return
       }
       // one-off resize: move B along the wall direction, then let the solver settle the rest
@@ -770,7 +771,7 @@ export const useEditor = create<EditorState>((set, get) => {
       const b = plan.points[wall.b]
       const l = dist(a, b) || 1
       const nb = { ...b, x: a.x + ((b.x - a.x) / l) * value, y: a.y + ((b.y - a.y) / l) * value }
-      const tmp = { id: newId('c'), type: 'length' as const, wallId, value }
+      const tmp = { id: newId('c'), type: 'length' as const, wallId, value, side }
       const withTmp: Plan = { ...plan, points: { ...plan.points, [wall.b]: nb }, constraints: { ...plan.constraints, [tmp.id]: tmp } }
       const solved = solvePlan(withTmp).plan
       const constraints = { ...solved.constraints }
