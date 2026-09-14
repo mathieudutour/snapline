@@ -134,7 +134,8 @@ export function createApp(cfg: AppConfig) {
       // ---- imported 3D models ----
       if (path === '/api/models' && req.method === 'GET') {
         const rows = await cfg.store.listModels(userId)
-        return json({ models: rows.map((r) => ({ key: r.key, name: r.name, width: r.width, depth: r.depth, height: r.height, fit: JSON.parse(r.fit), createdAt: r.createdAt })) })
+        // `storage` tells the client whether model files can be uploaded at all (no R2 bucket bound → keep models local)
+        return json({ storage: Boolean(cfg.objects), models: rows.map((r) => ({ key: r.key, name: r.name, width: r.width, depth: r.depth, height: r.height, fit: JSON.parse(r.fit), createdAt: r.createdAt })) })
       }
       const mm = /^\/api\/models\/(u-[a-f0-9]{12})(?:\/(glb|plan|thumb))?$/.exec(path)
       if (mm) {

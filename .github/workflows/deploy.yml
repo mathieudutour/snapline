@@ -53,13 +53,30 @@ jobs:
           name: dist
           path: dist
 
+      # Imported 3D models are stored in R2. R2 has to be switched on once in the Cloudflare
+      # dashboard (R2 → Get started); until then the worker is deployed without the bucket
+      # binding and imported models stay in the browser they were imported in.
       - name: Create the R2 bucket for imported models (no-op when it exists)
-        uses: cloudflare/wrangler-action@v3
-        continue-on-error: true
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: r2 bucket create snapline-models
+        id: r2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set +e
+          out=$(npx wrangler r2 bucket create snapline-models 2>&1)
+          status=$?
+          set -e
+          echo "$out"
+          if [ $status -eq 0 ] || echo "$out" | grep -q "already exists"; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=R2 is not enabled::Deploying without model storage. Enable R2 in the Cloudflare dashboard (R2 → Get started) and re-run this workflow to let signed-in users sync imported models across devices."
+          fi
+
+      - name: Drop the R2 binding (R2 is not enabled on this account)
+        if: steps.r2.outputs.enabled != 'true'
+        run: node scripts/without-r2.mjs
 
       - name: Apply D1 schema (idempotent)
         uses: cloudflare/wrangler-action@v3

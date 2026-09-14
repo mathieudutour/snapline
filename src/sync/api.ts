@@ -70,8 +70,10 @@ export interface RemoteModelMeta {
   createdAt: number
 }
 
-export async function listRemoteModels(): Promise<RemoteModelMeta[]> {
-  return (await call<{ models: RemoteModelMeta[] }>('/api/models')).models
+/** `storage` is false when the worker has no file bucket bound: models then stay in this browser only */
+export async function listRemoteModels(): Promise<{ storage: boolean; models: RemoteModelMeta[] }> {
+  const res = await call<{ storage?: boolean; models: RemoteModelMeta[] }>('/api/models')
+  return { storage: res.storage !== false, models: res.models }
 }
 
 export async function putRemoteModelMeta(meta: RemoteModelMeta): Promise<void> {

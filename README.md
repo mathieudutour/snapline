@@ -39,6 +39,15 @@ npm test           # solver, geometry and collision tests
 npm run build      # production bundle in dist/
 ```
 
+## Deploying
+
+Pushes to `main` run `.github/workflows/deploy.yml`: typecheck, tests and build, then a deploy to Cloudflare Workers with static assets, a D1 database for accounts and projects, and an R2 bucket for imported models.
+
+1. Create a Cloudflare API token with the Workers Scripts, Workers KV/D1 and R2 edit permissions, and add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as GitHub Actions secrets.
+2. Create a D1 database called `snapline` and put its id in `wrangler.jsonc`.
+3. Create a Google OAuth client (web application) and add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` as secrets. Register `https://<your worker>.workers.dev/auth/google/callback` as an authorised redirect URI.
+4. Enable R2 once in the Cloudflare dashboard (R2 → Get started; it asks for a payment method but the free tier covers this app). The workflow creates the `snapline-models` bucket itself. Until R2 is enabled the workflow deploys without the bucket binding and imported models stay in the browser they were imported in.
+
 ## How to use
 
 The interaction model follows Figma: single-key tools, scroll to pan, Ctrl/⌘ + scroll to zoom,

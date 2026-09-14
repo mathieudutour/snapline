@@ -137,6 +137,7 @@ describe('worker app', () => {
     const up = await handle(new Request(`${ORIGIN}/api/models/${key}/glb`, { method: 'PUT', headers: { ...auth, 'Content-Type': 'model/gltf-binary' }, body: new Uint8Array([1, 2, 3, 4]) }))
     expect(up.status).toBe(200)
     const list = await body(await handle(new Request(`${ORIGIN}/api/models`, { headers: auth })))
+    expect(list.storage).toBe(true)
     expect(list.models).toHaveLength(1)
     expect(list.models[0].fit.unitScale).toBe(1)
     const down = await handle(new Request(`${ORIGIN}/api/models/${key}/glb`, { headers: auth }))
@@ -152,5 +153,20 @@ describe('worker app', () => {
     // delete removes metadata and files
     expect((await handle(new Request(`${ORIGIN}/api/models/${key}`, { method: 'DELETE', headers: auth }))).status).toBe(200)
     expect((await handle(new Request(`${ORIGIN}/api/models/${key}/glb`, { headers: auth }))).status).toBe(404)
+  })
+
+  it('reports missing file storage instead of failing uploads when no bucket is bound', async () => {
+    handle = createApp({ store, google: { clientId: CLIENT_ID, clientSecret: 'secret', fetch: google.fetchStub } })
+    const cb = await signIn()
+    const token = parseCookies(setCookieHeaders(cb).find((c) => c.startsWith(SESSION_COOKIE))!.split(';')[0])[SESSION_COOKIE]
+    const auth = { Cookie: `${SESSION_COOKIE}=${token}`, Origin: ORIGIN }
+    const list = await body(await handle(new Request(`${ORIGIN}/api/models`, { headers: auth })))
+    expect(list.storage).toBe(false)
+    expect(list.models).toEqual([])
+    const key = 'u-0123456789ab'
+    const meta = await handle(new Request(`${ORIGIN}/api/models/${key}`, { method: 'PUT', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Chair', width: 0.5, depth: 0.5, height: 0.9, fit: { unitScale: 1, center: [0, 0, 0] } }) }))
+    expect(meta.status).toBe(200)
+    const up = await handle(new Request(`${ORIGIN}/api/models/${key}/glb`, { method: 'PUT', headers: { ...auth, 'Content-Type': 'model/gltf-binary' }, body: new Uint8Array([1]) }))
+    expect(up.status).toBe(503)
   })
 })

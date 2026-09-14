@@ -482,7 +482,8 @@ export const useEditor = create<EditorState>((set, get) => {
   }
   /** copy models both ways so the same catalogue is available on every device */
   const syncModels = async () => {
-    const remote = await listRemoteModels()
+    const { storage, models: remote } = await listRemoteModels()
+    if (!storage) return // the worker has no R2 bucket: models stay in this browser
     const local = get().customModels
     const localKeys = new Set(local.map((m) => m.key))
     const list = [...local]
