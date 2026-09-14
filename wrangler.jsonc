@@ -1,21 +1,26 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "snapline",
-  "main": "worker/index.ts",
-  "compatibility_date": "2026-09-01",
-  "assets": {
-    "directory": "./dist",
-    "binding": "ASSETS",
-    "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/auth/*"]
-  },
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "snapline",
-      // replace with the id printed by `npx wrangler d1 create snapline`
-      "database_id": "00000000-0000-0000-0000-000000000000"
-    }
-  ],
-  "observability": { "enabled": true }
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "snapline",
+	"main": "worker/index.ts",
+	"compatibility_date": "2026-09-01",
+	"assets": {
+		"directory": "./dist",
+		"binding": "ASSETS",
+		"not_found_handling": "single-page-application",
+		"run_worker_first": [
+			"/api/*",
+			"/auth/*"
+		]
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "snapline",
+			"database_id": "84b05d25-936a-4946-8008-c6dbeb2bb55c",
+			"remote": true
+		}
+	],
+	"observability": {
+		"enabled": true
+	}
 }
