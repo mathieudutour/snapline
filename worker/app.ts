@@ -8,6 +8,8 @@ const SESSION_TTL_MS = 30 * 24 * 3600 * 1000
 const MAX_PROJECT_BYTES = 2 * 1024 * 1024
 const MAX_MODEL_BYTES = 15 * 1024 * 1024
 const MAX_ICON_BYTES = 512 * 1024
+/** per-account and per-project caps, so one account cannot fill the database */
+export const LIMITS = { projectsPerUser: 200, membersPerProject: 50, modelsPerUser: 100 }
 
 export interface AppConfig {
   store: Store
@@ -17,6 +19,11 @@ export interface AppConfig {
   live?: (req: Request, ctx: { projectId: string; user: User; role: 'owner' | 'editor' | 'viewer' }) => Promise<Response>
   /** tell an open room that the stored project changed through the REST API */
   onProjectSaved?: (projectId: string, project: Record<string, unknown>, version: number) => Promise<void>
+  /**
+   * rate limiting: true when the request may proceed. `strict` covers sign-in, view links, invitations
+   * and live connections; `api` everything else. The key is the client IP, or the user id when signed in.
+   */
+  limiter?: (kind: 'api' | 'strict', key: string) => Promise<boolean>
   google: GoogleConfig
   now?: () => number
   /** set to false for local http dev */
@@ -56,6 +63,12 @@ export function createApp(cfg: AppConfig) {
     const url = new URL(req.url)
     const path = url.pathname
     const redirectUri = `${url.origin}/auth/google/callback`
+
+    if (cfg.limiter) {
+      const strict = path.startsWith('/auth/') || path.startsWith('/api/view/') || path.endsWith('/live') || (req.method === 'POST' && /\/members$/.test(path))
+      const key = parseCookies(req.headers.get('Cookie'))[SESSION_COOKIE]?.slice(0, 16) ?? req.headers.get('CF-Connecting-IP') ?? 'anonymous'
+      if (!(await cfg.limiter(strict ? 'strict' : 'api', key))) return json({ error: 'too many requests, slow down' }, { status: 429, headers: { 'Retry-After': '10' } })
+    }
 
     // ---- auth ----
     if (path === '/auth/google' && req.method === 'GET') {
@@ -169,6 +182,8 @@ export function createApp(cfg: AppConfig) {
             if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return error(400, 'invalid email')
             if (email === normalizeEmail(me.user.email)) return error(400, 'that is your own address')
             const role: MemberRole = body.role === 'viewer' ? 'viewer' : 'editor'
+            const current = await cfg.store.listMembers(id)
+            if (current.length >= LIMITS.membersPerProject && !current.some((m) => m.email === email)) return error(429, `a project can be shared with at most ${LIMITS.membersPerProject} people`)
             await cfg.store.addMember(id, email, userId, role)
             return json({ ok: true, members: await cfg.store.listMembers(id) })
           }
@@ -206,6 +221,8 @@ export function createApp(cfg: AppConfig) {
           for (let attempt = 0; attempt < 2; attempt++) {
             const existing = await cfg.store.getProject(access, id)
             if (!existing) {
+              const owned = (await cfg.store.listProjects(access)).filter((p) => p.ownerId === userId).length
+              if (owned >= LIMITS.projectsPerUser) return error(429, `you have reached the limit of ${LIMITS.projectsPerUser} projects`)
               // a project with this id that the caller cannot see: never overwrite someone else's
               const version = 1
               const ok = await cfg.store.putProject({ id, userId, name, data: JSON.stringify({ ...project, id, updatedAt }), updatedAt, createdAt: updatedAt, version, updatedBy: userId }, null)
@@ -262,6 +279,7 @@ export function createApp(cfg: AppConfig) {
             const height = num(body.height)
             if (!width || !depth || !height || typeof body.fit !== 'object' || !body.fit) return error(400, 'invalid model')
             const existing = await cfg.store.getModel(userId, key)
+            if (!existing && (await cfg.store.listModels(userId)).length >= LIMITS.modelsPerUser) return error(429, `you have reached the limit of ${LIMITS.modelsPerUser} imported models`)
             await cfg.store.putModel({ key, userId, name: typeof body.name === 'string' && body.name.trim() ? body.name.slice(0, 120) : 'Model', width, depth, height, fit: JSON.stringify(body.fit), createdAt: existing?.createdAt ?? (typeof body.createdAt === 'number' ? body.createdAt : now()) })
             return json({ ok: true })
           }

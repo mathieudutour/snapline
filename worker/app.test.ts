@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { createApp, SESSION_COOKIE } from './app'
+import { createApp, LIMITS, SESSION_COOKIE } from './app'
 import { MemoryObjects, MemoryStore } from './store'
 import { base64url, parseCookies } from './util'
 import { GOOGLE_JWKS_URL, GOOGLE_TOKEN_URL, resetJwksCache } from './google'
@@ -277,5 +277,30 @@ describe('worker app', () => {
     expect((await body(await handle(new Request(`${ORIGIN}/api/projects`, { headers: auth })))).projects[0].viewToken).toBe(linked.token)
     await handle(new Request(`${ORIGIN}/api/projects/prj1/link`, { method: 'DELETE', headers: auth }))
     expect((await handle(new Request(`${ORIGIN}/api/view/${linked.token}`))).status).toBe(404)
+  })
+
+  it('answers 429 once the limiter says no, and caps how many people a project is shared with', async () => {
+    let allowed = 3
+    const kinds: string[] = []
+    handle = createApp({ store, google: { clientId: CLIENT_ID, clientSecret: 'secret', fetch: google.fetchStub }, limiter: async (kind) => (kinds.push(kind), allowed-- > 0) })
+    expect((await handle(new Request(`${ORIGIN}/api/me`))).status).toBe(200)
+    expect((await handle(new Request(`${ORIGIN}/auth/google`))).status).toBe(302)
+    expect((await handle(new Request(`${ORIGIN}/api/me`))).status).toBe(200)
+    const blocked = await handle(new Request(`${ORIGIN}/api/me`))
+    expect(blocked.status).toBe(429)
+    expect(blocked.headers.get('Retry-After')).toBe('10')
+    expect(kinds).toEqual(['api', 'strict', 'api', 'api'])
+    // caps
+    allowed = 1000
+    resetJwksCache()
+    const cb = await signIn()
+    const token = parseCookies(setCookieHeaders(cb).find((c) => c.startsWith(SESSION_COOKIE))!.split(';')[0])[SESSION_COOKIE]
+    const auth = { Cookie: `${SESSION_COOKIE}=${token}`, Origin: ORIGIN, 'Content-Type': 'application/json' }
+    const project = { id: 'prj1', name: 'House', floors: [{ id: 'f', name: 'Ground', plan: {} }], roof: { type: 'none' } }
+    await handle(new Request(`${ORIGIN}/api/projects/prj1`, { method: 'PUT', headers: auth, body: JSON.stringify({ project, baseVersion: 0 }) }))
+    for (let i = 0; i < LIMITS.membersPerProject; i++) expect((await handle(new Request(`${ORIGIN}/api/projects/prj1/members`, { method: 'POST', headers: auth, body: JSON.stringify({ email: `p${i}@example.com` }) }))).status).toBe(200)
+    expect((await handle(new Request(`${ORIGIN}/api/projects/prj1/members`, { method: 'POST', headers: auth, body: JSON.stringify({ email: 'one-too-many@example.com' }) }))).status).toBe(429)
+    // changing the role of an existing member is still fine at the cap
+    expect((await handle(new Request(`${ORIGIN}/api/projects/prj1/members`, { method: 'POST', headers: auth, body: JSON.stringify({ email: 'p1@example.com', role: 'viewer' }) }))).status).toBe(200)
   })
 })

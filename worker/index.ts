@@ -14,6 +14,9 @@ export interface Env {
   MODELS?: R2Bucket
   /** live collaboration rooms, one Durable Object per project */
   ROOM: DurableObjectNamespace<ProjectRoom>
+  /** rate limiters (Workers rate limiting binding); absent in local tests */
+  API_LIMIT?: RateLimit
+  STRICT_LIMIT?: RateLimit
 }
 
 export default {
@@ -35,6 +38,15 @@ export default {
           return env.ROOM.getByName(projectId).fetch(new Request(req.url, { method: 'GET', headers }))
         },
         onProjectSaved: (projectId, project, version) => env.ROOM.getByName(projectId).externalSave(project as unknown as Project, version),
+        limiter: async (kind, key) => {
+          const limit = kind === 'strict' ? env.STRICT_LIMIT : env.API_LIMIT
+          if (!limit) return true
+          try {
+            return (await limit.limit({ key: `${kind}:${key}` })).success
+          } catch {
+            return true // never lock everyone out because the limiter is unavailable
+          }
+        },
       })
       return handle(request)
     }

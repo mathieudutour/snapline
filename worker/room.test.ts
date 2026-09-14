@@ -56,6 +56,9 @@ describe('live room', () => {
     expect(c.conn.inbox[0]).toMatchObject({ t: 'welcome', version: 4, presence: { b: { floorId } } })
     room.leave('b')
     expect(a.conn.inbox.at(-1)).toEqual({ t: 'leave', id: 'b' })
+    // oversized messages are dropped
+    await room.message(a.peer, JSON.stringify({ t: 'ops', ops: [{ k: 'project', v: { name: 'x'.repeat(2 * 1024 * 1024) } }] }))
+    expect(room.state!.project.name.length).toBeLessThan(100)
     // a viewer's operations are ignored, its presence is relayed
     const v = await join('v', 'viewer')
     await room.message(v.peer, JSON.stringify({ t: 'ops', ops: [{ k: 'project', v: { name: 'Hacked' } }] }))

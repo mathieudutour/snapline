@@ -36,6 +36,9 @@ export interface RoomPersistence {
 }
 
 export const FLUSH_DELAY_MS = 2000
+/** a single message may not carry more than this (a whole project is well under it) */
+export const MAX_MESSAGE_BYTES = 1024 * 1024
+export const MAX_OPS_PER_MESSAGE = 2000
 
 export class RoomCore<C> {
   state: RoomState | null = null
@@ -81,6 +84,7 @@ export class RoomCore<C> {
   }
 
   async message(from: Peer, raw: string): Promise<void> {
+    if (raw.length > MAX_MESSAGE_BYTES) return
     let msg: ClientMessage
     try {
       msg = JSON.parse(raw)
@@ -91,7 +95,7 @@ export class RoomCore<C> {
     if (!state) return
     if (msg.t === 'ops') {
       if (from.role === 'viewer') return // read-only peers can look but not touch
-      if (!Array.isArray(msg.ops) || msg.ops.length === 0) return
+      if (!Array.isArray(msg.ops) || msg.ops.length === 0 || msg.ops.length > MAX_OPS_PER_MESSAGE) return
       state.project = applyOps(state.project, msg.ops as Op[])
       state.dirty = true
       state.lastEditor = from.userId
