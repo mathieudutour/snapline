@@ -136,7 +136,7 @@ function Message({ author, at, text }: { author: string; at: number; text: strin
 }
 
 /** pin drawn on the plan (SVG, sized in pixels) */
-export function CommentPin({ comment, px, open, onOpen }: { comment: PlanComment; px: number; open: boolean; onOpen: () => void }) {
+export function CommentPin({ comment, px, open, onOpen, interactive = true }: { comment: PlanComment; px: number; open: boolean; onOpen: () => void; interactive?: boolean }) {
   const initial = (comment.author.name || '?').slice(0, 1).toUpperCase()
   const fill = comment.resolved ? '#9aa0a6' : open ? '#1b4fc0' : '#2f6fed'
   return (
@@ -144,8 +144,9 @@ export function CommentPin({ comment, px, open, onOpen }: { comment: PlanComment
       data-kind="comment"
       data-id={comment.id}
       transform={`translate(${comment.x} ${comment.y}) scale(${px})`}
-      style={{ cursor: 'pointer' }}
+      style={{ cursor: interactive ? 'pointer' : undefined, pointerEvents: interactive ? 'auto' : 'none' }}
       onPointerDown={(e) => {
+        if (!interactive) return
         e.stopPropagation()
         onOpen()
       }}

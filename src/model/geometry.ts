@@ -64,7 +64,12 @@ export type PointGetter = (id: string) => Vec2
 export type WallSide = 'left' | 'right'
 export const oppositeSide = (s: WallSide): WallSide => (s === 'left' ? 'right' : 'left')
 
-function endCorner(plan: Plan, wall: Wall, pointId: string, away: Vec2, side: 1 | -1, get: PointGetter): Vec2 {
+/**
+ * Corner of one face of a wall at one of its ends. `outline` is for drawing: a wall that continues
+ * straight through the point keeps its full section so the two halves meet squarely; for measuring
+ * (a tape held against the face) that face still stops at the wall arriving from the side.
+ */
+function endCorner(plan: Plan, wall: Wall, pointId: string, away: Vec2, side: 1 | -1, get: PointGetter, outline = false): Vec2 {
   const P = get(pointId)
   const n = perp(away)
   const base = add(P, scale(n, (side * wall.thickness) / 2))
@@ -82,11 +87,14 @@ function endCorner(plan: Plan, wall: Wall, pointId: string, away: Vec2, side: 1 
     if (dist(hit, P) > maxReach) return base
     return hit
   }
-  // butt end (free end, T-junction or crossing): this face stops at the face of any wall lying on its side
+  // a wall that continues straight through the point (the bar of a T, a crossing) keeps its full
+  // section: both halves meet squarely and the walls arriving from the side stop at its face
+  if (outline && others.some(({ away: away2 }) => Math.abs(cross(away, away2)) < 0.2 && dot(away, away2) < 0)) return base
+  // butt end (free end, or the stem of a T): this face stops at the face of any wall lying on its side
   let inset = 0
   for (const { wall: other, away: away2 } of others) {
     const sin = Math.abs(cross(away, away2))
-    if (sin < 0.2) continue // collinear continuation: the face runs on
+    if (sin < 0.2) continue
     if (dot(away2, scale(n, side)) <= 0.1) continue // that wall is on the other side of this face
     inset = Math.max(inset, Math.min(other.thickness / 2 / sin, other.thickness * 3))
   }
@@ -99,11 +107,11 @@ export function wallPolygon(plan: Plan, wall: Wall, get: PointGetter = (id) => p
   const b = get(wall.b)
   const u = normalize(sub(b, a))
   const uBack = scale(u, -1)
-  const aLeft = endCorner(plan, wall, wall.a, u, 1, get)
-  const aRight = endCorner(plan, wall, wall.a, u, -1, get)
+  const aLeft = endCorner(plan, wall, wall.a, u, 1, get, true)
+  const aRight = endCorner(plan, wall, wall.a, u, -1, get, true)
   // at B, "away" is -u; the left of -u is the right of u
-  const bRight = endCorner(plan, wall, wall.b, uBack, 1, get)
-  const bLeft = endCorner(plan, wall, wall.b, uBack, -1, get)
+  const bRight = endCorner(plan, wall, wall.b, uBack, 1, get, true)
+  const bLeft = endCorner(plan, wall, wall.b, uBack, -1, get, true)
   return [aLeft, bLeft, bRight, aRight]
 }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { emptyPlan, type Plan } from './types'
 import { solvePlan } from './constraints'
-import { dimensionSide, findRooms, oppositeSide, wallFace, wallLength } from './geometry'
+import { dimensionSide, findRooms, oppositeSide, wallFace, wallLength, wallPolygon } from './geometry'
 import { examplePlan } from './example'
 
 function rect(): Plan {
@@ -97,5 +97,30 @@ describe('face-to-face measurements', () => {
     expect(lengths.length).toBeGreaterThan(0)
     expect(lengths.every((c) => c.type === 'length' && c.side)).toBe(true)
     expect(solvePlan(plan).report.violated.size).toBe(0)
+  })
+
+  it('keeps the bar of a T-junction square while the stem stops at its face', () => {
+    const plan = emptyPlan()
+    const pt = (id: string, x: number, y: number) => (plan.points[id] = { id, x, y })
+    pt('l', 0, 0)
+    pt('m', 3, 0)
+    pt('r', 6, 0)
+    pt('d', 3, 3)
+    const wall = (id: string, a: string, b: string) => (plan.walls[id] = { id, a, b, thickness: 0.2, height: 2.5 })
+    wall('left', 'l', 'm')
+    wall('right', 'm', 'r')
+    wall('stem', 'm', 'd')
+    // both halves of the bar reach the junction on both faces (full 0.2 m section at x = 3)
+    for (const id of ['left', 'right']) {
+      const poly = wallPolygon(plan, plan.walls[id])
+      const atJunction = poly.filter((p) => Math.abs(p.x - 3) < 1e-9)
+      expect(atJunction).toHaveLength(2)
+      expect(Math.abs(atJunction[0].y - atJunction[1].y)).toBeCloseTo(0.2, 9)
+    }
+    // the stem starts at the bar's lower face (y = 0.1), squarely
+    const stem = wallPolygon(plan, plan.walls.stem)
+    const top = stem.filter((p) => p.y < 1)
+    expect(top).toHaveLength(2)
+    for (const p of top) expect(p.y).toBeCloseTo(0.1, 9)
   })
 })

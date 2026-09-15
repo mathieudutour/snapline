@@ -1020,7 +1020,7 @@ export function Editor2D() {
                   px={px}
                   locked={!!lc}
                   violated={!!lc && violated.has(lc.id)}
-                  onClick={(e) => startEditWall(w, e)}
+                  onClick={tool === 'select' ? (e) => startEditWall(w, e) : undefined}
                 />
                 {badges.map((bd, i) => {
                   const p = add(badgePos, scale(u, (i - (badges.length - 1) / 2) * 16 * px))
@@ -1048,11 +1048,11 @@ export function Editor2D() {
             return (
               <g key={o.id}>
                 {f.fromA > 0.01 && (
-                  <Dimension p1={f.face.a} p2={f.start} side={f.n} distance={DIM_GAP} text={formatLength(f.fromA, units)} px={px} locked={!!ca || !!cc} violated={(ca && violated.has(ca.id)) || (cc && violated.has(cc.id))} onClick={(e) => startEditOpening(o, 'a', e)} />
+                  <Dimension p1={f.face.a} p2={f.start} side={f.n} distance={DIM_GAP} text={formatLength(f.fromA, units)} px={px} locked={!!ca || !!cc} violated={(ca && violated.has(ca.id)) || (cc && violated.has(cc.id))} onClick={tool === 'select' ? (e) => startEditOpening(o, 'a', e) : undefined} />
                 )}
                 <Dimension p1={f.start} p2={f.end} side={f.n} distance={DIM_GAP} text={formatLength(o.width, units)} px={px} muted />
                 {f.fromB > 0.01 && (
-                  <Dimension p1={f.end} p2={f.face.b} side={f.n} distance={DIM_GAP} text={formatLength(f.fromB, units)} px={px} locked={!!cb || !!cc} violated={(cb && violated.has(cb.id)) || (cc && violated.has(cc.id))} onClick={(e) => startEditOpening(o, 'b', e)} />
+                  <Dimension p1={f.end} p2={f.face.b} side={f.n} distance={DIM_GAP} text={formatLength(f.fromB, units)} px={px} locked={!!cb || !!cc} violated={(cb && violated.has(cb.id)) || (cc && violated.has(cc.id))} onClick={tool === 'select' ? (e) => startEditOpening(o, 'b', e) : undefined} />
                 )}
               </g>
             )
@@ -1121,7 +1121,7 @@ export function Editor2D() {
           {Object.values(plan.comments ?? {})
             .filter((c) => showResolved || !c.resolved || c.id === openComment)
             .map((c) => (
-              <CommentPin key={c.id} comment={c} px={px} open={openComment === c.id} onOpen={() => (setComposer(null), setOpenComment(openComment === c.id ? null : c.id))} />
+              <CommentPin key={c.id} comment={c} px={px} open={openComment === c.id} interactive={tool === 'select' || tool === 'comment'} onOpen={() => (setComposer(null), setOpenComment(openComment === c.id ? null : c.id))} />
             ))}
           </g>
           {/* room names and areas, above the furniture */}
