@@ -4,7 +4,7 @@ import { roomLabel } from './rooms'
 import { CATALOG_BY_KEY } from '../furniture/catalog'
 import { emptyPlan, newId } from './types'
 import { constraintsReferencing, solvePlan, type DragTarget, type FurnitureDrag, type SolveReport } from './constraints'
-import { dist, projectOnSegment, wallLength, wallsAtPoint, type WallSide } from './geometry'
+import { dist, findRooms, projectOnSegment, wallLength, wallsAtPoint, type WallSide } from './geometry'
 import { exampleProject } from './example'
 import { defaultFloorName, floorElevation, newProject, normalizeProject, type Floor, type Project, type ProjectMeta, type Roof, type Underlay } from './project'
 import { addFile, newFileKey, rasterize, removeFile } from '../files/planFiles'
@@ -20,7 +20,8 @@ import { ConflictError, deleteRemoteModel, deleteRemoteProject, fetchMe, getRemo
 export type Tool = 'select' | 'wall' | 'door' | 'window' | 'furniture' | 'pan' | 'comment'
 export type ViewMode = 'plan' | '3d' | 'walk'
 
-export type SelectionItem = { kind: 'point' | 'wall' | 'opening' | 'furniture'; id: string }
+/** rooms are derived from the walls; their id is the sorted list of their corner ids, so it survives until a corner goes */
+export type SelectionItem = { kind: 'point' | 'wall' | 'opening' | 'furniture' | 'room'; id: string }
 
 interface Snapshot {
   project: Project
@@ -158,6 +159,10 @@ export interface EditorState {
   addOpening: (wallId: string, offset: number, kind: OpeningKind) => string
   updateWall: (id: string, patch: Partial<Wall>) => void
   updateOpening: (id: string, patch: Partial<Opening>) => void
+  /** apply the same patch to several walls / openings / pieces in one undo step */
+  updateWalls: (ids: string[], patch: Partial<Wall>) => void
+  updateOpenings: (ids: string[], patch: Partial<Opening>) => void
+  updateFurniturePieces: (ids: string[], patch: Partial<Furniture>) => void
   updatePoint: (id: string, patch: Partial<PlanPoint>) => void
   addFurniture: (catalogKey: string, pos: Vec2, angle: number) => string | null
   updateFurniture: (id: string, patch: Partial<Furniture>) => void
@@ -167,7 +172,7 @@ export interface EditorState {
   /** name a room (a label pinned at its centroid; an empty name removes it) */
   nameRoom: (room: Room, name: string) => void
   /** floor and wall finishes of a room (label created on demand); undefined resets to the default */
-  setRoomFinish: (room: Room, patch: { floor?: string; wall?: string }) => void
+  setRoomFinish: (room: Room | Room[], patch: { floor?: string; wall?: string }) => void
   setProjectFinishes: (patch: { exterior?: string; roof?: string }) => void
   // comments pinned on the plan
   addComment: (pos: Vec2, text: string) => string | null
@@ -890,7 +895,11 @@ export const useEditor = create<EditorState>((set, get) => {
         plan = solved.plan
         report = solved.report
       }
-      const exists = (s: SelectionItem) => (s.kind === 'point' ? !!plan.points[s.id] : s.kind === 'wall' ? !!plan.walls[s.id] : s.kind === 'furniture' ? !!plan.furniture[s.id] : !!plan.openings[s.id])
+      let roomIds: Set<string> | null = null
+      const exists = (s: SelectionItem) => {
+        if (s.kind === 'room') return (roomIds ??= new Set(findRooms(plan).map((r) => r.id))).has(s.id)
+        return s.kind === 'point' ? !!plan.points[s.id] : s.kind === 'wall' ? !!plan.walls[s.id] : s.kind === 'furniture' ? !!plan.furniture[s.id] : !!plan.openings[s.id]
+      }
       // rebase the undo history so undoing your own step does not revert other people's edits
       set({
         project: next,
@@ -1058,10 +1067,12 @@ export const useEditor = create<EditorState>((set, get) => {
       const { project, activeFloorId } = get()
       const { plan: solvedPlan, report } = solvePlan(plan)
       const undoStack = [...get().undoStack, { project, activeFloorId }].slice(-MAX_UNDO)
+      let roomIds: Set<string> | null = null
       const selection = get().selection.filter((s) => {
         if (s.kind === 'point') return !!solvedPlan.points[s.id]
         if (s.kind === 'wall') return !!solvedPlan.walls[s.id]
         if (s.kind === 'furniture') return !!solvedPlan.furniture[s.id]
+        if (s.kind === 'room') return (roomIds ??= new Set(findRooms(solvedPlan).map((r) => r.id))).has(s.id)
         return !!solvedPlan.openings[s.id]
       })
       const nextProject = withFloorPlan(project, activeFloorId, solvedPlan)
@@ -1208,6 +1219,27 @@ export const useEditor = create<EditorState>((set, get) => {
       if (!plan.openings[id]) return
       get().commit({ ...plan, openings: { ...plan.openings, [id]: { ...plan.openings[id], ...patch } } })
     },
+    updateWalls: (ids, patch) => {
+      const plan = get().plan
+      const walls = { ...plan.walls }
+      let changed = false
+      for (const id of ids) if (walls[id]) (walls[id] = { ...walls[id], ...patch }), (changed = true)
+      if (changed) get().commit({ ...plan, walls })
+    },
+    updateOpenings: (ids, patch) => {
+      const plan = get().plan
+      const openings = { ...plan.openings }
+      let changed = false
+      for (const id of ids) if (openings[id]) (openings[id] = { ...openings[id], ...patch }), (changed = true)
+      if (changed) get().commit({ ...plan, openings })
+    },
+    updateFurniturePieces: (ids, patch) => {
+      const plan = get().plan
+      const furniture = { ...plan.furniture }
+      let changed = false
+      for (const id of ids) if (furniture[id]) (furniture[id] = { ...furniture[id], ...patch }), (changed = true)
+      if (changed) get().commit({ ...plan, furniture })
+    },
     updatePoint: (id, patch) => {
       const plan = get().plan
       if (!plan.points[id]) return
@@ -1261,10 +1293,14 @@ export const useEditor = create<EditorState>((set, get) => {
     },
     setRoomFinish: (room, patch) => {
       const plan = get().plan
-      const existing = roomLabel(plan, room)
-      const label = existing ? { ...existing, ...patch } : { id: newId('rm'), name: '', x: room.centroid.x, y: room.centroid.y, ...patch }
-      for (const k of ['floor', 'wall'] as const) if (label[k] === undefined) delete label[k]
-      get().commit({ ...plan, rooms: { ...plan.rooms, [label.id]: label } })
+      const rooms = { ...plan.rooms }
+      for (const r of Array.isArray(room) ? room : [room]) {
+        const existing = roomLabel(plan, r)
+        const label = existing ? { ...existing, ...patch } : { id: newId('rm'), name: '', x: r.centroid.x, y: r.centroid.y, ...patch }
+        for (const k of ['floor', 'wall'] as const) if (label[k] === undefined) delete label[k]
+        rooms[label.id] = label
+      }
+      get().commit({ ...plan, rooms })
     },
     setProjectFinishes: (patch) => {
       const { project } = get()

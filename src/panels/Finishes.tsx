@@ -5,13 +5,19 @@ import { findRooms } from '../model/geometry'
 import { roomLabel, roomName } from '../model/rooms'
 
 /** a select over the finishes for one use, with a swatch of the chosen one */
-export function FinishSelect({ use, value, onChange, allowDefault }: { use: FinishUse; value: string | undefined; onChange: (key: string | undefined) => void; allowDefault?: string }) {
+/** `mixed`: the selected items have different finishes; the select shows "Mixed" until one is picked */
+export function FinishSelect({ use, value, onChange, allowDefault, mixed }: { use: FinishUse; value: string | undefined; onChange: (key: string | undefined) => void; allowDefault?: string; mixed?: boolean }) {
   const readOnly = useEditor(isReadOnly)
   const current = value ? FINISH_BY_KEY[value] : undefined
   return (
     <span className="finish-select">
-      <span className="swatch" style={{ background: (current ?? FINISH_BY_KEY[DEFAULT_FINISHES[use]]).color }} />
-      <select value={value ?? ''} disabled={readOnly} onChange={(e) => onChange(e.target.value || undefined)}>
+      <span className="swatch" style={{ background: mixed ? 'linear-gradient(135deg, #bbb 50%, #eee 50%)' : (current ?? FINISH_BY_KEY[DEFAULT_FINISHES[use]]).color }} />
+      <select value={mixed ? '__mixed' : (value ?? '')} disabled={readOnly} onChange={(e) => e.target.value !== '__mixed' && onChange(e.target.value || undefined)}>
+        {mixed && (
+          <option value="__mixed" disabled>
+            Mixed
+          </option>
+        )}
         {allowDefault && <option value="">{allowDefault}</option>}
         {finishesFor(use).map((f) => (
           <option key={f.key} value={f.key}>

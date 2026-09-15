@@ -703,7 +703,10 @@ export function Editor2D() {
     if (drag.kind === 'click-empty') {
       const moved = Math.hypot(e.clientX - drag.startScreen.x, e.clientY - drag.startScreen.y) > 3
       if (!moved) {
-        if (!e.shiftKey) st.clearSelection()
+        // a click on the floor selects the room it lands in; outside any room it clears the selection
+        const room = rooms.find((r) => pointInPolygon(drag.startWorld, r.polygon))
+        if (room) st.select([{ kind: 'room', id: room.id }], e.shiftKey)
+        else if (!e.shiftKey) st.clearSelection()
       } else if (marquee) {
         const min = { x: Math.min(marquee.a.x, marquee.b.x), y: Math.min(marquee.a.y, marquee.b.y) }
         const max = { x: Math.max(marquee.a.x, marquee.b.x), y: Math.max(marquee.a.y, marquee.b.y) }
@@ -889,6 +892,15 @@ export function Editor2D() {
           {rooms.map((r) => (
             <polygon key={r.id} points={r.polygon.map((p) => `${p.x},${p.y}`).join(' ')} fill={FINISH_BY_KEY[roomLabel(plan, r)?.floor ?? '']?.planColor ?? '#f6f1e7'} fillOpacity={underlay ? 0.35 : 1} style={{ pointerEvents: 'none' }} />
           ))}
+          {/* selected rooms (yours, or a collaborator's) */}
+          {rooms.map((r) => {
+            const mine = isSelected(selection, 'room', r.id)
+            const peer = peerSelections.get(`room:${r.id}`)
+            if (!mine && !peer) return null
+            return (
+              <polygon key={'sel' + r.id} data-export="skip" points={r.polygon.map((p) => `${p.x},${p.y}`).join(' ')} fill={mine ? 'rgba(47,111,237,0.14)' : 'none'} stroke={mine ? '#2f6fed' : peer} strokeWidth={2 * px} strokeDasharray={`${6 * px} ${4 * px}`} style={{ pointerEvents: 'none' }} />
+            )
+          })}
 
           {/* guides */}
           {snap?.guides.map((g, i) =>
@@ -1181,7 +1193,7 @@ export function Editor2D() {
         {(tool === 'door' || tool === 'window') && `Click on a wall to place a ${tool}.`}
         {tool === 'furniture' && !placing && 'Pick a piece of furniture in the panel on the left.'}
         {tool === 'furniture' && placing && 'Click to place · R rotates · drops against walls lock the piece to the wall · Ctrl/⌘ disables snapping'}
-        {tool === 'select' && 'Drag corners, walls or openings, or drag on empty space to marquee-select. Click a measurement to type a value. Press ? for shortcuts.'}
+        {tool === 'select' && 'Drag corners, walls or openings, click a room to select it, or drag on empty space to marquee-select. Click a measurement to type a value. Press ? for shortcuts.'}
         {tool === 'pan' && 'Drag to pan · scroll to pan · Ctrl/⌘ + scroll to zoom'}
       </div>
       {showShortcuts && <ShortcutsPanel onClose={() => useEditor.getState().toggleShortcuts(false)} />}

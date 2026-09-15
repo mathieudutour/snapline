@@ -166,9 +166,9 @@ export function Hierarchy() {
         </div>
       )}
       {roomsWithContent.map((r) => {
-        const on = r.walls.length > 0 && r.walls.every((w) => isSelected(selection, 'wall', w.id))
+        const on = isSelected(selection, 'room', r.room.id)
         return (
-          <Group key={r.room.id} title={roomName(plan, r.room, r.index)} count={0} detail={formatArea(r.room.area, units)} selected={on} onSelect={(e) => pick(r.walls.map((w) => ({ kind: 'wall' as const, id: w.id })), e)} onRename={readOnly ? undefined : () => rename(r.room, r.index)}>
+          <Group key={r.room.id} title={roomName(plan, r.room, r.index)} count={0} detail={formatArea(r.room.area, units)} selected={on} onSelect={(e) => pick([{ kind: 'room' as const, id: r.room.id }], e)} onRename={readOnly ? undefined : () => rename(r.room, r.index)}>
             {contents(r, 1)}
           </Group>
         )

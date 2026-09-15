@@ -3,7 +3,7 @@ import { SiteProps } from './Site'
 import { UnderlayProps } from './Underlay'
 import { FinishesProps, FinishSelect } from './Finishes'
 import { useEditor } from '../model/store'
-import type { Constraint, Furniture, FurnitureSide, Opening, Wall } from '../model/types'
+import type { Constraint, Furniture, FurnitureSide, Opening, Room, Wall } from '../model/types'
 import { nearestWallToSide, SIDE_LABELS } from '../model/furniture'
 import { CATALOG, CATEGORIES, CUSTOM_CATEGORY, creditsUrl, resolveIconUrl, type CatalogItem } from '../furniture/catalog'
 import { ImportModelDialog } from './ImportModel'
@@ -11,15 +11,17 @@ import { constraintsReferencing, pointDistance, shortId } from '../model/constra
 import { useMemo } from 'react'
 import { dimensionSide, findRooms, oppositeSide, wallFace, wallLength } from '../model/geometry'
 import { formatArea, formatLength, parseLength, type Units } from '../model/units'
-import { floorArea } from '../model/rooms'
+import { floorArea, roomLabel, roomName } from '../model/rooms'
 
-export function LengthField({ value, onChange, label, units }: { value: number; onChange: (v: number) => void; label: string; units: Units }) {
-  const [text, setText] = useState(formatLength(value, units, false))
-  useEffect(() => setText(formatLength(value, units, false)), [value, units])
+/** a length input; `value` null means the selected items disagree and the field shows "Mixed" until a value is typed */
+export function LengthField({ value, onChange, label, units }: { value: number | null; onChange: (v: number) => void; label: string; units: Units }) {
+  const shown = value === null ? '' : formatLength(value, units, false)
+  const [text, setText] = useState(shown)
+  useEffect(() => setText(shown), [shown])
   const commit = () => {
     const v = parseLength(text, units)
-    if (v !== null && Math.abs(v - value) > 1e-6) onChange(v)
-    else setText(formatLength(value, units, false))
+    if (v !== null && (value === null || Math.abs(v - value) > 1e-6)) onChange(v)
+    else setText(shown)
   }
   return (
     <label className="field">
@@ -27,6 +29,7 @@ export function LengthField({ value, onChange, label, units }: { value: number; 
       <span className="field-input">
         <input
           value={text}
+          placeholder={value === null ? 'Mixed' : undefined}
           onChange={(e) => setText(e.target.value)}
           onBlur={commit}
           onKeyDown={(e) => {
@@ -37,6 +40,15 @@ export function LengthField({ value, onChange, label, units }: { value: number; 
       </span>
     </label>
   )
+}
+
+/** the value every item shares, or null when they differ */
+function common<T>(values: T[]): T | null {
+  const first = values[0]
+  for (const v of values) {
+    if (typeof v === 'number' && typeof first === 'number' ? Math.abs(v - first) > 1e-6 : v !== first) return null
+  }
+  return first ?? null
 }
 
 function WallProps({ wall }: { wall: Wall }) {
@@ -87,6 +99,45 @@ function WallProps({ wall }: { wall: Wall }) {
           Vertical
         </button>
       </div>
+    </div>
+  )
+}
+
+/** properties shared by every selected wall; a field showing "Mixed" applies to all of them once typed */
+function WallsProps({ walls }: { walls: Wall[] }) {
+  const plan = useEditor((s) => s.plan)
+  const updateWalls = useEditor((s) => s.updateWalls)
+  const addConstraint = useEditor((s) => s.addConstraint)
+  const removeConstraint = useEditor((s) => s.removeConstraint)
+  const units = useEditor((s) => s.units)
+  const ids = walls.map((w) => w.id)
+  const has = (type: 'horizontal' | 'vertical') => walls.map((w) => constraintsReferencing(plan, { walls: [w.id] }).find((c) => c.type === type))
+  const hs = has('horizontal')
+  const vs = has('vertical')
+  const finish = common(walls.map((w) => w.finish ?? ''))
+  const toggle = (type: 'horizontal' | 'vertical', found: (Constraint | undefined)[]) => {
+    // all locked: unlock all; otherwise lock the ones that are not yet
+    if (found.every(Boolean)) for (const c of found) removeConstraint(c!.id)
+    else walls.forEach((w, i) => !found[i] && addConstraint({ type, wallId: w.id }))
+  }
+  return (
+    <div className="props">
+      <h3>{walls.length} walls</h3>
+      <LengthField label="Thickness" units={units} value={common(walls.map((w) => w.thickness))} onChange={(v) => updateWalls(ids, { thickness: v })} />
+      <LengthField label="Height" units={units} value={common(walls.map((w) => w.height))} onChange={(v) => updateWalls(ids, { height: v })} />
+      <label className="field">
+        <span>Finish</span>
+        <FinishSelect use="wall" value={finish || undefined} mixed={finish === null} allowDefault="Room walls" onChange={(v) => updateWalls(ids, { finish: v })} />
+      </label>
+      <div className="chips">
+        <button className={hs.every(Boolean) ? 'chip on' : hs.some(Boolean) ? 'chip some' : 'chip'} onClick={() => toggle('horizontal', hs)}>
+          Horizontal
+        </button>
+        <button className={vs.every(Boolean) ? 'chip on' : vs.some(Boolean) ? 'chip some' : 'chip'} onClick={() => toggle('vertical', vs)}>
+          Vertical
+        </button>
+      </div>
+      <p className="muted small">Changes apply to every selected wall. A field reading “Mixed” keeps each wall's own value until you type one.</p>
     </div>
   )
 }
@@ -323,6 +374,103 @@ function FurnitureProps({ piece }: { piece: Furniture }) {
   )
 }
 
+/** properties shared by every selected door / window */
+function OpeningsProps({ openings }: { openings: Opening[] }) {
+  const updateOpenings = useEditor((s) => s.updateOpenings)
+  const units = useEditor((s) => s.units)
+  const ids = openings.map((o) => o.id)
+  const doors = openings.filter((o) => o.kind === 'door').length
+  const windows = openings.length - doors
+  const title = doors && windows ? `${openings.length} openings` : doors ? `${doors} doors` : `${windows} windows`
+  return (
+    <div className="props">
+      <h3>{title}</h3>
+      <LengthField label="Width" units={units} value={common(openings.map((o) => o.width))} onChange={(v) => updateOpenings(ids, { width: v })} />
+      <LengthField label="Height" units={units} value={common(openings.map((o) => o.height))} onChange={(v) => updateOpenings(ids, { height: v })} />
+      {doors === 0 && <LengthField label="Sill height" units={units} value={common(openings.map((o) => o.sill))} onChange={(v) => updateOpenings(ids, { sill: v })} />}
+      {windows === 0 && (
+        <div className="chips">
+          <button className="chip" onClick={() => updateOpenings(ids, { hingeB: !openings.every((o) => o.hingeB) })}>
+            ⇄ Hinge side
+          </button>
+          <button className="chip" onClick={() => updateOpenings(ids, { swingRight: !openings.every((o) => o.swingRight) })}>
+            ⇅ Swing side
+          </button>
+        </div>
+      )}
+      <p className="muted small">Changes apply to every selected {doors && windows ? 'opening' : doors ? 'door' : 'window'}. A field reading “Mixed” keeps each one's own value until you type one.</p>
+    </div>
+  )
+}
+
+/** properties shared by every selected piece of furniture */
+function FurnitureMultiProps({ pieces }: { pieces: Furniture[] }) {
+  const plan = useEditor((s) => s.plan)
+  const updateFurniturePieces = useEditor((s) => s.updateFurniturePieces)
+  const addConstraint = useEditor((s) => s.addConstraint)
+  const removeConstraint = useEditor((s) => s.removeConstraint)
+  const units = useEditor((s) => s.units)
+  const ids = pieces.map((p) => p.id)
+  const angle = common(pieces.map((p) => Math.round((p.angle * 180) / Math.PI)))
+  const [angleText, setAngleText] = useState(angle === null ? '' : String(angle))
+  useEffect(() => setAngleText(angle === null ? '' : String(angle)), [angle])
+  const anchors = pieces.map((p) => constraintsReferencing(plan, { furniture: [p.id] }).find((c) => c.type === 'furnitureFixed'))
+  const allAnchored = anchors.every(Boolean)
+  const sameKind = common(pieces.map((p) => p.catalogKey)) !== null
+  return (
+    <div className="props">
+      <h3>{sameKind ? `${pieces.length} × ${pieces[0].name}` : `${pieces.length} pieces`}</h3>
+      <LengthField label="Width" units={units} value={common(pieces.map((p) => p.width))} onChange={(v) => updateFurniturePieces(ids, { width: v })} />
+      <LengthField label="Depth" units={units} value={common(pieces.map((p) => p.depth))} onChange={(v) => updateFurniturePieces(ids, { depth: v })} />
+      <LengthField label="Height" units={units} value={common(pieces.map((p) => p.height))} onChange={(v) => updateFurniturePieces(ids, { height: v })} />
+      <LengthField label="Elevation" units={units} value={common(pieces.map((p) => p.elevation))} onChange={(v) => updateFurniturePieces(ids, { elevation: v })} />
+      <label className="field">
+        <span>Rotation</span>
+        <span className="field-input">
+          <input
+            value={angleText}
+            placeholder={angle === null ? 'Mixed' : undefined}
+            onChange={(e) => setAngleText(e.target.value)}
+            onBlur={() => {
+              const v = parseFloat(angleText)
+              if (Number.isFinite(v)) updateFurniturePieces(ids, { angle: (v * Math.PI) / 180 })
+              else setAngleText(angle === null ? '' : String(angle))
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+            }}
+          />
+          <em>°</em>
+        </span>
+      </label>
+      <div className="chips">
+        <button
+          className="chip"
+          onClick={() => {
+            // each piece turns about its own centre
+            const plan = useEditor.getState().plan
+            const furniture = { ...plan.furniture }
+            for (const id of ids) if (furniture[id]) furniture[id] = { ...furniture[id], angle: furniture[id].angle + Math.PI / 2 }
+            useEditor.getState().commit({ ...plan, furniture })
+          }}
+        >
+          ↻ Rotate 90° <kbd>R</kbd>
+        </button>
+        <button
+          className={allAnchored ? 'chip on' : anchors.some(Boolean) ? 'chip some' : 'chip'}
+          onClick={() => {
+            if (allAnchored) for (const c of anchors) removeConstraint(c!.id)
+            else pieces.forEach((p, i) => !anchors[i] && addConstraint({ type: 'furnitureFixed', furnitureId: p.id, x: p.x, y: p.y, angle: p.angle }))
+          }}
+        >
+          📌 {allAnchored ? 'Anchored' : 'Anchor'}
+        </button>
+      </div>
+      <p className="muted small">Changes apply to every selected piece. A field reading “Mixed” keeps each piece's own value until you type one.</p>
+    </div>
+  )
+}
+
 function FurnitureAndWallProps({ piece, wall }: { piece: Furniture; wall: Wall }) {
   const addConstraint = useEditor((s) => s.addConstraint)
   const units = useEditor((s) => s.units)
@@ -507,6 +655,64 @@ function SettingsProps() {
   )
 }
 
+/** a room: its name, area and finishes; several rooms share the finish fields */
+function RoomsProps({ rooms, indexOf }: { rooms: Room[]; indexOf: (room: Room) => number }) {
+  const plan = useEditor((s) => s.plan)
+  const units = useEditor((s) => s.units)
+  const nameRoom = useEditor((s) => s.nameRoom)
+  const setRoomFinish = useEditor((s) => s.setRoomFinish)
+  const select = useEditor((s) => s.select)
+  const single = rooms.length === 1 ? rooms[0] : null
+  const currentName = single ? roomName(plan, single, indexOf(single)) : ''
+  const [name, setName] = useState(currentName)
+  useEffect(() => setName(currentName), [currentName])
+  const labels = rooms.map((r) => roomLabel(plan, r))
+  const floorFinish = common(labels.map((l) => l?.floor ?? ''))
+  const wallFinish = common(labels.map((l) => l?.wall ?? ''))
+  const area = rooms.reduce((sum, r) => sum + r.area, 0)
+  const wallIds = Object.values(plan.walls)
+    .filter((w) => rooms.some((r) => r.pointIds.includes(w.a) && r.pointIds.includes(w.b)))
+    .map((w) => w.id)
+  return (
+    <div className="props">
+      <h3>{single ? currentName : `${rooms.length} rooms`}</h3>
+      {single && (
+        <label className="field">
+          <span>Name</span>
+          <span className="field-input">
+            <input
+              value={name}
+              placeholder={`Room ${indexOf(single) + 1}`}
+              onChange={(e) => setName(e.target.value)}
+              onBlur={() => name.trim() !== currentName && nameRoom(single, name)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+              }}
+            />
+          </span>
+        </label>
+      )}
+      <p className="muted small">
+        {single ? 'Area' : 'Total area'} {formatArea(area, units)}, inside the walls.
+      </p>
+      <label className="field">
+        <span>Floor</span>
+        <FinishSelect use="floor" value={floorFinish || undefined} mixed={floorFinish === null} allowDefault="Default" onChange={(v) => setRoomFinish(rooms, { floor: v })} />
+      </label>
+      <label className="field">
+        <span>Walls</span>
+        <FinishSelect use="wall" value={wallFinish || undefined} mixed={wallFinish === null} allowDefault="Default" onChange={(v) => setRoomFinish(rooms, { wall: v })} />
+      </label>
+      <p className="muted small">The wall finish applies to the faces looking into {single ? 'this room' : 'these rooms'}; a wall's own finish, set on the wall, wins.</p>
+      <div className="chips">
+        <button className="chip" onClick={() => select(wallIds.map((id) => ({ kind: 'wall' as const, id })))}>
+          Select {single ? 'its' : 'their'} walls
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function SelectionInspector() {
   const plan = useEditor((s) => s.plan)
   const selection = useEditor((s) => s.selection)
@@ -515,13 +721,26 @@ export function SelectionInspector() {
   const points = selection.filter((s) => s.kind === 'point').map((s) => s.id).filter((id) => plan.points[id])
   const openings = selection.filter((s) => s.kind === 'opening').map((s) => plan.openings[s.id]).filter(Boolean)
   const furniture = selection.filter((s) => s.kind === 'furniture').map((s) => plan.furniture[s.id]).filter(Boolean)
+  const allRooms = useMemo(() => findRooms(plan), [plan])
+  const rooms = selection.filter((s) => s.kind === 'room').map((s) => allRooms.find((r) => r.id === s.id)).filter((r): r is Room => !!r)
+
+  if (rooms.length > 0 && rooms.length === selection.length) return <RoomsProps rooms={rooms} indexOf={(room) => allRooms.indexOf(room)} />
 
   if (furniture.length === 1 && walls.length === 1 && points.length === 0 && openings.length === 0) return <FurnitureAndWallProps piece={furniture[0]} wall={walls[0]} />
   if (furniture.length === 1 && walls.length === 0 && points.length === 0 && openings.length === 0) return <FurnitureProps piece={furniture[0]} />
+  if (furniture.length > 1 && walls.length === 0 && points.length === 0 && openings.length === 0) return <FurnitureMultiProps pieces={furniture} />
   if (furniture.length > 0) return <div className="props muted small">{selection.length} items selected. Press Delete to remove them.</div>
   if (openings.length === 1 && walls.length === 0 && points.length === 0) return <OpeningProps opening={openings[0]} />
+  if (openings.length > 1 && walls.length === 0 && points.length === 0) return <OpeningsProps openings={openings} />
   if (walls.length === 1 && points.length === 0 && openings.length === 0) return <WallProps wall={walls[0]} />
-  if (walls.length === 2 && points.length === 0 && openings.length === 0) return <TwoWallsProps a={walls[0]} b={walls[1]} />
+  if (walls.length === 2 && points.length === 0 && openings.length === 0)
+    return (
+      <>
+        <TwoWallsProps a={walls[0]} b={walls[1]} />
+        <WallsProps walls={walls} />
+      </>
+    )
+  if (walls.length > 2 && points.length === 0 && openings.length === 0) return <WallsProps walls={walls} />
   if (points.length === 1 && walls.length === 0 && openings.length === 0) return <PointProps id={points[0]} />
   if (points.length === 2 && walls.length === 0 && openings.length === 0) return <TwoPointsProps a={points[0]} b={points[1]} />
   if (selection.length === 0) return <SettingsProps />
