@@ -19,8 +19,12 @@ export function SiteProps() {
         setSite({ ...(site ?? DEFAULT_SITE), lat: Math.round(p.coords.latitude * 1e4) / 1e4, lng: Math.round(p.coords.longitude * 1e4) / 1e4 })
         setLocating(false)
       },
-      () => {
-        setError('Could not get your location; type the coordinates instead.')
+      (err) => {
+        setError(
+          err.code === err.PERMISSION_DENIED
+            ? 'Location access was blocked. Allow it for this site in the browser (the icon left of the address bar), or type the coordinates.'
+            : 'Could not get your location (no fix, or blocked by the browser). Type the coordinates from Google Maps instead.',
+        )
         setLocating(false)
       },
       { timeout: 10_000 },

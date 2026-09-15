@@ -1759,3 +1759,47 @@ button.small {
 .export-kind input {
   margin-top: 3px;
 }
+
+/* ---------- finishes ---------- */
+.finish-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.finish-select .swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  flex: none;
+}
+.finish-select select {
+  min-width: 0;
+  max-width: 130px;
+}
+.finish-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-top: 6px;
+}
+.finish-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 2px 4px;
+}
+.finish-table td {
+  padding: 3px 4px;
+  vertical-align: middle;
+}
+.finish-table td:first-child {
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.finish-table .finish-select select {
+  max-width: 96px;
+}

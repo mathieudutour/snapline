@@ -283,8 +283,10 @@ export function createApp(cfg: AppConfig) {
         if (req.method === 'DELETE') {
           const meta = await cfg.store.getProjectMeta(access, id)
           if (!meta) return json({ ok: true })
-          if (meta.ownerId === userId) await cfg.store.deleteProject(userId, id)
-          else await cfg.store.removeMember(id, normalizeEmail(me.user.email)) // a member deleting = leaving
+          if (meta.ownerId === userId) {
+            await cfg.store.deleteProject(userId, id)
+            if (cfg.objects) await cfg.objects.deletePrefix(`projects/${id}/`).catch(() => undefined)
+          } else await cfg.store.removeMember(id, normalizeEmail(me.user.email)) // a member deleting = leaving
           return json({ ok: true })
         }
       }

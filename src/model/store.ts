@@ -166,6 +166,9 @@ export interface EditorState {
   addConstraint: (c: ConstraintInput) => void
   /** name a room (a label pinned at its centroid; an empty name removes it) */
   nameRoom: (room: Room, name: string) => void
+  /** floor and wall finishes of a room (label created on demand); undefined resets to the default */
+  setRoomFinish: (room: Room, patch: { floor?: string; wall?: string }) => void
+  setProjectFinishes: (patch: { exterior?: string; roof?: string }) => void
   // comments pinned on the plan
   addComment: (pos: Vec2, text: string) => string | null
   replyComment: (id: string, text: string) => void
@@ -1256,6 +1259,18 @@ export const useEditor = create<EditorState>((set, get) => {
       constraints[id] = { ...c, id } as Constraint
       get().commit({ ...plan, constraints })
     },
+    setRoomFinish: (room, patch) => {
+      const plan = get().plan
+      const existing = roomLabel(plan, room)
+      const label = existing ? { ...existing, ...patch } : { id: newId('rm'), name: '', x: room.centroid.x, y: room.centroid.y, ...patch }
+      for (const k of ['floor', 'wall'] as const) if (label[k] === undefined) delete label[k]
+      get().commit({ ...plan, rooms: { ...plan.rooms, [label.id]: label } })
+    },
+    setProjectFinishes: (patch) => {
+      const { project } = get()
+      const finishes = { ...(project.finishes ?? {}), ...patch }
+      commitProject({ ...project, finishes })
+    },
     addComment: (pos, text) => {
       const body = text.trim().slice(0, 2000)
       if (!body || readOnly()) return null
@@ -1447,6 +1462,11 @@ export const useEditor = create<EditorState>((set, get) => {
       if (project.floors.length <= 1) return
       const idx = project.floors.findIndex((f) => f.id === id)
       if (idx < 0) return
+      const underlay = project.floors[idx].underlay
+      if (underlay) {
+        void removeFile(underlay.key)
+        if (get().user && !get().viewLink) void deleteProjectFile(project.id, underlay.key).catch(() => undefined)
+      }
       const floors = project.floors.filter((f) => f.id !== id)
       const nextActive = activeFloorId === id ? floors[Math.max(0, idx - 1)].id : activeFloorId
       commitProject({ ...project, floors }, nextActive)

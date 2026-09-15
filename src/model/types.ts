@@ -17,6 +17,8 @@ export interface Wall {
   thickness: number
   /** metres */
   height: number
+  /** finish key for both faces; unset = the finish of the rooms it bounds */
+  finish?: string
 }
 
 export type OpeningKind = 'door' | 'window'
@@ -92,6 +94,9 @@ export interface RoomLabel {
   name: string
   x: number
   y: number
+  /** finish keys (see src/model/finishes.ts); unset = project defaults */
+  floor?: string
+  wall?: string
 }
 
 export interface Author {

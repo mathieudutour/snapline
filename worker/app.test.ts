@@ -36,14 +36,16 @@ const body = async (res: Response): Promise<any> => res.json()
 
 describe('worker app', () => {
   let store: MemoryStore
+  let objects: MemoryObjects
   let handle: (req: Request) => Promise<Response>
   let google: Awaited<ReturnType<typeof makeGoogle>>
 
   beforeEach(async () => {
     resetJwksCache()
     store = new MemoryStore()
+    objects = new MemoryObjects()
     google = await makeGoogle()
-    handle = createApp({ store, objects: new MemoryObjects(), google: { clientId: CLIENT_ID, clientSecret: 'secret', fetch: google.fetchStub } })
+    handle = createApp({ store, objects, google: { clientId: CLIENT_ID, clientSecret: 'secret', fetch: google.fetchStub } })
   })
 
   async function signIn(claims: Partial<Record<string, unknown>> = {}) {
@@ -329,5 +331,10 @@ describe('worker app', () => {
     expect((await handle(new Request(`${ORIGIN}/api/view/${linked.token}/files/uf-nope`))).status).toBe(404)
     expect((await handle(new Request(`${ORIGIN}/api/projects/prj1/files/uf-abcd`, { method: 'DELETE', headers: auth }))).status).toBe(200)
     expect((await handle(new Request(`${ORIGIN}/api/projects/prj1/files/uf-abcd`, { headers: auth }))).status).toBe(404)
+    // deleting the project removes its files
+    await handle(new Request(`${ORIGIN}/api/projects/prj1/files/uf-keep`, { method: 'PUT', headers: { ...auth, 'Content-Type': 'image/png' }, body: png }))
+    expect(objects.objects.has('projects/prj1/uf-keep')).toBe(true)
+    await handle(new Request(`${ORIGIN}/api/projects/prj1`, { method: 'DELETE', headers: auth }))
+    expect(objects.objects.has('projects/prj1/uf-keep')).toBe(false)
   })
 })

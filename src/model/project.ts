@@ -53,6 +53,8 @@ export interface Project {
   slabThickness: number
   /** where the building stands and how the plan is oriented; drives the sun in 3D */
   site?: Site
+  /** exterior wall and roof finishes (keys from src/model/finishes.ts) */
+  finishes?: { exterior?: string; roof?: string }
   createdAt: number
   updatedAt: number
 }
@@ -109,6 +111,7 @@ export function normalizeProject(raw: unknown, normalizePlan: (p: Partial<Plan>)
       roof: { ...DEFAULT_ROOF, type: 'none', ...((r.roof as Partial<Roof>) ?? {}) },
       slabThickness: typeof r.slabThickness === 'number' ? r.slabThickness : 0.25,
       site: normalizeSite(r.site),
+      ...(r.finishes && typeof r.finishes === 'object' ? { finishes: r.finishes as Project['finishes'] } : {}),
       createdAt: typeof r.createdAt === 'number' ? r.createdAt : now,
       updatedAt: typeof r.updatedAt === 'number' ? r.updatedAt : now,
     }

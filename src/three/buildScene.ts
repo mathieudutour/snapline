@@ -1,11 +1,17 @@
 import * as THREE from 'three'
 import type { Opening, Plan, Vec2, Wall } from '../model/types'
-import { add, clipPolygonConvex, clipPolygonToRange, findRooms, normalize, polygonArea, scale, sub, wallLength, wallPolygon, planBounds } from '../model/geometry'
+import { add, clipPolygonConvex, clipPolygonToRange, findRooms, pointInPolygon, normalize, polygonArea, scale, sub, wallLength, wallPolygon, planBounds } from '../model/geometry'
 import { roofFootprint, type Roof } from '../model/project'
+import { roomLabel } from '../model/rooms'
 
 export interface WallMeshData {
   id: string
+  /** material groups: 0 = side A face, 1 = side B face, 2 = ends and top */
   geometry: THREE.BufferGeometry
+  /** finish keys: the wall's own (both faces), else each side's room wall finish; null = no room on that side (exterior) */
+  finishA: string | null | undefined
+  finishB: string | null | undefined
+  own?: string
 }
 
 export interface OpeningMeshData {
@@ -27,6 +33,8 @@ export interface FloorMeshData {
   geometry: THREE.BufferGeometry
   ceiling: THREE.BufferGeometry
   height: number
+  /** finish key of the room's floor, when set */
+  floorFinish?: string
 }
 
 export interface Blocker {
@@ -57,11 +65,16 @@ export interface SceneData {
   dispose: () => void
 }
 
-/** Extrude a convex plan polygon between y0 and y1 (world y is up, plan y maps to world z). */
-function prismGeometry(poly: Vec2[], y0: number, y1: number): { positions: number[]; normals: number[] } {
+/**
+ * Extrude a convex plan polygon between y0 and y1 (world y is up, plan y maps to world z).
+ * `classify` gives a material index to each side face from its plan edge (top and bottom get `capIndex`).
+ */
+function prismGeometry(poly: Vec2[], y0: number, y1: number, classify?: (p: Vec2, q: Vec2) => number, capIndex = 0): { positions: number[]; normals: number[]; groups: number[] } {
   const positions: number[] = []
   const normals: number[] = []
-  if (poly.length < 3 || y1 - y0 < 1e-6) return { positions, normals }
+  const groups: number[] = []
+  let current = capIndex
+  if (poly.length < 3 || y1 - y0 < 1e-6) return { positions, normals, groups }
   // make polygon clockwise in plan coordinates so the top face (seen from +y) is counter-clockwise
   const pts = polygonArea(poly) > 0 ? [...poly].reverse() : [...poly]
   const pushTri = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, expected: THREE.Vector3) => {
@@ -76,6 +89,7 @@ function prismGeometry(poly: Vec2[], y0: number, y1: number): { positions: numbe
     }
     positions.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z)
     normals.push(n.x, n.y, n.z, n.x, n.y, n.z, n.x, n.y, n.z)
+    groups.push(current)
   }
   const top = pts.map((p) => new THREE.Vector3(p.x, y1, p.y))
   const bottom = pts.map((p) => new THREE.Vector3(p.x, y0, p.y))
@@ -98,10 +112,22 @@ function prismGeometry(poly: Vec2[], y0: number, y1: number): { positions: numbe
     const q = pts[(i + 1) % pts.length]
     const mid = new THREE.Vector3((p.x + q.x) / 2 - cx, 0, (p.y + q.y) / 2 - cz)
     const expected = mid.lengthSq() > 1e-12 ? mid.normalize() : new THREE.Vector3(0, 0, 1)
+    current = classify ? classify(p, q) : capIndex
     pushTri(bottom[i], bottom[(i + 1) % pts.length], top[(i + 1) % pts.length], expected)
     pushTri(bottom[i], top[(i + 1) % pts.length], top[i], expected)
   }
-  return { positions, normals }
+  return { positions, normals, groups }
+}
+
+/** turn per-triangle material indices into BufferGeometry groups */
+function applyGroups(geometry: THREE.BufferGeometry, groups: number[]) {
+  let start = 0
+  for (let i = 0; i < groups.length; i++) {
+    if (i === groups.length - 1 || groups[i + 1] !== groups[i]) {
+      geometry.addGroup(start * 3, (i + 1 - start) * 3, groups[i])
+      start = i + 1
+    }
+  }
 }
 
 function wallGeometry(plan: Plan, wall: Wall, bandBelow = 0): THREE.BufferGeometry {
@@ -109,12 +135,21 @@ function wallGeometry(plan: Plan, wall: Wall, bandBelow = 0): THREE.BufferGeomet
   const a = plan.points[wall.a]
   const b = plan.points[wall.b]
   const u = normalize(sub(b, a))
+  // which side of the centreline a face is on: 0 = side A (+perp), 1 = side B, 2 = ends and top
+  const n = { x: -u.y, y: u.x }
+  const classify = (p: Vec2, q: Vec2) => {
+    const e = normalize(sub(q, p))
+    if (Math.abs(e.x * u.x + e.y * u.y) < 0.7) return 2
+    const off = ((p.x + q.x) / 2 - a.x) * n.x + ((p.y + q.y) / 2 - a.y) * n.y
+    return Math.abs(off) < wall.thickness / 4 ? 2 : off > 0 ? 0 : 1
+  }
   const L = wallLength(plan, wall)
   const H = wall.height
   const openings = Object.values(plan.openings)
     .filter((o) => o.wallId === wall.id)
     .sort((m, n) => m.offset - n.offset)
   const pieces: { s0: number; s1: number; y0: number; y1: number }[] = []
+  const groups: number[] = []
   let cursor = 0
   for (const o of openings) {
     const s0 = Math.max(cursor, o.offset)
@@ -138,13 +173,15 @@ function wallGeometry(plan: Plan, wall: Wall, bandBelow = 0): THREE.BufferGeomet
     const s0 = piece.s0 <= 1e-4 ? -10 : piece.s0
     const s1 = piece.s1 >= L - 1e-4 ? L + 10 : piece.s1
     const clipped = clipPolygonToRange(poly, a, u, s0, s1)
-    const g = prismGeometry(clipped, piece.y0, piece.y1)
+    const g = prismGeometry(clipped, piece.y0, piece.y1, classify, 2)
     positions.push(...g.positions)
     normals.push(...g.normals)
+    groups.push(...g.groups)
   }
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
   geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3))
+  applyGroups(geometry, groups)
   // planar UVs so materials with textures would still work
   const uvs: number[] = []
   for (let i = 0; i < positions.length; i += 3) uvs.push(positions[i] + positions[i + 2], positions[i + 1])
@@ -179,9 +216,19 @@ export function buildScene(plan: Plan, options: { bandBelow?: number; floorHoles
   const walls: WallMeshData[] = []
   const blockers: Blocker[] = []
   let maxHeight = 2.5
+  const roomsForSides = findRooms(plan)
+  const sideFinish = (wall: Wall, sign: 1 | -1): string | null | undefined => {
+    const a = plan.points[wall.a]
+    const b = plan.points[wall.b]
+    const u = normalize(sub(b, a))
+    const probe = { x: (a.x + b.x) / 2 + -u.y * sign * (wall.thickness / 2 + 0.05), y: (a.y + b.y) / 2 + u.x * sign * (wall.thickness / 2 + 0.05) }
+    const room = roomsForSides.find((r) => pointInPolygon(probe, r.polygon))
+    if (!room) return null
+    return roomLabel(plan, room)?.wall
+  }
   for (const wall of Object.values(plan.walls)) {
     if (!plan.points[wall.a] || !plan.points[wall.b]) continue
-    walls.push({ id: wall.id, geometry: wallGeometry(plan, wall, options.bandBelow ?? 0) })
+    walls.push({ id: wall.id, geometry: wallGeometry(plan, wall, options.bandBelow ?? 0), finishA: sideFinish(wall, 1), finishB: sideFinish(wall, -1), own: wall.finish })
     maxHeight = Math.max(maxHeight, wall.height)
     const a = plan.points[wall.a]
     const b = plan.points[wall.b]
@@ -223,7 +270,7 @@ export function buildScene(plan: Plan, options: { bandBelow?: number; floorHoles
   const floors: FloorMeshData[] = rooms.map((r) => {
     const heights = r.pointIds.flatMap((pid) => Object.values(plan.walls).filter((w) => w.a === pid || w.b === pid).map((w) => w.height))
     const height = heights.length ? Math.min(...heights) : plan.settings.wallHeight
-    return { id: r.id, geometry: floorGeometry(r.polygon, false, options.floorHoles), ceiling: floorGeometry(r.polygon, true, options.ceilingHoles), height }
+    return { id: r.id, geometry: floorGeometry(r.polygon, false, options.floorHoles), ceiling: floorGeometry(r.polygon, true, options.ceilingHoles), height, floorFinish: roomLabel(plan, r)?.floor }
   })
   const bounds = planBounds(plan)
   const center = bounds ? { x: (bounds.min.x + bounds.max.x) / 2, y: (bounds.min.y + bounds.max.y) / 2 } : { x: 0, y: 0 }
@@ -337,5 +384,12 @@ export function buildRoofGeometry(plan: Plan, roof: Roof, wallTopY: number): THR
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
   geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3))
+  // planar UVs in metres so roof finishes tile correctly
+  if (!geometry.getAttribute('uv')) {
+    const pos = geometry.getAttribute('position')
+    const uv: number[] = []
+    for (let k = 0; k < pos.count; k++) uv.push(pos.getX(k), pos.getZ(k)) // plan projection: rows stay straight on the slopes
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2))
+  }
   return geometry
 }

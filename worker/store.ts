@@ -71,6 +71,8 @@ export interface ObjectStore {
   put(key: string, body: ReadableStream | ArrayBuffer | Blob, contentType: string): Promise<void>
   get(key: string): Promise<{ body: ReadableStream | ArrayBuffer; contentType: string } | null>
   delete(key: string): Promise<void>
+  /** remove every object under a prefix (a project's files when it is deleted) */
+  deletePrefix(prefix: string): Promise<void>
 }
 
 export interface Store {
@@ -262,6 +264,14 @@ export class R2Objects implements ObjectStore {
   async delete(key: string) {
     await this.bucket.delete(key)
   }
+  async deletePrefix(prefix: string) {
+    let cursor: string | undefined
+    do {
+      const page = await this.bucket.list({ prefix, cursor })
+      if (page.objects.length) await this.bucket.delete(page.objects.map((o) => o.key))
+      cursor = page.truncated ? page.cursor : undefined
+    } while (cursor)
+  }
 }
 
 export class MemoryObjects implements ObjectStore {
@@ -275,6 +285,9 @@ export class MemoryObjects implements ObjectStore {
   }
   async delete(key: string) {
     this.objects.delete(key)
+  }
+  async deletePrefix(prefix: string) {
+    for (const k of [...this.objects.keys()]) if (k.startsWith(prefix)) this.objects.delete(k)
   }
 }
 

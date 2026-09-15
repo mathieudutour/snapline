@@ -13,6 +13,7 @@ import { buildRoofGeometry, buildScene } from '../three/buildScene'
 import { floorElevation, projectTopElevation } from '../model/project'
 import { floorCutouts, stairSteps, structureKind } from '../model/structures'
 import { formatArea, type Units } from '../model/units'
+import { finish } from '../model/finishes'
 
 export const PAPERS = { A4: [210, 297], A3: [297, 420], Letter: [215.9, 279.4] } as const
 export type Paper = keyof typeof PAPERS
@@ -193,9 +194,13 @@ export async function makeGlb(project: Project): Promise<Blob> {
       floorHoles: floorCutouts(f.plan.furniture, project.floors[index - 1]?.plan.furniture),
       ceilingHoles: floorCutouts(project.floors[index + 1]?.plan.furniture ?? {}, f.plan.furniture),
     })
-    for (const w of data.walls) g.add(Object.assign(new THREE.Mesh(w.geometry, wallMat), { name: `wall ${w.id}` }))
+    const colorMat = (key: string | undefined, use: 'wall' | 'floor' | 'exterior') => new THREE.MeshStandardMaterial({ color: finish(key, use).color, roughness: finish(key, use).roughness })
+    for (const w of data.walls) {
+      const side = (s: string | null | undefined) => (w.own ? colorMat(w.own, 'wall') : s === null ? colorMat(project.finishes?.exterior, 'exterior') : colorMat(s, 'wall'))
+      g.add(Object.assign(new THREE.Mesh(w.geometry, [side(w.finishA), side(w.finishB), wallMat]), { name: `wall ${w.id}` }))
+    }
     for (const fl of data.floors) {
-      g.add(Object.assign(new THREE.Mesh(fl.geometry, floorMat), { name: `floor ${fl.id}` }))
+      g.add(Object.assign(new THREE.Mesh(fl.geometry, fl.floorFinish ? colorMat(fl.floorFinish, 'floor') : floorMat), { name: `floor ${fl.id}` }))
       const c = new THREE.Mesh(fl.ceiling, ceilingMat)
       c.name = `ceiling ${fl.id}`
       c.position.y = fl.height
@@ -230,7 +235,8 @@ export async function makeGlb(project: Project): Promise<Blob> {
   })
   const top = project.floors[project.floors.length - 1]
   const roof = buildRoofGeometry(top.plan, project.roof, projectTopElevation(project))
-  if (roof) scene.add(Object.assign(new THREE.Mesh(roof, new THREE.MeshStandardMaterial({ color: project.roof.color, roughness: 0.85, side: THREE.DoubleSide })), { name: 'roof' }))
+  const roofFinish = finish(project.finishes?.roof, 'roof')
+  if (roof) scene.add(Object.assign(new THREE.Mesh(roof, new THREE.MeshStandardMaterial({ color: roofFinish.pattern === 'plain' ? project.roof.color : roofFinish.color, roughness: roofFinish.roughness, side: THREE.DoubleSide })), { name: 'roof' }))
   const exporter = new GLTFExporter()
   const result = await exporter.parseAsync(scene, { binary: true })
   return new Blob([result as ArrayBuffer], { type: 'model/gltf-binary' })

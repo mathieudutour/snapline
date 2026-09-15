@@ -11,7 +11,8 @@ import { screenToWorld, worldToScreen, type Viewport } from './viewport'
 import { Dimension } from './Dimension'
 import { setLiveCursor } from '../sync/liveController'
 import { wallGap } from '../model/measure'
-import { roomName } from '../model/rooms'
+import { roomLabel, roomName } from '../model/rooms'
+import { FINISH_BY_KEY } from '../model/finishes'
 import { stairSteps, structureKind } from '../model/structures'
 import { PeerCursors, usePeerSelections } from './Peers'
 import { Compass } from '../panels/Site'
@@ -886,7 +887,7 @@ export function Editor2D() {
 
           {/* rooms */}
           {rooms.map((r) => (
-            <polygon key={r.id} points={r.polygon.map((p) => `${p.x},${p.y}`).join(' ')} fill="#f6f1e7" fillOpacity={underlay ? 0.35 : 1} style={{ pointerEvents: 'none' }} />
+            <polygon key={r.id} points={r.polygon.map((p) => `${p.x},${p.y}`).join(' ')} fill={FINISH_BY_KEY[roomLabel(plan, r)?.floor ?? '']?.planColor ?? '#f6f1e7'} fillOpacity={underlay ? 0.35 : 1} style={{ pointerEvents: 'none' }} />
           ))}
 
           {/* guides */}

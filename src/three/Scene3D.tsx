@@ -11,6 +11,8 @@ import { useEditor } from '../model/store'
 import { floorElevation, floorHeight, projectTopElevation } from '../model/project'
 import { buildRoofGeometry, buildScene, type OpeningMeshData, type SceneData } from './buildScene'
 import { floorCutouts, stairSteps, structureKind } from '../model/structures'
+import { finish } from '../model/finishes'
+import { finishMaterial } from './textures'
 import type { Plan } from '../model/types'
 import { resolveCollisions } from './collision'
 
@@ -55,11 +57,9 @@ function RoofMesh({ top }: { top: FloorScene }) {
   const geometry = useMemo(() => buildRoofGeometry(top.plan, project.roof, projectTopElevation(project)), [top.plan, project])
   useEffect(() => () => geometry?.dispose(), [geometry])
   if (!geometry) return null
-  return (
-    <mesh geometry={geometry} castShadow receiveShadow>
-      <meshStandardMaterial color={project.roof.color} roughness={0.85} side={THREE.DoubleSide} />
-    </mesh>
-  )
+  const f = finish(project.finishes?.roof, 'roof')
+  const material = useMemo(() => finishMaterial(f, { side: THREE.DoubleSide, color: f.pattern === 'plain' ? project.roof.color : undefined }), [f, project.roof.color])
+  return <mesh geometry={geometry} material={material} castShadow receiveShadow />
 }
 
 function DoorMesh({ o }: { o: OpeningMeshData }) {
@@ -262,18 +262,21 @@ function FurnitureMeshes({ furniture }: { furniture: Plan['furniture'] }) {
 }
 
 function PlanMeshes({ data, showCeilings }: { data: SceneData; showCeilings: boolean }) {
+  const exterior = useEditor((s) => s.project.finishes?.exterior)
+  const wallMaterials = useMemo(() => {
+    const ends = new THREE.MeshStandardMaterial({ color: WALL_COLOR, roughness: 0.9 })
+    // a face with no room behind it is outside: it gets the exterior finish
+    const forSide = (own: string | undefined, side: string | null | undefined) => (own ? finishMaterial(finish(own, 'wall')) : side === null ? finishMaterial(finish(exterior, 'exterior')) : finishMaterial(finish(side, 'wall')))
+    return new Map(data.walls.map((w) => [w.id, [forSide(w.own, w.finishA), forSide(w.own, w.finishB), ends]]))
+  }, [data, exterior])
   return (
     <group>
       {data.walls.map((w) => (
-        <mesh key={w.id} geometry={w.geometry} castShadow receiveShadow>
-          <meshStandardMaterial color={WALL_COLOR} roughness={0.9} />
-        </mesh>
+        <mesh key={w.id} geometry={w.geometry} material={wallMaterials.get(w.id)} castShadow receiveShadow />
       ))}
       {data.floors.map((f, i) => (
         <group key={f.id}>
-          <mesh geometry={f.geometry} position={[0, 0.005, 0]} receiveShadow>
-            <meshStandardMaterial color={FLOOR_COLORS[i % FLOOR_COLORS.length]} roughness={0.8} />
-          </mesh>
+          <mesh geometry={f.geometry} position={[0, 0.005, 0]} material={f.floorFinish ? finishMaterial(finish(f.floorFinish, 'floor')) : finishMaterial(finish(undefined, 'floor'), { color: FLOOR_COLORS[i % FLOOR_COLORS.length] })} receiveShadow />
           {showCeilings && (
             <mesh geometry={f.ceiling} position={[0, f.height - 0.005, 0]} castShadow receiveShadow>
               <meshStandardMaterial color="#fbfbfb" roughness={1} />

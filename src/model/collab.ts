@@ -18,7 +18,7 @@ export type Op =
   | { k: 'settings'; floorId: string; v: PlanSettings }
   | { k: 'floor'; id: string; v: { name: string; plan?: Plan; underlay?: Underlay | null } | null; index?: number }
   | { k: 'floors'; order: string[] }
-  | { k: 'project'; v: { name?: string; roof?: Roof; slabThickness?: number; site?: Site | null } }
+  | { k: 'project'; v: { name?: string; roof?: Roof; slabThickness?: number; site?: Site | null; finishes?: Project['finishes'] | null } }
   /** whole-project replacement (used when a client decides to overwrite the room) */
   | { k: 'replace'; project: Project }
 
@@ -28,11 +28,12 @@ const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.s
 export function diffProjects(prev: Project, next: Project): Op[] {
   const ops: Op[] = []
   if (prev === next) return ops
-  const proj: { name?: string; roof?: Roof; slabThickness?: number; site?: Site | null } = {}
+  const proj: { name?: string; roof?: Roof; slabThickness?: number; site?: Site | null; finishes?: Project['finishes'] | null } = {}
   if (prev.name !== next.name) proj.name = next.name
   if (!same(prev.roof, next.roof)) proj.roof = next.roof
   if (prev.slabThickness !== next.slabThickness) proj.slabThickness = next.slabThickness
   if (!same(prev.site, next.site)) proj.site = next.site ?? null
+  if (!same(prev.finishes, next.finishes)) proj.finishes = next.finishes ?? null
   if (Object.keys(proj).length) ops.push({ k: 'project', v: proj })
 
   const prevFloors = new Map(prev.floors.map((f) => [f.id, f]))
@@ -69,9 +70,10 @@ export function applyOps(project: Project, ops: Op[]): Project {
         p = op.project
         break
       case 'project': {
-        const { site, ...rest } = op.v
+        const { site, finishes, ...rest } = op.v
         p = { ...p, ...rest }
         if (site !== undefined) p = { ...p, site: site ?? undefined }
+        if (finishes !== undefined) p = { ...p, finishes: finishes ?? undefined }
         break
       }
       case 'floors': {

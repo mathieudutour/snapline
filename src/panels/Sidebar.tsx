@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { SiteProps } from './Site'
 import { UnderlayProps } from './Underlay'
+import { FinishesProps, FinishSelect } from './Finishes'
 import { useEditor } from '../model/store'
 import type { Constraint, Furniture, FurnitureSide, Opening, Wall } from '../model/types'
 import { nearestWallToSide, SIDE_LABELS } from '../model/furniture'
@@ -74,6 +75,10 @@ function WallProps({ wall }: { wall: Wall }) {
       </p>
       <LengthField label="Thickness" units={units} value={wall.thickness} onChange={(v) => updateWall(wall.id, { thickness: v })} />
       <LengthField label="Height" units={units} value={wall.height} onChange={(v) => updateWall(wall.id, { height: v })} />
+        <label className="field">
+          <span>Finish</span>
+          <FinishSelect use="wall" value={wall.finish} allowDefault="Room walls" onChange={(v) => updateWall(wall.id, { finish: v })} />
+        </label>
       <div className="chips">
         <button className={hasH ? 'chip on' : 'chip'} onClick={() => toggle('horizontal', hasH)}>
           Horizontal
@@ -495,6 +500,7 @@ function SettingsProps() {
         <LengthField label="Slab between floors" units={units} value={project.slabThickness} onChange={setSlabThickness} />
         <p className="muted small">The roof covers the top floor's outline, aligned with its longest wall. Select a wall, corner, door, window or piece of furniture to edit it.</p>
       </div>
+      <FinishesProps />
       <UnderlayProps />
       <SiteProps />
     </>
