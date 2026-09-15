@@ -54,7 +54,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
     setError(null)
     try {
       if (kind === 'json') {
-        download(new Blob([JSON.stringify({ version: 2, ...project }, null, 2)], { type: 'application/json' }), `${name}.snapline.json`)
+        download(new Blob([JSON.stringify({ version: 2, ...project }, null, 2)], { type: 'application/json' }), `${name}.cordeau.json`)
       } else if (kind === 'glb') {
         download(await makeGlb(project), `${name}.glb`)
       } else if (kind === 'png') {
@@ -93,7 +93,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
                 ['pdf', 'Plan as PDF', 'To scale, one page per floor, with a title block.'],
                 ['png', 'Plan as PNG', 'A raster image of the plan at a chosen scale and resolution.'],
                 ['glb', '3D model (glTF)', 'Walls, floors, roof and structures; furniture as boxes. Opens in Blender, SketchUp, three.js…'],
-                ['json', 'Project file', 'Everything in the project, to import into Snapline again.'],
+                ['json', 'Project file', 'Everything in the project, to import into Cordeau again.'],
               ] as [Kind, string, string][]
             ).map(([k, title, hint]) => (
               <label key={k} className={`export-kind ${kind === k ? 'on' : ''}`}>

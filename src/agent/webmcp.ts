@@ -1,6 +1,6 @@
 /**
  * WebMCP: hand the plan-building tools to the browser's agent layer (navigator.modelContext),
- * and expose the same tools to scripts as window.snapline.tools.
+ * and expose the same tools to scripts as window.cordeau.tools.
  */
 import { AGENT_HINT, callTool, describeTools, TOOLS } from './tools'
 
@@ -29,7 +29,7 @@ export function registerAgentTools(): { webmcp: boolean } {
     },
   }))
   const scripting = { list: describeTools, call: callTool, hint: AGENT_HINT }
-  ;(window as unknown as { snapline: { tools?: typeof scripting } }).snapline.tools = scripting
+  ;(window as unknown as { cordeau: { tools?: typeof scripting } }).cordeau.tools = scripting
   const mc = (navigator as Navigator & { modelContext?: ModelContext }).modelContext
   if (!mc) return { webmcp: false }
   try {

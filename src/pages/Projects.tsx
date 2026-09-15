@@ -22,7 +22,7 @@ export function Projects() {
     <div className="projects-page">
       <header className="projects-head">
         <a className="brand" href="/home" onClick={onLinkClick}>
-          <span className="brand-mark">◫</span> Snapline
+          <span className="brand-mark">◫</span> Cordeau
         </a>
         <div className="spacer" />
         <button onClick={() => fileRef.current?.click()}>Import…</button>
@@ -89,7 +89,7 @@ export function Projects() {
           if (f)
             f.text()
               .then((t) => (importProject(JSON.parse(t)), navigate('/')))
-              .catch(() => alert('Could not read this file as a Snapline project.'))
+              .catch(() => alert('Could not read this file as a Cordeau project.'))
           e.target.value = ''
         }}
       />

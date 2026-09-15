@@ -11,9 +11,9 @@ export type StructureKind = 'stairs' | 'void' | 'balcony'
 export const STRUCTURE_CATEGORY = 'Structures'
 
 export const STRUCTURES: CatalogItem[] = [
-  { key: 'sys-stairs', name: 'Stairs', category: STRUCTURE_CATEGORY, width: 1, depth: 3, height: 2.75, elevation: 0, creator: 'Snapline', license: 'built-in', library: 'built-in' },
-  { key: 'sys-void', name: 'Floor opening', category: STRUCTURE_CATEGORY, width: 2, depth: 3, height: 0.02, elevation: 0, creator: 'Snapline', license: 'built-in', library: 'built-in' },
-  { key: 'sys-balcony', name: 'Balcony', category: STRUCTURE_CATEGORY, width: 3, depth: 1.5, height: 1.1, elevation: 0, creator: 'Snapline', license: 'built-in', library: 'built-in' },
+  { key: 'sys-stairs', name: 'Stairs', category: STRUCTURE_CATEGORY, width: 1, depth: 3, height: 2.75, elevation: 0, creator: 'Cordeau', license: 'built-in', library: 'built-in' },
+  { key: 'sys-void', name: 'Floor opening', category: STRUCTURE_CATEGORY, width: 2, depth: 3, height: 0.02, elevation: 0, creator: 'Cordeau', license: 'built-in', library: 'built-in' },
+  { key: 'sys-balcony', name: 'Balcony', category: STRUCTURE_CATEGORY, width: 3, depth: 1.5, height: 1.1, elevation: 0, creator: 'Cordeau', license: 'built-in', library: 'built-in' },
 ]
 
 export function structureKind(catalogKey: string): StructureKind | null {

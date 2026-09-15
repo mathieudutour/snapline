@@ -92,7 +92,7 @@ function ProjectMenu() {
         hidden
         onChange={(e) => {
           const f = e.target.files?.[0]
-          if (f) f.text().then((t) => importProject(JSON.parse(t))).catch(() => alert('Could not read this file as a Snapline project.'))
+          if (f) f.text().then((t) => importProject(JSON.parse(t))).catch(() => alert('Could not read this file as a Cordeau project.'))
           e.target.value = ''
         }}
       />

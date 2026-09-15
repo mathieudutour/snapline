@@ -161,7 +161,7 @@ export async function makePdf(pages: PdfPage[], opts: { paper: Paper; scale: num
     doc.setTextColor(90)
     const area = floorArea(findRooms(page.plan))
     const roundedScale = Math.round(scale)
-    doc.text(`${page.floorName} · scale 1:${roundedScale} on ${opts.paper} · ${area > 0 ? `floor area ${formatArea(area, opts.units)} · ` : ''}${new Date().toLocaleDateString()} · Snapline`, margin, ty + 10)
+    doc.text(`${page.floorName} · scale 1:${roundedScale} on ${opts.paper} · ${area > 0 ? `floor area ${formatArea(area, opts.units)} · ` : ''}${new Date().toLocaleDateString()} · Cordeau`, margin, ty + 10)
     // scale bar: 1 m
     const bar = 1000 / scale
     const bx = w - margin - bar

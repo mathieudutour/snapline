@@ -12,7 +12,7 @@ export function Landing() {
     <div className="landing">
       <header className="landing-nav">
         <a className="brand" href="/home" onClick={onLinkClick}>
-          <span className="brand-mark">◫</span> Snapline
+          <span className="brand-mark">◫</span> Cordeau
         </a>
         <nav>
           <a href="#features">Features</a>
@@ -49,14 +49,14 @@ export function Landing() {
           <p className="fine">Free. Sign in with Google to keep projects on your account and open them on any device.</p>
         </div>
         <figure className="hero-figure">
-          <img src={`${base}/landing/plan.webp`} alt="A furnished two-bedroom floor plan drawn in Snapline, with locked wall lengths and a list of constraints" />
+          <img src={`${base}/landing/plan.webp`} alt="A furnished two-bedroom floor plan drawn in Cordeau, with locked wall lengths and a list of constraints" />
         </figure>
       </section>
 
       <section id="features" className="features">
         <article>
           <h3>Measurements become rules</h3>
-          <p>Click any dimension and type a value. It is locked from then on. Conflicting rules are highlighted, never silently broken.</p>
+          <p>Type a length in the inspector, or ⌥-click any dimension. It is locked from then on. Conflicting rules are highlighted, never silently broken.</p>
         </article>
         <article>
           <h3>Snapping that thinks</h3>
@@ -96,7 +96,7 @@ export function Landing() {
       </section>
 
       <footer className="landing-footer">
-        <span>Snapline</span>
+        <span>Cordeau</span>
         <a href={`${base}/furniture/CREDITS.md`} target="_blank" rel="noreferrer">
           Furniture credits
         </a>

@@ -20,7 +20,7 @@ export function ViewLinkPage({ token }: { token: string }) {
         <div>
           <p>{error}</p>
           <a className="button" href="/home" onClick={onLinkClick}>
-            Go to Snapline
+            Go to Cordeau
           </a>
         </div>
       </div>

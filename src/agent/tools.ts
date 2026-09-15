@@ -1,7 +1,7 @@
 /**
  * Tools an agent can call to build a floor plan: a small, high-level vocabulary (rooms, walls,
  * doors, windows, furniture, floors, roof, site) on top of the editor store. Exposed to the
- * browser through WebMCP (navigator.modelContext) and to scripts as window.snapline.tools.
+ * browser through WebMCP (navigator.modelContext) and to scripts as window.cordeau.tools.
  * Coordinates are metres on the plan: x to the right, y downwards, the top of the plan being the
  * side that faces the compass bearing `north` of the site.
  */
@@ -414,4 +414,4 @@ export async function callTool(name: string, input: Record<string, unknown> = {}
 export const describeTools = () => TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }))
 
 /** a hint for agents that read the page: what the plan's units and axes are */
-export const AGENT_HINT = `Snapline floor plan editor. Units: metres; x to the right, y down the plan. Start with get_plan, then draw_room / draw_walls, add_opening, place_furniture. Use ${formatLength(0.2, 'm')} walls by default.`
+export const AGENT_HINT = `Cordeau floor plan editor. Units: metres; x to the right, y down the plan. Start with get_plan, then draw_room / draw_walls, add_opening, place_furniture. Use ${formatLength(0.2, 'm')} walls by default.`

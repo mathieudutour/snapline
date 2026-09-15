@@ -37,7 +37,7 @@ export function Rail() {
   }
   return (
     <nav className="rail">
-      <a className="rail-logo" href="/home" onClick={onLinkClick} title="About Snapline">
+      <a className="rail-logo" href="/home" onClick={onLinkClick} title="About Cordeau">
         ◫
       </a>
       <button className={railTab === 'layers' && !prefsOpen && (!mobile || drawer === 'left') ? 'on' : ''} onClick={() => (openLeft('layers'), setRailTab('layers'), setPrefsOpen(false))} title="Layers: floors, rooms, walls, furniture, constraints">

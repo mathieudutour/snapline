@@ -1,10 +1,11 @@
-# Snapline
+# Cordeau
 
 A web app for drawing floor plans where your measurements are **remembered as constraints**.
+Named after the *cordeau*, the chalk line masons snap on the floor to lay out walls.
 A project holds several floors and an optional roof, and you can keep several projects in the browser.
 
 Most simple floor-plan tools let you type a wall length, apply it once, and forget it: the next time
-you nudge a corner the value silently drifts and you have to re-check everything. Snapline treats every
+you nudge a corner the value silently drifts and you have to re-check everything. Cordeau treats every
 value you type as a rule. A small geometric constraint solver keeps those rules true while you keep
 editing, and tells you when two rules cannot both hold.
 
@@ -44,7 +45,7 @@ npm run build      # production bundle in dist/
 Pushes to `main` run `.github/workflows/deploy.yml`: typecheck, tests and build, then a deploy to Cloudflare Workers with static assets, a D1 database for accounts and projects, a Durable Object per shared project for live sessions (created by the deploy itself), and an R2 bucket for imported models.
 
 1. Create a Cloudflare API token with the Workers Scripts, Workers KV/D1 and R2 edit permissions, and add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as GitHub Actions secrets.
-2. Create a D1 database called `snapline` and put its id in `wrangler.jsonc`. The workflow applies the migrations in `worker/migrations`.
+2. Create a D1 database called `snapline` and put its id in `wrangler.jsonc` (the Cloudflare resources keep their original names; only the product is called Cordeau). The workflow applies the migrations in `worker/migrations`.
 3. Create a Google OAuth client (web application) and add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` as secrets. Register `https://<your worker>.workers.dev/auth/google/callback` as an authorised redirect URI.
 4. Rate limits and caps are built in: sign-in, view links, invitations and live connections are held to 30 requests a minute per client, other API calls to 300, and an account can hold at most 200 projects and 100 imported models, a project at most 50 members. The limits use the Workers rate limiting binding declared in `wrangler.jsonc`; without it (local tests) they are off.
 5. Enable R2 once in the Cloudflare dashboard (R2 → Get started; it asks for a payment method but the free tier covers this app). The workflow creates the `snapline-models` bucket itself. Until R2 is enabled the workflow deploys without the bucket binding and imported models stay in the browser they were imported in.
@@ -93,7 +94,7 @@ canvas in the middle with a floating toolbar at the bottom, and an inspector for
 
 ## Agents (WebMCP)
 
-The editor registers a set of plan-building tools with the browser's WebMCP API (`navigator.modelContext`), so a browser agent or an extension that speaks WebMCP can build or edit the open project on the user's behalf: `get_plan`, `new_project`, `draw_room`, `draw_walls`, `add_opening`, `search_catalog`, `place_furniture`, `set_wall_length`, `name_room`, `delete`, `floor`, `set_roof`, `set_site`, `show`, `undo`. Coordinates are metres, x to the right and y down the plan. The same tools are available to scripts as `window.snapline.tools.list()` and `window.snapline.tools.call(name, input)`. Read-only projects refuse edits.
+The editor registers a set of plan-building tools with the browser's WebMCP API (`navigator.modelContext`), so a browser agent or an extension that speaks WebMCP can build or edit the open project on the user's behalf: `get_plan`, `new_project`, `draw_room`, `draw_walls`, `add_opening`, `search_catalog`, `place_furniture`, `set_wall_length`, `name_room`, `delete`, `floor`, `set_roof`, `set_site`, `show`, `undo`. Coordinates are metres, x to the right and y down the plan. The same tools are available to scripts as `window.cordeau.tools.list()` and `window.cordeau.tools.call(name, input)`. Read-only projects refuse edits.
 
 ## Phones and tablets
 

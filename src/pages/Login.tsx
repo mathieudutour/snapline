@@ -5,7 +5,7 @@ export function Login({ reason }: { reason?: string }) {
   return (
     <div className="login">
       <a className="brand" href="/home" onClick={onLinkClick}>
-        <span className="brand-mark">◫</span> Snapline
+        <span className="brand-mark">◫</span> Cordeau
       </a>
       <div className="login-card">
         <h1>Sign in</h1>
@@ -16,7 +16,7 @@ export function Login({ reason }: { reason?: string }) {
         <p className="fine">We only store the name and email address of your Google account, to show who is signed in. No passwords, no emails sent.</p>
       </div>
       <a className="back" href="/home" onClick={onLinkClick}>
-        ← About Snapline
+        ← About Cordeau
       </a>
     </div>
   )

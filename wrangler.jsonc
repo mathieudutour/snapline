@@ -1,5 +1,7 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
+	// the product is Cordeau; the Worker, database and bucket keep the names they were created with
+	// (renaming the Worker would change its workers.dev URL and the Google OAuth redirect URI)
 	"name": "snapline",
 	"main": "worker/index.ts",
 	"compatibility_date": "2026-09-01",
