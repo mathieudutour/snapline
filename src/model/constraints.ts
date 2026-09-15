@@ -175,6 +175,27 @@ function constraintResidual(plan: Plan, vars: VarMap, c: Constraint): Residual |
         },
       }
     }
+    case 'wallGap': {
+      const w1 = wall(c.wallA)
+      const w2 = wall(c.wallB)
+      if (!w1 || !w2) return null
+      const ia = vars.point.get(w1.a)!
+      const ja = vars.point.get(w2.a)!
+      const jb = vars.point.get(w2.b)!
+      return {
+        vars: [...wallVars(w1), ...wallVars(w2)],
+        weight: W_CONSTRAINT,
+        fn: (x) => {
+          const d = wallVec(x, w1)
+          const l = Math.hypot(d.x, d.y) || 1e-9
+          // distance from A's centreline to the middle of B, less the two half thicknesses
+          const mx = (x[ja] + x[jb]) / 2 - x[ia]
+          const my = (x[ja + 1] + x[jb + 1]) / 2 - x[ia + 1]
+          const offset = Math.abs((mx * -d.y + my * d.x) / l)
+          return [offset - w1.thickness / 2 - w2.thickness / 2 - c.value]
+        },
+      }
+    }
     case 'fixed': {
       const i = vars.point.get(c.pointId)
       if (i === undefined) return null
@@ -407,6 +428,8 @@ export function describeConstraint(plan: Plan, c: Constraint): string {
       return `${wallName(c.wallA)} = ${wallName(c.wallB)}`
     case 'angle':
       return `${wallName(c.wallA)} ∠ ${wallName(c.wallB)} = ${c.degrees}°`
+    case 'wallGap':
+      return `${wallName(c.wallA)} ↔ ${wallName(c.wallB)} = ${fmt(c.value)}`
     case 'fixed':
       return `point ${shortId(c.pointId)} fixed at (${fmt(c.x)}, ${fmt(c.y)})`
     case 'distance':
@@ -451,6 +474,7 @@ export function constraintsReferencing(plan: Plan, ids: { walls?: string[]; poin
       case 'perpendicular':
       case 'equalLength':
       case 'angle':
+      case 'wallGap':
         return walls.has(c.wallA) || walls.has(c.wallB)
       case 'fixed':
         return points.has(c.pointId)

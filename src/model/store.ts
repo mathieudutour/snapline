@@ -4,7 +4,8 @@ import { roomLabel } from './rooms'
 import { CATALOG_BY_KEY } from '../furniture/catalog'
 import { emptyPlan, newId } from './types'
 import { constraintsReferencing, solvePlan, type DragTarget, type FurnitureDrag, type SolveReport } from './constraints'
-import { dist, findRooms, projectOnSegment, wallLength, wallsAtPoint, type WallSide } from './geometry'
+import { dist, findRooms, normalize, projectOnSegment, sub, wallLength, wallsAtPoint, type WallSide } from './geometry'
+import { wallGap } from './measure'
 import { exampleProject } from './example'
 import { defaultFloorName, floorElevation, newProject, normalizeProject, type Floor, type Project, type ProjectMeta, type Roof, type Underlay } from './project'
 import { addFile, newFileKey, rasterize, removeFile } from '../files/planFiles'
@@ -168,6 +169,8 @@ export interface EditorState {
   updateFurniture: (id: string, patch: Partial<Furniture>) => void
   /** set a wall length; with `side` the value is the face-to-face length on that side */
   setWallLength: (wallId: string, value: number, lock: boolean, side?: WallSide) => void
+  /** set the clear distance between two parallel walls by moving wall B; `lock` keeps it as a constraint */
+  setWallGap: (wallA: string, wallB: string, value: number, lock: boolean) => void
   addConstraint: (c: ConstraintInput) => void
   /** name a room (a label pinned at its centroid; an empty name removes it) */
   nameRoom: (room: Room, name: string) => void
@@ -410,6 +413,8 @@ function withoutConflicting(plan: Plan, c: ConstraintInput): Record<string, Cons
       drop = sameWall && sameSlot
     } else if (c.type === 'fixed' && existing.type === 'fixed') {
       drop = existing.pointId === c.pointId
+    } else if (c.type === 'wallGap' && existing.type === 'wallGap') {
+      drop = (existing.wallA === c.wallA && existing.wallB === c.wallB) || (existing.wallA === c.wallB && existing.wallB === c.wallA)
     } else if ((c.type === 'openingOffsetA' || c.type === 'openingOffsetB' || c.type === 'openingCentered') && (existing.type === 'openingOffsetA' || existing.type === 'openingOffsetB' || existing.type === 'openingCentered')) {
       drop = existing.openingId === c.openingId && (existing.type === c.type || existing.type === 'openingCentered' || c.type === 'openingCentered')
     } else if (
@@ -1284,6 +1289,31 @@ export const useEditor = create<EditorState>((set, get) => {
       get().commit({ ...solved, constraints })
     },
 
+    setWallGap: (wallA, wallB, value, lock) => {
+      const plan = get().plan
+      const a = plan.walls[wallA]
+      const b = plan.walls[wallB]
+      if (!a || !b || value <= 0) return
+      const gap = wallGap(plan, a, b)
+      if (!gap || !gap.parallel) return
+      // slide B away from (or towards) A by the difference, then let the solver settle the rest
+      const dir = normalize(sub(gap.to, gap.from))
+      const delta = value - gap.distance
+      const points = { ...plan.points }
+      for (const id of new Set([b.a, b.b])) points[id] = { ...points[id], x: points[id].x + dir.x * delta, y: points[id].y + dir.y * delta }
+      const tmp = { id: newId('c'), type: 'wallGap' as const, wallA, wallB, value }
+      const constraints = withoutConflicting({ ...plan, points }, tmp)
+      constraints[tmp.id] = tmp
+      const solved = solvePlan({ ...plan, points, constraints }).plan
+      if (lock) {
+        get().commit(solved)
+        return
+      }
+      const rest = { ...solved.constraints }
+      delete rest[tmp.id]
+      get().commit({ ...solved, constraints: rest })
+    },
+
     addConstraint: (c) => {
       const plan = get().plan
       const id = newId('c')
@@ -1434,7 +1464,7 @@ export const useEditor = create<EditorState>((set, get) => {
           else constraints[c.id] = { ...c, pointA: pa, pointB: pb }
         }
         if ((c.type === 'length' || c.type === 'horizontal' || c.type === 'vertical') && !walls[c.wallId]) delete constraints[c.id]
-        if ((c.type === 'parallel' || c.type === 'perpendicular' || c.type === 'equalLength' || c.type === 'angle') && (!walls[c.wallA] || !walls[c.wallB])) delete constraints[c.id]
+        if ((c.type === 'parallel' || c.type === 'perpendicular' || c.type === 'equalLength' || c.type === 'angle' || c.type === 'wallGap') && (!walls[c.wallA] || !walls[c.wallB])) delete constraints[c.id]
         if (c.type === 'furnitureWallGap' && !walls[c.wallId]) delete constraints[c.id]
       }
       const openings = { ...plan.openings }

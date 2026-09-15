@@ -65,6 +65,7 @@ export function Hierarchy() {
       case 'perpendicular':
       case 'equalLength':
       case 'angle':
+      case 'wallGap':
         return pick(
           [
             { kind: 'wall', id: c.wallA },

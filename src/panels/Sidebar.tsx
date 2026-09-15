@@ -12,6 +12,7 @@ import { useMemo } from 'react'
 import { dimensionSide, findRooms, oppositeSide, wallFace, wallLength } from '../model/geometry'
 import { formatArea, formatLength, parseLength, type Units } from '../model/units'
 import { floorArea, roomLabel, roomName } from '../model/rooms'
+import { wallGap } from '../model/measure'
 
 /** a length input; `value` null means the selected items disagree and the field shows "Mixed" until a value is typed */
 export function LengthField({ value, onChange, label, units }: { value: number | null; onChange: (v: number) => void; label: string; units: Units }) {
@@ -146,6 +147,11 @@ function TwoWallsProps({ a, b }: { a: Wall; b: Wall }) {
   const addConstraint = useEditor((s) => s.addConstraint)
   const plan = useEditor((s) => s.plan)
   const removeConstraint = useEditor((s) => s.removeConstraint)
+  const setWallGap = useEditor((s) => s.setWallGap)
+  const violated = useEditor((s) => s.report.violated)
+  const units = useEditor((s) => s.units)
+  const gap = wallGap(plan, a, b)
+  const gapC = Object.values(plan.constraints).find((c) => c.type === 'wallGap' && ((c.wallA === a.id && c.wallB === b.id) || (c.wallA === b.id && c.wallB === a.id)))
   const existing = Object.values(plan.constraints).filter(
     (c) => (c.type === 'parallel' || c.type === 'perpendicular' || c.type === 'equalLength' || c.type === 'angle') && ((c.wallA === a.id && c.wallB === b.id) || (c.wallA === b.id && c.wallB === a.id)),
   )
@@ -161,6 +167,15 @@ function TwoWallsProps({ a, b }: { a: Wall; b: Wall }) {
       <h3>
         Walls {shortId(a.id)} + {shortId(b.id)}
       </h3>
+      {gap?.parallel && (
+        <div className="row">
+          <LengthField label="Gap" units={units} value={gapC && gapC.type === 'wallGap' ? gapC.value : gap.distance} onChange={(v) => setWallGap(a.id, b.id, v, true)} />
+          <button className={`lock ${gapC ? 'on' : ''} ${gapC && violated.has(gapC.id) ? 'bad' : ''}`} title={gapC ? 'Unlock the gap' : 'Lock the gap'} onClick={() => (gapC ? removeConstraint(gapC.id) : addConstraint({ type: 'wallGap', wallA: a.id, wallB: b.id, value: gap.distance }))}>
+            {gapC ? '🔒' : '🔓'}
+          </button>
+        </div>
+      )}
+      {gap?.parallel && <p className="muted small">Clear distance between the facing sides. Typing a value moves the second wall and locks it.</p>}
       <div className="chips">
         <button className={has('parallel') ? 'chip on' : 'chip'} onClick={() => toggle('parallel')}>
           ∥ Parallel

@@ -35,7 +35,11 @@ type DragState =
   /** moving the underlay image (unlocked) */
   | { kind: 'underlay'; start: Vec2; startCursor: Vec2; moved: boolean }
 
-type Editing = { kind: 'wallLength'; wallId: string; screen: Vec2 } | { kind: 'openingOffset'; openingId: string; end: 'a' | 'b'; screen: Vec2 }
+type Editing =
+  | { kind: 'wallLength'; wallId: string; screen: Vec2 }
+  | { kind: 'openingOffset'; openingId: string; end: 'a' | 'b'; screen: Vec2 }
+  /** the clear distance between the selected wall and another one (⌥ + click on it while measuring) */
+  | { kind: 'wallGap'; wallA: string; wallB: string; screen: Vec2 }
 
 interface OpeningGeometry {
   start: Vec2
@@ -142,6 +146,13 @@ export function Editor2D() {
     return best?.id ?? null
   }, [measuring, cursor, plan, px])
   const measureTarget = hover?.kind === 'wall' ? hover.id : hover?.kind === 'opening' ? plan.openings[hover.id]?.wallId : wallAtCursor
+  /** the two walls the red measurement is drawn between: the pair being edited, else the selected and hovered walls */
+  const gapPair: [string, string] | null =
+    editing?.kind === 'wallGap' && plan.walls[editing.wallA] && plan.walls[editing.wallB]
+      ? [editing.wallA, editing.wallB]
+      : measuring && measureTarget && measureTarget !== selection[0].id && plan.walls[selection[0].id] && plan.walls[measureTarget]
+        ? [selection[0].id, measureTarget]
+        : null
   /** the side a wall's dimension is drawn on (away from rooms) and its outward normal */
   const wallSide = useCallback((w: Wall) => dimensionSide(plan, rooms, w), [plan, rooms])
   const DIM_GAP = 0.35
@@ -561,6 +572,15 @@ export function Editor2D() {
       }
       return
     }
+    // ⌥ + click on the wall being measured: type the distance between the two walls
+    if (e.altKey && measuring && measureTarget && measureTarget !== selection[0].id) {
+      const gap = wallGap(plan, plan.walls[selection[0].id], plan.walls[measureTarget])
+      if (gap?.parallel) {
+        const mid = toScreen(scale(add(gap.from, gap.to), 0.5))
+        setEditing({ kind: 'wallGap', wallA: selection[0].id, wallB: measureTarget, screen: { x: mid.x + 12, y: mid.y + 18 } }) // beside the line, not on it
+        return
+      }
+    }
     // select tool: hit-test via data attributes
     const hit = target.closest<SVGElement>('[data-kind]')
     if (!hit) {
@@ -814,6 +834,7 @@ export function Editor2D() {
     const st = useEditor.getState()
     if (value !== null && value > 0) {
       if (editing.kind === 'wallLength') st.setWallLength(editing.wallId, value, lock, wallSide(plan.walls[editing.wallId]))
+      else if (editing.kind === 'wallGap') st.setWallGap(editing.wallA, editing.wallB, value, lock)
       else {
         const o = plan.openings[editing.openingId]
         const f = openingFace(o)
@@ -835,7 +856,7 @@ export function Editor2D() {
     const badges: { label: string; violated: boolean; id: string }[] = []
     for (const c of cs) {
       if (c.type === 'length' || c.type === 'furnitureWallGap' || c.type === 'furnitureFixed') continue
-      const label = { horizontal: 'H', vertical: 'V', parallel: '∥', perpendicular: '⟂', equalLength: '=', angle: '∠' }[c.type as string] ?? '?'
+      const label = { horizontal: 'H', vertical: 'V', parallel: '∥', perpendicular: '⟂', equalLength: '=', angle: '∠', wallGap: '↔' }[c.type as string] ?? '?'
       badges.push({ label, violated: violated.has(c.id), id: c.id })
     }
     return badges
@@ -857,6 +878,7 @@ export function Editor2D() {
       const w = plan.walls[editing.wallId]
       return formatLength(wallFace(plan, w, wallSide(w)).length, units, false)
     }
+    if (editing.kind === 'wallGap') return formatLength(wallGap(plan, plan.walls[editing.wallA], plan.walls[editing.wallB])?.distance ?? 0, units, false)
     const f = openingFace(plan.openings[editing.openingId])
     return formatLength(editing.end === 'a' ? f.fromA : f.fromB, units, false)
   })()
@@ -1162,9 +1184,9 @@ export function Editor2D() {
             </g>
           ))}
           {/* measurement between walls, above everything on the plan */}
-          {alt && tool === 'select' && selection.length === 1 && selection[0].kind === 'wall' && measureTarget && measureTarget !== selection[0].id && plan.walls[selection[0].id] && plan.walls[measureTarget] && (
+          {gapPair && (
             <g data-export="skip">
-              <GapMeasure gap={wallGap(plan, plan.walls[selection[0].id], plan.walls[measureTarget])} px={px} units={units} />
+              <GapMeasure gap={wallGap(plan, plan.walls[gapPair[0]], plan.walls[gapPair[1]])} px={px} units={units} locked={Object.values(plan.constraints).some((c) => c.type === 'wallGap' && ((c.wallA === gapPair[0] && c.wallB === gapPair[1]) || (c.wallA === gapPair[1] && c.wallB === gapPair[0])))} />
             </g>
           )}
           {calibrating?.a && <circle data-export="skip" cx={calibrating.a.x} cy={calibrating.a.y} r={5 * px} fill="none" stroke="#e0245e" strokeWidth={2 * px} style={{ pointerEvents: 'none' }} />}
@@ -1181,7 +1203,7 @@ export function Editor2D() {
 
       {editing && (
         <EditBox
-          key={editing.kind + (editing.kind === 'wallLength' ? editing.wallId : editing.openingId + editing.end)}
+          key={editing.kind + (editing.kind === 'wallLength' ? editing.wallId : editing.kind === 'wallGap' ? editing.wallA + editing.wallB : editing.openingId + editing.end)}
           screen={editing.screen}
           initial={editingValue}
           units={units}
@@ -1228,10 +1250,20 @@ export function Editor2D() {
 function EditBox({ screen, initial, units, onCommit, onCancel }: { screen: Vec2; initial: string; units: Units; onCommit: (raw: string, lock: boolean) => void; onCancel: () => void }) {
   const [value, setValue] = useState(initial)
   const [lock, setLock] = useState(true)
+  const inputRef = useRef<HTMLInputElement>(null)
+  // the box opens on pointerdown; the mousedown that follows would take the focus back, so focus on the next tick
+  useEffect(() => {
+    const t = setTimeout(() => {
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    }, 0)
+    return () => clearTimeout(t)
+  }, [])
   return (
     <div className="edit-box" style={{ left: screen.x, top: screen.y }} onPointerDown={(e) => e.stopPropagation()}>
       <div className="edit-row">
         <input
+          ref={inputRef}
           autoFocus
           value={value}
           onFocus={(e) => e.target.select()}
@@ -1268,6 +1300,7 @@ const SHORTCUTS: [string, string][] = [
   ['Shift + 1', 'Zoom to fit'],
   ['⌥ + click a measurement', 'Type a length and lock it'],
   ['⌥ + hover', 'Distance from the selected wall to another wall'],
+  ['⌥ + click that wall', 'Type the distance between the two walls and lock it'],
   ['Esc / Enter / right-click', 'Finish drawing walls'],
   ['C', 'Comment: click on the plan to pin one'],
   ['Shift + 2', 'Zoom to selection'],
@@ -1387,14 +1420,14 @@ function FurnitureHandles({ piece, px }: { piece: Furniture; px: number }) {
 }
 
 /** Figma-style red measurement between the selected wall and the hovered one (Option/Alt held) */
-function GapMeasure({ gap, px, units }: { gap: ReturnType<typeof wallGap>; px: number; units: Units }) {
+function GapMeasure({ gap, px, units, locked }: { gap: ReturnType<typeof wallGap>; px: number; units: Units; locked?: boolean }) {
   if (!gap) return null
-  const color = '#e0245e'
+  const color = locked ? '#1d6fe0' : '#e0245e'
   const u = normalize(sub(gap.to, gap.from))
   const n = perp(u)
   const tick = scale(n, 5 * px)
   const mid = scale(add(gap.from, gap.to), 0.5)
-  const label = formatLength(gap.distance, units)
+  const label = (locked ? '🔒 ' : '') + formatLength(gap.distance, units)
   const width = (label.length * 6.6 + 10) * px
   const height = 16 * px
   let angle = (Math.atan2(u.y, u.x) * 180) / Math.PI
@@ -1402,7 +1435,7 @@ function GapMeasure({ gap, px, units }: { gap: ReturnType<typeof wallGap>; px: n
   // the label sits beside the line, not on it, so it does not hide short gaps
   const off = scale(n, 12 * px)
   return (
-    <g style={{ pointerEvents: 'none' }}>
+    <g data-gap-measure={locked ? 'locked' : 'free'} style={{ pointerEvents: 'none' }}>
       {gap.extension && <line x1={gap.extension[0].x} y1={gap.extension[0].y} x2={gap.extension[1].x} y2={gap.extension[1].y} stroke={color} strokeWidth={px} strokeDasharray={`${4 * px} ${3 * px}`} />}
       <line x1={gap.from.x} y1={gap.from.y} x2={gap.to.x} y2={gap.to.y} stroke={color} strokeWidth={1.5 * px} />
       <line x1={gap.from.x - tick.x} y1={gap.from.y - tick.y} x2={gap.from.x + tick.x} y2={gap.from.y + tick.y} stroke={color} strokeWidth={px} />

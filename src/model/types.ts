@@ -66,6 +66,8 @@ export type Constraint =
   | { id: string; type: 'perpendicular'; wallA: string; wallB: string }
   | { id: string; type: 'parallel'; wallA: string; wallB: string }
   | { id: string; type: 'equalLength'; wallA: string; wallB: string }
+  /** clear distance between the facing sides of two parallel walls (measured from A's line to the middle of B) */
+  | { id: string; type: 'wallGap'; wallA: string; wallB: string; value: number }
   | { id: string; type: 'angle'; wallA: string; wallB: string; degrees: number }
   | { id: string; type: 'fixed'; pointId: string; x: number; y: number }
   | { id: string; type: 'distance'; pointA: string; pointB: string; value: number }

@@ -150,3 +150,36 @@ describe('geometry', () => {
     expect(report.violated.size).toBe(0)
   })
 })
+
+describe('wall gap constraint', () => {
+  function twoWalls(): Plan {
+    const plan = emptyPlan()
+    for (const [id, x, y] of [
+      ['a1', 0, 0],
+      ['a2', 6, 0],
+      ['b1', 1, 2],
+      ['b2', 5, 2],
+    ] as [string, number, number][])
+      plan.points[id] = { id, x, y }
+    plan.walls.wa = { id: 'wa', a: 'a1', b: 'a2', thickness: 0.2, height: 2.5 }
+    plan.walls.wb = { id: 'wb', a: 'b1', b: 'b2', thickness: 0.4, height: 2.5 }
+    return plan
+  }
+  it('holds the clear distance between two parallel walls', () => {
+    const plan = twoWalls()
+    plan.constraints.g = { id: 'g', type: 'wallGap', wallA: 'wa', wallB: 'wb', value: 1.5 }
+    const { plan: solved, report } = solvePlan(plan)
+    expect(report.violated.size).toBe(0)
+    // centrelines 1.5 + 0.1 + 0.2 apart, whichever wall moved
+    const ya = (solved.points.a1.y + solved.points.a2.y) / 2
+    const yb = (solved.points.b1.y + solved.points.b2.y) / 2
+    expect(Math.abs(yb - ya - 0.1 - 0.2 - 1.5)).toBeLessThan(1e-3)
+  })
+  it('reports a gap that conflicts with anchored corners', () => {
+    const plan = twoWalls()
+    for (const id of ['a1', 'a2', 'b1', 'b2']) plan.constraints['f' + id] = { id: 'f' + id, type: 'fixed', pointId: id, x: plan.points[id].x, y: plan.points[id].y }
+    plan.constraints.g = { id: 'g', type: 'wallGap', wallA: 'wa', wallB: 'wb', value: 1.0 }
+    const { report } = solvePlan(plan)
+    expect(report.violated.has('g')).toBe(true)
+  })
+})
