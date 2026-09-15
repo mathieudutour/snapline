@@ -126,9 +126,22 @@ export function Editor2D() {
   const peerSelections = usePeerSelections()
   const north = useEditor((s) => s.project.site?.north)
   /** wall under the pointer for Option-hover measuring; hovering a door or window counts as its wall */
-  const measureTarget = hover?.kind === 'wall' ? hover.id : hover?.kind === 'opening' ? plan.openings[hover.id]?.wallId : null
-  /** Option held with one wall selected: the pointer is measuring, so other walls' labels must not catch it */
+  /** Option held with one wall selected: the pointer is measuring */
   const measuring = alt && tool === 'select' && selection.length === 1 && selection[0].kind === 'wall'
+  /**
+   * While measuring, a dimension label lying over a wall keeps the wall from being hovered, so the
+   * pointer position is also tested against the walls themselves. Labels stay clickable (⌥ + click edits).
+   */
+  const wallAtCursor = useMemo(() => {
+    if (!measuring || !cursor) return null
+    let best: { id: string; d: number } | null = null
+    for (const w of Object.values(plan.walls)) {
+      const d = projectOnSegment(cursor, plan.points[w.a], plan.points[w.b]).distance - w.thickness / 2
+      if (d <= 2 * px && (!best || d < best.d)) best = { id: w.id, d }
+    }
+    return best?.id ?? null
+  }, [measuring, cursor, plan, px])
+  const measureTarget = hover?.kind === 'wall' ? hover.id : hover?.kind === 'opening' ? plan.openings[hover.id]?.wallId : wallAtCursor
   /** the side a wall's dimension is drawn on (away from rooms) and its outward normal */
   const wallSide = useCallback((w: Wall) => dimensionSide(plan, rooms, w), [plan, rooms])
   const DIM_GAP = 0.35
@@ -1036,7 +1049,7 @@ export function Editor2D() {
                     px={px}
                     locked={!!lc}
                     violated={!!lc && violated.has(lc.id)}
-                    onClick={tool === 'select' && !(measuring && selection[0].id !== w.id) ? (e) => startEditWall(w, e) : undefined}
+                    onClick={tool === 'select' ? (e) => startEditWall(w, e) : undefined}
                     editHeld={alt}
                   />
                 </g>
