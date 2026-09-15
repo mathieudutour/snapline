@@ -1023,17 +1023,21 @@ export function Editor2D() {
             const u = normalize(sub(b, a))
             return (
               <g key={w.id}>
-                <Dimension
-                  p1={face.a}
-                  p2={face.b}
-                  side={n}
-                  distance={DIM_GAP}
-                  text={formatLength(face.length, units)}
-                  px={px}
-                  locked={!!lc}
-                  violated={!!lc && violated.has(lc.id)}
-                  onClick={tool === 'select' ? (e) => startEditWall(w, e) : undefined}
-                />
+                {/* the label belongs to its wall: a plain click selects the wall, ⌥ + click edits the length */}
+                <g data-kind="wall" data-id={w.id} style={{ cursor: tool === 'select' ? 'move' : undefined }}>
+                  <Dimension
+                    p1={face.a}
+                    p2={face.b}
+                    side={n}
+                    distance={DIM_GAP}
+                    text={formatLength(face.length, units)}
+                    px={px}
+                    locked={!!lc}
+                    violated={!!lc && violated.has(lc.id)}
+                    onClick={tool === 'select' ? (e) => startEditWall(w, e) : undefined}
+                    editHeld={alt}
+                  />
+                </g>
                 {badges.map((bd, i) => {
                   const p = add(badgePos, scale(u, (i - (badges.length - 1) / 2) * 16 * px))
                   return (
@@ -1058,13 +1062,13 @@ export function Editor2D() {
             const cb = cs.find((c) => c.type === 'openingOffsetB')
             const cc = cs.find((c) => c.type === 'openingCentered')
             return (
-              <g key={o.id}>
+              <g key={o.id} data-kind="opening" data-id={o.id}>
                 {f.fromA > 0.01 && (
-                  <Dimension p1={f.face.a} p2={f.start} side={f.n} distance={DIM_GAP} text={formatLength(f.fromA, units)} px={px} locked={!!ca || !!cc} violated={(ca && violated.has(ca.id)) || (cc && violated.has(cc.id))} onClick={tool === 'select' ? (e) => startEditOpening(o, 'a', e) : undefined} />
+                  <Dimension p1={f.face.a} p2={f.start} side={f.n} distance={DIM_GAP} text={formatLength(f.fromA, units)} px={px} locked={!!ca || !!cc} violated={(ca && violated.has(ca.id)) || (cc && violated.has(cc.id))} onClick={tool === 'select' ? (e) => startEditOpening(o, 'a', e) : undefined} editHeld={alt} />
                 )}
                 <Dimension p1={f.start} p2={f.end} side={f.n} distance={DIM_GAP} text={formatLength(o.width, units)} px={px} muted />
                 {f.fromB > 0.01 && (
-                  <Dimension p1={f.end} p2={f.face.b} side={f.n} distance={DIM_GAP} text={formatLength(f.fromB, units)} px={px} locked={!!cb || !!cc} violated={(cb && violated.has(cb.id)) || (cc && violated.has(cc.id))} onClick={tool === 'select' ? (e) => startEditOpening(o, 'b', e) : undefined} />
+                  <Dimension p1={f.end} p2={f.face.b} side={f.n} distance={DIM_GAP} text={formatLength(f.fromB, units)} px={px} locked={!!cb || !!cc} violated={(cb && violated.has(cb.id)) || (cc && violated.has(cc.id))} onClick={tool === 'select' ? (e) => startEditOpening(o, 'b', e) : undefined} editHeld={alt} />
                 )}
               </g>
             )
@@ -1193,7 +1197,7 @@ export function Editor2D() {
         {(tool === 'door' || tool === 'window') && `Click on a wall to place a ${tool}.`}
         {tool === 'furniture' && !placing && 'Pick a piece of furniture in the panel on the left.'}
         {tool === 'furniture' && placing && 'Click to place · R rotates · drops against walls lock the piece to the wall · Ctrl/⌘ disables snapping'}
-        {tool === 'select' && 'Drag corners, walls or openings, click a room to select it, or drag on empty space to marquee-select. Click a measurement to type a value. Press ? for shortcuts.'}
+        {tool === 'select' && 'Drag corners, walls or openings, click a room to select it, or drag on empty space to marquee-select. ⌥ + click a measurement to type a value; the inspector locks lengths too. Press ? for shortcuts.'}
         {tool === 'pan' && 'Drag to pan · scroll to pan · Ctrl/⌘ + scroll to zoom'}
       </div>
       {showShortcuts && <ShortcutsPanel onClose={() => useEditor.getState().toggleShortcuts(false)} />}
@@ -1247,6 +1251,7 @@ const SHORTCUTS: [string, string][] = [
   ['+ / −', 'Zoom in / out'],
   ['Shift + 0', 'Zoom to 100%'],
   ['Shift + 1', 'Zoom to fit'],
+  ['⌥ + click a measurement', 'Type a length and lock it'],
   ['⌥ + hover', 'Distance from the selected wall to another wall'],
   ['Esc / Enter / right-click', 'Finish drawing walls'],
   ['C', 'Comment: click on the plan to pin one'],

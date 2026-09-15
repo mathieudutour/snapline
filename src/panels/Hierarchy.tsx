@@ -179,7 +179,7 @@ export function Hierarchy() {
         </Group>
       )}
       <Group title="Constraints" count={constraints.length}>
-        {constraints.length === 0 && <div className="tree-empty">Click a measurement on the plan and type a value to lock it.</div>}
+        {constraints.length === 0 && <div className="tree-empty">Select a wall and lock its length in the inspector, or ⌥ + click a measurement on the plan and type a value.</div>}
         {constraints.map((c) => (
           <div key={c.id} className={`tree-row ${violated.has(c.id) ? 'bad' : ''} ${constraintSelected(c) ? 'on' : ''}`} onClick={(e) => selectFor(c, e)}>
             <span className="tree-label">

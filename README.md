@@ -13,7 +13,7 @@ editing, and tells you when two rules cannot both hold.
 - **Walls, doors and windows** drawn on a 2D plan with snapping to corners, walls, alignments and a 5 cm grid.
 - **Furniture** from a catalogue of 117 models (beds, sofas, kitchen units, bathroom fixtures, office, lights) shown as top-view symbols in 2D and real models in 3D. Pieces dropped against a wall stay locked to it.
 - **Constraints that stick**
-  - wall length (click any dimension label and type a value)
+  - wall length (lock it in the inspector, or ⌥ + click a dimension label and type a value)
   - horizontal / vertical (added automatically when you draw straight walls)
   - parallel, perpendicular, equal length and explicit angle between two walls
   - anchored corners and distance between two corners
@@ -62,7 +62,7 @@ canvas in the middle with a floating toolbar at the bottom, and an inspector for
 | --- | --- |
 | Tools | Bottom toolbar or single keys: `V` select, `W` wall, `D` door, `N` window, `F` furniture, `H` hand. Esc returns to Select. |
 | Draw walls | `W`, then click corner after corner. Enter, Esc or right-click ends the chain. Close a loop to create a room. Shift constrains to 45°, Ctrl/⌘ disables snapping. |
-| Set a length | Click the dimension label of a wall, type a value, Enter. The value is locked (padlock icon). Untick "Lock as constraint" to resize once without locking. Dimensions are measured face to face on the side they are drawn (outside of rooms), the way a tape measure reads them; door and window offsets are measured from the wall faces on the room side. |
+| Set a length | Select a wall and type its length in the inspector (the padlock next to it locks or unlocks it), or hold ⌥ (Option / Alt) and click the dimension label on the plan, type a value, Enter. The value is locked (padlock icon); untick "Lock as constraint" to resize once without locking. A plain click on a label just selects its wall. On a touchscreen, tapping a label opens the editor. Dimensions are measured face to face on the side they are drawn (outside of rooms), the way a tape measure reads them; door and window offsets are measured from the wall faces on the room side. |
 | Move things | Drag corners, walls or openings, or nudge the selection with the arrow keys (Shift for 10×). Constraints are respected. |
 | Select | Click, Shift+click to add, drag on empty space for a marquee, Ctrl/⌘+A for everything, or click rows in the Layers panel. Clicking a room's floor selects the room. |
 | Edit several at once | When the selection is all walls, all doors/windows, all furniture or all rooms, the inspector shows their shared properties (thickness, height, finish, width, sill, elevation, rotation…). A field reading "Mixed" keeps each item's value until you type one; a change applies to every selected item as a single undo step. |

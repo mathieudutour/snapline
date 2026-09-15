@@ -12,10 +12,17 @@ interface Props {
   locked?: boolean
   violated?: boolean
   muted?: boolean
+  /**
+   * opens the value editor. Only ⌥ (Option / Alt) + click reaches it, so a plain click on a label
+   * falls through to the canvas and selects the wall or opening instead of locking a length.
+   * Touch has no modifier key, so a tap opens the editor.
+   */
   onClick?: (e: React.PointerEvent | React.MouseEvent) => void
+  /** ⌥ is held: show the text cursor over the label */
+  editHeld?: boolean
 }
 
-export function Dimension({ p1, p2, side, distance, text, px, locked, violated, muted, onClick }: Props) {
+export function Dimension({ p1, p2, side, distance, text, px, locked, violated, muted, onClick, editHeld }: Props) {
   const a = add(p1, scale(side, distance))
   const b = add(p2, scale(side, distance))
   const u = normalize(sub(p2, p1))
@@ -38,13 +45,14 @@ export function Dimension({ p1, p2, side, distance, text, px, locked, violated, 
         onPointerDown={
           onClick
             ? (e) => {
+                if (e.button !== 0 || !(e.altKey || e.pointerType === 'touch')) return // plain click: the canvas selects what the label belongs to
                 // handle on pointerdown: the canvas captures the pointer, which would retarget a click
                 e.stopPropagation()
-                if (e.button === 0) onClick(e)
+                onClick(e)
               }
             : undefined
         }
-        style={{ cursor: onClick ? 'text' : 'default' }}
+        style={{ cursor: onClick && editHeld ? 'text' : undefined }}
       >
         <rect x={-width / 2} y={-height / 2} width={width} height={height} rx={3 * px} fill="white" stroke={color} strokeWidth={px * 0.75} />
         {locked && (
