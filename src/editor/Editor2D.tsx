@@ -1111,11 +1111,6 @@ export function Editor2D() {
           {snap && (snap.pointId || snap.wall) && dragRef.current?.kind === 'point' && (
             <circle data-export="skip" cx={snap.pos.x} cy={snap.pos.y} r={9 * px} fill="none" stroke="#e0891d" strokeWidth={px * 2} style={{ pointerEvents: 'none' }} />
           )}
-          {alt && tool === 'select' && selection.length === 1 && selection[0].kind === 'wall' && measureTarget && measureTarget !== selection[0].id && plan.walls[selection[0].id] && plan.walls[measureTarget] && (
-            <g data-export="skip">
-              <GapMeasure gap={wallGap(plan, plan.walls[selection[0].id], plan.walls[measureTarget])} px={px} units={units} />
-            </g>
-          )}
           {/* comment pins */}
           <g data-export="skip">
           {Object.values(plan.comments ?? {})
@@ -1135,6 +1130,12 @@ export function Editor2D() {
               </text>
             </g>
           ))}
+          {/* measurement between walls, above everything on the plan */}
+          {alt && tool === 'select' && selection.length === 1 && selection[0].kind === 'wall' && measureTarget && measureTarget !== selection[0].id && plan.walls[selection[0].id] && plan.walls[measureTarget] && (
+            <g data-export="skip">
+              <GapMeasure gap={wallGap(plan, plan.walls[selection[0].id], plan.walls[measureTarget])} px={px} units={units} />
+            </g>
+          )}
           {calibrating?.a && <circle data-export="skip" cx={calibrating.a.x} cy={calibrating.a.y} r={5 * px} fill="none" stroke="#e0245e" strokeWidth={2 * px} style={{ pointerEvents: 'none' }} />}
           <g data-export="skip">
             <PeerCursors px={px} />
