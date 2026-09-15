@@ -12,9 +12,11 @@ createRoot(document.getElementById('root')!).render(
 // expose the store for debugging / scripting in the console
 import { useEditor } from './model/store'
 import { startLiveCollaboration } from './sync/liveController'
+import { registerAgentTools } from './agent/webmcp'
 ;(window as unknown as { snapline: typeof useEditor }).snapline = useEditor
 void useEditor
   .getState()
   .loadCustomModels()
   .then(() => useEditor.getState().initAccount())
   .then(() => startLiveCollaboration())
+  .then(() => registerAgentTools())
