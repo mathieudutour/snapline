@@ -36,12 +36,14 @@ export function Dimension({ p1, p2, side, distance, text, px, locked, violated, 
   const width = (label.length * 6.6 + (locked ? 14 : 0) + 8) * px
   const height = 16 * px
   return (
-    <g className="dimension" style={{ pointerEvents: onClick ? 'auto' : 'none' }}>
+    <g className="dimension" style={{ pointerEvents: 'none' }}>
+      {/* the line and its ticks often cross other walls: only the label takes the pointer */}
       <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={color} strokeWidth={px} />
       <line x1={a.x - tick.x} y1={a.y - tick.y} x2={a.x + tick.x} y2={a.y + tick.y} stroke={color} strokeWidth={px} />
       <line x1={b.x - tick.x} y1={b.y - tick.y} x2={b.x + tick.x} y2={b.y + tick.y} stroke={color} strokeWidth={px} />
       <g
         transform={`translate(${mid.x} ${mid.y}) rotate(${angle})`}
+        pointerEvents={onClick ? 'auto' : 'none'}
         onPointerDown={
           onClick
             ? (e) => {

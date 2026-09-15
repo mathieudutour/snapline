@@ -127,6 +127,8 @@ export function Editor2D() {
   const north = useEditor((s) => s.project.site?.north)
   /** wall under the pointer for Option-hover measuring; hovering a door or window counts as its wall */
   const measureTarget = hover?.kind === 'wall' ? hover.id : hover?.kind === 'opening' ? plan.openings[hover.id]?.wallId : null
+  /** Option held with one wall selected: the pointer is measuring, so other walls' labels must not catch it */
+  const measuring = alt && tool === 'select' && selection.length === 1 && selection[0].kind === 'wall'
   /** the side a wall's dimension is drawn on (away from rooms) and its outward normal */
   const wallSide = useCallback((w: Wall) => dimensionSide(plan, rooms, w), [plan, rooms])
   const DIM_GAP = 0.35
@@ -1034,7 +1036,7 @@ export function Editor2D() {
                     px={px}
                     locked={!!lc}
                     violated={!!lc && violated.has(lc.id)}
-                    onClick={tool === 'select' ? (e) => startEditWall(w, e) : undefined}
+                    onClick={tool === 'select' && !(measuring && selection[0].id !== w.id) ? (e) => startEditWall(w, e) : undefined}
                     editHeld={alt}
                   />
                 </g>
