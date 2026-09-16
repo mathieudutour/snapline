@@ -1,15 +1,16 @@
 import { signInUrl } from '../sync/api'
 import { onLinkClick } from '../router'
+import { Lockup } from '../brand/Brand'
 
 export function Login({ reason }: { reason?: string }) {
   return (
     <div className="login">
-      <a className="brand" href="/home" onClick={onLinkClick}>
-        <span className="brand-mark">◫</span> Cordeau
+      <a href="/home" onClick={onLinkClick} aria-label="Cordeau">
+        <Lockup size={44} stacked />
       </a>
       <div className="login-card">
-        <h1>Sign in</h1>
-        <p className="muted">{reason ?? 'Sign in to open the editor. Your projects are saved to your account and available on any device.'}</p>
+        <h1>Keep your plans</h1>
+        <p className="muted">{reason ?? 'Sign in to sync your projects across devices and share them with other people.'}</p>
         <a className="button primary large google" href={signInUrl('/')}>
           <GoogleMark /> Continue with Google
         </a>

@@ -3,6 +3,7 @@ import { useEditor } from '../model/store'
 import { guessUnitScale, parseModelFile, type ParsedModel } from '../furniture/customModels'
 import { renderModelIcons } from '../furniture/renderIcon'
 import { formatLength } from '../model/units'
+import { Icon } from '../brand/Icons'
 
 const UNIT_OPTIONS: { label: string; scale: number }[] = [
   { label: 'metres', scale: 1 },
@@ -73,7 +74,7 @@ export function ImportModelDialog({ onClose, onImported }: { onClose: () => void
         <div className="panel-head">
           <strong>Import a 3D model</strong>
           <button className="x" onClick={onClose} title="Close">
-            ×
+            <Icon name="close" size={15} strokeWidth={2} />
           </button>
         </div>
         <div className="props">
@@ -128,7 +129,7 @@ export function ImportModelDialog({ onClose, onImported }: { onClose: () => void
           {error && <p className="warn small">{error}</p>}
           <div className="row end">
             <button onClick={onClose}>Cancel</button>
-            <button className="button primary" disabled={!parsed || busy} onClick={submit}>
+            <button className="primary" disabled={!parsed || busy} onClick={submit}>
               {busy ? 'Importing…' : 'Add to my models'}
             </button>
           </div>

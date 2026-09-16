@@ -19,6 +19,8 @@ import { Compass } from '../panels/Site'
 import { CommentComposer, CommentPin, CommentThread } from './Comments'
 import { ensureFileUrl, fileUrl, onFileUrls } from '../files/planFiles'
 import type { Underlay } from '../model/project'
+import { askForValue } from '../panels/Confirm'
+import { Icon } from '../brand/Icons'
 
 type DragState =
   | { kind: 'pan'; startScreen: Vec2; startVp: Viewport }
@@ -520,13 +522,21 @@ export function Editor2D() {
       const measured = dist(calibrating.a, world)
       st.setCalibrating(null)
       if (measured < 1e-6) return
-      const raw = prompt('Real distance between the two points', formatLength(measured, units))
-      const real = raw ? parseLength(raw, units) : null
-      if (!real || real <= 0) return
-      // scale the image about the first point so it stays put
-      const k = real / measured
       const a = calibrating.a
-      st.setUnderlay({ scale: underlay.scale * k, x: a.x + (underlay.x - a.x) * k, y: a.y + (underlay.y - a.y) * k })
+      const before = underlay
+      void askForValue({
+        title: 'How far apart are those two points really?',
+        body: 'The underlay is scaled so the distance you clicked matches the one you type.',
+        field: 'Distance',
+        initial: formatLength(measured, units, false),
+        confirmLabel: 'Set the scale',
+      }).then((raw) => {
+        const real = raw ? parseLength(raw, units) : null
+        if (!real || real <= 0) return
+        // scale the image about the first point so it stays put
+        const k = real / measured
+        useEditor.getState().setUnderlay({ scale: before.scale * k, x: a.x + (before.x - a.x) * k, y: a.y + (before.y - a.y) * k })
+      })
       return
     }
     if (tool === 'select' && underlay && !underlay.locked && !readOnly && target.closest('[data-kind="underlay"]')) {
@@ -798,8 +808,10 @@ export function Editor2D() {
     const world = toWorld(e)
     const i = rooms.findIndex((r) => pointInPolygon(world, r.polygon))
     if (i < 0) return
-    const name = prompt('Room name', roomName(plan, rooms[i], i))
-    if (name !== null) useEditor.getState().nameRoom(rooms[i], name)
+    const room = rooms[i]
+    void askForValue({ title: 'Name this room', field: 'Name', initial: roomName(plan, room, i), confirmLabel: 'Rename room' }).then((name) => {
+      if (name !== null) useEditor.getState().nameRoom(room, name)
+    })
   }
 
   // ---- inline editing ----
@@ -850,6 +862,22 @@ export function Editor2D() {
 
   // ---- derived render data ----
   const violated = report.violated
+  /** walls named by a rule that cannot hold: they get a red halo, so the conflict is visible where it is */
+  const conflictWalls = useMemo(() => {
+    const ids = new Set<string>()
+    for (const id of violated) {
+      const c = plan.constraints[id]
+      if (!c) continue
+      if ('wallId' in c && c.wallId) ids.add(c.wallId)
+      if ('wallA' in c && c.wallA) ids.add(c.wallA)
+      if ('wallB' in c && c.wallB) ids.add(c.wallB)
+      if ('openingId' in c && c.openingId) {
+        const o = plan.openings[c.openingId]
+        if (o) ids.add(o.wallId)
+      }
+    }
+    return ids
+  }, [violated, plan])
   const lengthConstraintFor = (wallId: string) => Object.values(plan.constraints).find((c) => c.type === 'length' && c.wallId === wallId)
   const wallBadges = (wallId: string) => {
     const cs = constraintsReferencing(plan, { walls: [wallId] })
@@ -946,6 +974,17 @@ export function Editor2D() {
             ) : (
               <line data-export="skip" key={i} x1={visibleMin.x} y1={g.value} x2={visibleMax.x} y2={g.value} stroke="#f0a020" strokeWidth={px} strokeDasharray={`${6 * px} ${4 * px}`} />
             ),
+          )}
+
+          {/* a rule that cannot hold: halo the geometry it belongs to, so the card on the right has something to point at */}
+          {conflictWalls.size > 0 && (
+            <g data-export="skip" style={{ pointerEvents: 'none' }}>
+              {[...conflictWalls].map((id) => {
+                const w = plan.walls[id]
+                if (!w) return null
+                return <polygon key={'conflict' + id} points={wallPolygon(plan, w).map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="rgba(215,38,61,0.35)" strokeWidth={9 * px} strokeLinejoin="round" />
+              })}
+            </g>
           )}
 
           {/* walls */}
@@ -1233,8 +1272,8 @@ export function Editor2D() {
         {tool === 'wall' && drawing && 'Click to place the next corner · Enter, Esc or right-click to finish'}
         {(tool === 'door' || tool === 'window') && `Click on a wall to place a ${tool}.`}
         {tool === 'furniture' && !placing && 'Pick a piece of furniture in the panel on the left.'}
-        {tool === 'furniture' && placing && 'Click to place · R rotates · drops against walls lock the piece to the wall · Ctrl/⌘ disables snapping'}
-        {tool === 'select' && 'Drag corners, walls or openings, click a room to select it, or drag on empty space to marquee-select. ⌥ + click a measurement to type a value; the inspector locks lengths too. Press ? for shortcuts.'}
+        {tool === 'furniture' && placing && 'Click to place · R rotates · dropping it against a wall locks it there'}
+        {tool === 'select' && '⌥ + click a measurement to type a value. Drag on empty space to marquee-select. Press ? for shortcuts.'}
         {tool === 'pan' && 'Drag to pan · scroll to pan · Ctrl/⌘ + scroll to zoom'}
       </div>
       {showShortcuts && <ShortcutsPanel onClose={() => useEditor.getState().toggleShortcuts(false)} />}
@@ -1325,7 +1364,7 @@ function ShortcutsPanel({ onClose }: { onClose: () => void }) {
       <div className="shortcuts-head">
         <strong>Keyboard shortcuts</strong>
         <button className="x" onClick={onClose} title="Close (Esc)">
-          ×
+          <Icon name="close" size={15} strokeWidth={2} />
         </button>
       </div>
       <div className="shortcuts-grid">
@@ -1427,7 +1466,7 @@ function GapMeasure({ gap, px, units, locked }: { gap: ReturnType<typeof wallGap
   const n = perp(u)
   const tick = scale(n, 5 * px)
   const mid = scale(add(gap.from, gap.to), 0.5)
-  const label = (locked ? '🔒 ' : '') + formatLength(gap.distance, units)
+  const label = formatLength(gap.distance, units)
   const width = (label.length * 6.6 + 10) * px
   const height = 16 * px
   let angle = (Math.atan2(u.y, u.x) * 180) / Math.PI

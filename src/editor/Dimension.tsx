@@ -22,6 +22,18 @@ interface Props {
   editHeld?: boolean
 }
 
+const ACCENT = '#2f6fed'
+const DANGER = '#d7263d'
+const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace'
+
+/**
+ * A measurement on the plan, drawn so you can tell at a glance whether it is a rule.
+ *
+ * A locked length is a filled chip in chalk blue with a padlock: it is a value the plan
+ * has to keep. A free one is a hairline and a quiet outlined chip: it is just what the
+ * plan currently measures. A rule that cannot hold goes filled red. Before, a locked
+ * value looked identical to a free one, which made the product's whole idea invisible.
+ */
 export function Dimension({ p1, p2, side, distance, text, px, locked, violated, muted, onClick, editHeld }: Props) {
   const a = add(p1, scale(side, distance))
   const b = add(p2, scale(side, distance))
@@ -30,17 +42,19 @@ export function Dimension({ p1, p2, side, distance, text, px, locked, violated, 
   if (angle > 90 || angle <= -90) angle += 180
   const mid = scale(add(a, b), 0.5)
   const tick = scale(side, 6 * px)
-  const color = violated ? '#d7263d' : locked ? '#1d6fe0' : muted ? '#9a9a9a' : '#555'
+  const held = !!locked || !!violated
+  const line = violated ? DANGER : locked ? ACCENT : muted ? '#c8cbd1' : '#b9bcc2'
+  const fill = violated ? DANGER : locked ? ACCENT : '#fff'
+  const ink = held ? '#fff' : muted ? '#9aa0a6' : '#6b7280'
   const fontSize = 11 * px
-  const label = locked ? `${text}` : text
-  const width = (label.length * 6.6 + (locked ? 14 : 0) + 8) * px
-  const height = 16 * px
+  const width = (text.length * 6.7 + (locked && !violated ? 15 : 0) + 16) * px
+  const height = 18 * px
   return (
     <g className="dimension" style={{ pointerEvents: 'none' }}>
       {/* the line and its ticks often cross other walls: only the label takes the pointer */}
-      <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={color} strokeWidth={px} />
-      <line x1={a.x - tick.x} y1={a.y - tick.y} x2={a.x + tick.x} y2={a.y + tick.y} stroke={color} strokeWidth={px} />
-      <line x1={b.x - tick.x} y1={b.y - tick.y} x2={b.x + tick.x} y2={b.y + tick.y} stroke={color} strokeWidth={px} />
+      <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={line} strokeWidth={px} />
+      <line x1={a.x - tick.x} y1={a.y - tick.y} x2={a.x + tick.x} y2={a.y + tick.y} stroke={line} strokeWidth={px} />
+      <line x1={b.x - tick.x} y1={b.y - tick.y} x2={b.x + tick.x} y2={b.y + tick.y} stroke={line} strokeWidth={px} />
       <g
         transform={`translate(${mid.x} ${mid.y}) rotate(${angle})`}
         pointerEvents={onClick ? 'auto' : 'none'}
@@ -56,15 +70,15 @@ export function Dimension({ p1, p2, side, distance, text, px, locked, violated, 
         }
         style={{ cursor: onClick && editHeld ? 'text' : undefined }}
       >
-        <rect x={-width / 2} y={-height / 2} width={width} height={height} rx={3 * px} fill="white" stroke={color} strokeWidth={px * 0.75} />
-        {locked && (
-          <g transform={`translate(${-width / 2 + 5 * px} ${-4.5 * px}) scale(${px})`} fill="none" stroke={color} strokeWidth={1.3}>
-            <rect x={0.5} y={4} width={7} height={5.5} rx={1} fill={color} stroke="none" />
+        <rect x={-width / 2} y={-height / 2} width={width} height={height} rx={height / 2} fill={fill} stroke={held ? 'none' : '#dcdde0'} strokeWidth={px} />
+        {locked && !violated && (
+          <g transform={`translate(${-width / 2 + 7 * px} ${-4.5 * px}) scale(${px})`} fill="none" stroke="#fff" strokeWidth={1.3}>
+            <rect x={0.5} y={4} width={7} height={5.5} rx={1} fill="#fff" stroke="none" />
             <path d="M2 4 V2.5 a2 2 0 0 1 4 0 V4" />
           </g>
         )}
-        <text x={locked ? 6 * px : 0} y={0} fontSize={fontSize} textAnchor="middle" dominantBaseline="central" fill={color} fontFamily="ui-sans-serif, system-ui, sans-serif">
-          {label}
+        <text x={locked && !violated ? 7 * px : 0} y={0} fontSize={fontSize} fontWeight={held ? 600 : 400} textAnchor="middle" dominantBaseline="central" fill={ink} fontFamily={MONO}>
+          {text}
         </text>
       </g>
     </g>

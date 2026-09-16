@@ -4,13 +4,41 @@ import { floorArea, roomName } from '../model/rooms'
 import { findRooms, pointInPolygon, wallLength } from '../model/geometry'
 import { constraintsReferencing, describeConstraint, shortId } from '../model/constraints'
 import { formatArea, formatLength } from '../model/units'
-import type { Constraint, Furniture, Opening, Room, Wall } from '../model/types'
+import type { Constraint, Furniture, Opening, Wall } from '../model/types'
+import { Icon, LockIcon, WarningIcon } from '../brand/Icons'
+import { InlineRename } from './Confirm'
 
-function Group({ title, count, children, defaultOpen = true, depth = 0, detail, selected, onSelect, onRename }: { title: string; count: number; children: React.ReactNode; defaultOpen?: boolean; depth?: number; detail?: React.ReactNode; selected?: boolean; onSelect?: (e: React.MouseEvent) => void; onRename?: () => void }) {
+function Group({
+  title,
+  count,
+  children,
+  defaultOpen = true,
+  depth = 0,
+  detail,
+  selected,
+  onSelect,
+  renaming,
+  onStartRename,
+  onRename,
+  onCancelRename,
+}: {
+  title: string
+  count: number
+  children: React.ReactNode
+  defaultOpen?: boolean
+  depth?: number
+  detail?: React.ReactNode
+  selected?: boolean
+  onSelect?: (e: React.MouseEvent) => void
+  renaming?: boolean
+  onStartRename?: () => void
+  onRename?: (name: string) => void
+  onCancelRename?: () => void
+}) {
   const [open, setOpen] = useState(defaultOpen)
   return (
     <div className={`tree-group depth-${depth}`}>
-      <div className={`tree-head ${selected ? 'on' : ''}`} style={{ paddingLeft: 14 + depth * 14 }} onClick={onSelect} onDoubleClick={onRename} title={onRename ? 'Double-click to rename' : undefined}>
+      <div className={`tree-head ${selected ? 'on' : ''}`} style={{ paddingLeft: 12 + depth * 14 }} onClick={onSelect} onDoubleClick={onStartRename} title={onStartRename ? 'Double-click to rename' : undefined}>
         <button
           className={`chevron ${open ? 'open' : ''}`}
           onClick={(e) => {
@@ -19,10 +47,16 @@ function Group({ title, count, children, defaultOpen = true, depth = 0, detail, 
           }}
           aria-label={open ? 'Collapse' : 'Expand'}
         >
-          ▸
+          <Icon name="chevronRight" size={12} strokeWidth={2.2} />
         </button>
-        <span className="tree-label">{title}</span>
-        {detail !== undefined ? <span className="tree-detail">{detail}</span> : <span className="count">{count}</span>}
+        {renaming && onRename && onCancelRename ? (
+          <InlineRename value={title} onCommit={onRename} onCancel={onCancelRename} />
+        ) : (
+          <>
+            <span className="tree-label">{title}</span>
+            {detail !== undefined ? <span className="tree-detail">{detail}</span> : <span className="count">{count}</span>}
+          </>
+        )}
       </div>
       {open && <div className="tree-items">{children}</div>}
     </div>
@@ -45,10 +79,7 @@ export function Hierarchy() {
   const setShowResolved = useEditor((s) => s.setShowResolved)
   const setMode = useEditor((s) => s.setMode)
   const readOnly = useEditor(isReadOnly)
-  const rename = (room: Room, index: number) => {
-    const name = prompt('Room name', roomName(plan, room, index))
-    if (name !== null) nameRoom(room, name)
-  }
+  const [renamingRoom, setRenamingRoom] = useState<string | null>(null)
   const walls = Object.values(plan.walls)
   const openings = Object.values(plan.openings)
   const furniture = Object.values(plan.furniture)
@@ -113,22 +144,30 @@ export function Hierarchy() {
     furniture: furniture.filter((f) => !placedFurniture.has(f.id)),
   }
   const wallRow = (w: Wall, depth: number) => (
-    <div key={'wall' + w.id} className={`tree-row ${isSelected(selection, 'wall', w.id) ? 'on' : ''}`} style={{ paddingLeft: 14 + depth * 14 }} onClick={(e) => pick([{ kind: 'wall', id: w.id }], e)}>
-      <span className="tree-icon">▬</span>
+    <div key={'wall' + w.id} className={`tree-row ${isSelected(selection, 'wall', w.id) ? 'on' : ''}`} style={{ paddingLeft: 12 + depth * 14 }} onClick={(e) => pick([{ kind: 'wall', id: w.id }], e)}>
+      <span className="tree-icon">
+        <Icon name="wall" size={13} strokeWidth={2} />
+      </span>
       <span className="tree-label">Wall {shortId(w.id)}</span>
       <span className="tree-detail">{formatLength(wallLength(plan, w), units)}</span>
     </div>
   )
   const openingRow = (o: Opening, depth: number) => (
-    <div key={'op' + o.id} className={`tree-row ${isSelected(selection, 'opening', o.id) ? 'on' : ''}`} style={{ paddingLeft: 14 + depth * 14 }} onClick={(e) => pick([{ kind: 'opening', id: o.id }], e)}>
-      <span className="tree-icon">{o.kind === 'door' ? '◧' : '▥'}</span>
-      <span className="tree-label">{o.kind === 'door' ? 'Door' : 'Window'} {shortId(o.id)}</span>
+    <div key={'op' + o.id} className={`tree-row ${isSelected(selection, 'opening', o.id) ? 'on' : ''}`} style={{ paddingLeft: 12 + depth * 14 }} onClick={(e) => pick([{ kind: 'opening', id: o.id }], e)}>
+      <span className="tree-icon">
+        <Icon name={o.kind === 'door' ? 'door' : 'window'} size={13} strokeWidth={2} />
+      </span>
+      <span className="tree-label">
+        {o.kind === 'door' ? 'Door' : 'Window'} {shortId(o.id)}
+      </span>
       <span className="tree-detail">{formatLength(o.width, units)}</span>
     </div>
   )
   const furnitureRow = (f: Furniture, depth: number) => (
-    <div key={'f' + f.id} className={`tree-row ${isSelected(selection, 'furniture', f.id) ? 'on' : ''}`} style={{ paddingLeft: 14 + depth * 14 }} onClick={(e) => pick([{ kind: 'furniture', id: f.id }], e)}>
-      <span className="tree-icon">▣</span>
+    <div key={'f' + f.id} className={`tree-row ${isSelected(selection, 'furniture', f.id) ? 'on' : ''}`} style={{ paddingLeft: 12 + depth * 14 }} onClick={(e) => pick([{ kind: 'furniture', id: f.id }], e)}>
+      <span className="tree-icon">
+        <Icon name="furnitureSmall" size={13} strokeWidth={2} />
+      </span>
       <span className="tree-label">{f.name}</span>
       <span className="tree-detail">
         {formatLength(f.width, units, false)} × {formatLength(f.depth, units, false)}
@@ -169,7 +208,18 @@ export function Hierarchy() {
       {roomsWithContent.map((r) => {
         const on = isSelected(selection, 'room', r.room.id)
         return (
-          <Group key={r.room.id} title={roomName(plan, r.room, r.index)} count={0} detail={formatArea(r.room.area, units)} selected={on} onSelect={(e) => pick([{ kind: 'room' as const, id: r.room.id }], e)} onRename={readOnly ? undefined : () => rename(r.room, r.index)}>
+          <Group
+            key={r.room.id}
+            title={roomName(plan, r.room, r.index)}
+            count={0}
+            detail={formatArea(r.room.area, units)}
+            selected={on}
+            onSelect={(e) => pick([{ kind: 'room' as const, id: r.room.id }], e)}
+            renaming={renamingRoom === r.room.id}
+            onStartRename={readOnly ? undefined : () => setRenamingRoom(r.room.id)}
+            onRename={(name) => (nameRoom(r.room, name), setRenamingRoom(null))}
+            onCancelRename={() => setRenamingRoom(null)}
+          >
             {contents(r, 1)}
           </Group>
         )
@@ -179,27 +229,25 @@ export function Hierarchy() {
           {contents(outside, 1)}
         </Group>
       )}
-      <Group title="Constraints" count={constraints.length}>
+      {/* "rule" is what the user typed; "constraint" is the maths underneath it */}
+      <Group title="Rules" count={constraints.length}>
         {constraints.length === 0 && <div className="tree-empty">Select a wall and lock its length in the inspector, or ⌥ + click a measurement on the plan and type a value.</div>}
         {constraints.map((c) => (
           <div key={c.id} className={`tree-row ${violated.has(c.id) ? 'bad' : ''} ${constraintSelected(c) ? 'on' : ''}`} onClick={(e) => selectFor(c, e)}>
-            <span className="tree-label">
-              {violated.has(c.id) ? '⚠ ' : '🔒 '}
-              {describeConstraint(plan, c)}
-            </span>
+            <span className="tree-icon">{violated.has(c.id) ? <WarningIcon size={13} strokeWidth={2} /> : <LockIcon size={13} strokeWidth={2} />}</span>
+            <span className="tree-label">{describeConstraint(plan, c)}</span>
             <button
               className="x"
-              title="Remove constraint"
+              title="Drop this rule"
               onClick={(e) => {
                 e.stopPropagation()
                 removeConstraint(c.id)
               }}
             >
-              ×
+              <Icon name="close" size={12} strokeWidth={2} />
             </button>
           </div>
         ))}
-        {violated.size > 0 && <div className="tree-empty warn">Highlighted constraints conflict; the solver found the closest compromise.</div>}
       </Group>
       <Group title="Comments" count={comments.filter((c) => !c.resolved).length}>
         {comments.length === 0 && <div className="tree-empty">Press C and click on the plan to pin a comment.</div>}
@@ -207,16 +255,24 @@ export function Hierarchy() {
           .filter((c) => showResolved || !c.resolved)
           .map((c) => (
             <div key={c.id} className={`tree-row comment ${c.resolved ? 'resolved' : ''} ${openComment === c.id ? 'on' : ''}`} onClick={() => (setMode('plan'), setOpenComment(openComment === c.id ? null : c.id))}>
-              <span className="tree-icon">{c.resolved ? '✓' : '💬'}</span>
+              <span className="tree-icon">
+                <Icon name={c.resolved ? 'check' : 'comment'} size={13} strokeWidth={2} />
+              </span>
               <span className="tree-label">
                 <b>{c.author.name}</b> {c.text.length > 60 ? c.text.slice(0, 60) + '…' : c.text}
-                {c.replies.length > 0 && <span className="muted"> · {c.replies.length} repl{c.replies.length > 1 ? 'ies' : 'y'}</span>}
+                {c.replies.length > 0 && (
+                  <span className="muted">
+                    {' '}
+                    · {c.replies.length} repl{c.replies.length > 1 ? 'ies' : 'y'}
+                  </span>
+                )}
               </span>
             </div>
           ))}
         {comments.some((c) => c.resolved) && (
           <label className="toggle block tree-empty">
-            <input type="checkbox" checked={showResolved} onChange={(e) => setShowResolved(e.target.checked)} /> Show resolved
+            <span>Show resolved</span>
+            <input className="switch" type="checkbox" checked={showResolved} onChange={(e) => setShowResolved(e.target.checked)} />
           </label>
         )}
       </Group>

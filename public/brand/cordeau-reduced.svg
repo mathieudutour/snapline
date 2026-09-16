@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+<line x1="16" y1="16" x2="104" y2="104" stroke="#E0891D" stroke-width="1.2" stroke-dasharray="3 2.4"></line>
+<path d="M16 16 H104 V48 H48 V104 H16 Z" fill="#1F2328"></path>
+<line x1="16" y1="16" x2="48" y2="48" stroke="#2F6FED" stroke-width="2.4"></line>
+<g stroke="#2F6FED" stroke-width="1.1"><path d="M16 111H48M16 108V114M48 108V114"></path></g>
+</svg>

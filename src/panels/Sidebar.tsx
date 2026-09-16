@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { SiteProps } from './Site'
 import { UnderlayProps } from './Underlay'
 import { FinishesProps, FinishSelect } from './Finishes'
@@ -7,7 +7,9 @@ import type { Constraint, Furniture, FurnitureSide, Opening, Room, Wall } from '
 import { nearestWallToSide, SIDE_LABELS } from '../model/furniture'
 import { CATALOG, CATEGORIES, CUSTOM_CATEGORY, creditsUrl, resolveIconUrl, type CatalogItem } from '../furniture/catalog'
 import { ImportModelDialog } from './ImportModel'
-import { constraintsReferencing, pointDistance, shortId } from '../model/constraints'
+import { confirmAction } from './Confirm'
+import { Icon, LockIcon, type IconName } from '../brand/Icons'
+import { constraintsReferencing, describeConstraint, pointDistance, shortId } from '../model/constraints'
 import { useMemo } from 'react'
 import { dimensionSide, findRooms, oppositeSide, wallFace, wallLength } from '../model/geometry'
 import { formatArea, formatLength, parseLength, type Units } from '../model/units'
@@ -43,6 +45,134 @@ export function LengthField({ value, onChange, label, units }: { value: number |
   )
 }
 
+/** the title row of an inspector section: what is selected, and its id in mono */
+function PropsTitle({ children, id }: { children: React.ReactNode; id?: string }) {
+  return (
+    <h3>
+      <span>{children}</span>
+      {id && <span className="num">{shortId(id)}</span>}
+    </h3>
+  )
+}
+
+/**
+ * A measurement you have locked is the product, so it gets a card of its own with the
+ * accent border — not a padlock button of the same weight as Thickness and Finish, and
+ * not a value that looks identical whether it is free or held.
+ */
+function LockedMeasure({
+  label,
+  hint,
+  units,
+  value,
+  locked,
+  violated,
+  onChange,
+  onToggle,
+}: {
+  label: string
+  hint: React.ReactNode
+  units: Units
+  value: number | null
+  locked: boolean
+  violated?: boolean
+  onChange: (v: number) => void
+  onToggle: () => void
+}) {
+  return (
+    <div className={`locked-card ${locked ? (violated ? 'bad' : '') : 'free'}`}>
+      <div className="locked-head">
+        <LockIcon size={12} open={!locked} strokeWidth={2.2} />
+        {locked ? (violated ? `${label} — can't hold` : `Locked ${label.toLowerCase()}`) : label}
+      </div>
+      <div className="locked-value">
+        <LengthField label={label} units={units} value={value} onChange={onChange} />
+        <button className={`lock ${locked ? 'on' : ''} ${locked && violated ? 'bad' : ''}`} title={locked ? `Unlock the ${label.toLowerCase()}` : `Lock the ${label.toLowerCase()}`} onClick={onToggle}>
+          <LockIcon size={14} open={!locked} strokeWidth={2.2} />
+        </button>
+      </div>
+      <div className="locked-note">{hint}</div>
+    </div>
+  )
+}
+
+const RULE_ICONS: Partial<Record<Constraint['type'], IconName>> = {
+  horizontal: 'horizontal',
+  vertical: 'vertical',
+  parallel: 'parallel',
+  perpendicular: 'perpendicular',
+  equalLength: 'equal',
+  angle: 'angle',
+  wallGap: 'dimension',
+  distance: 'dimension',
+  length: 'dimension',
+  fixed: 'anchor',
+  furnitureFixed: 'anchor',
+  furnitureWallGap: 'dimension',
+  openingCentered: 'dimension',
+  openingOffsetA: 'dimension',
+  openingOffsetB: 'dimension',
+}
+
+/** the rules that apply to what is selected, listed where you can see and drop them */
+function RuleList({ rules, onRemove, children }: { rules: Constraint[]; onRemove: (id: string) => void; children?: React.ReactNode }) {
+  const plan = useEditor((s) => s.plan)
+  const violated = useEditor((s) => s.report.violated)
+  return (
+    <div className="rule-list">
+      {rules.map((c) => (
+        <div key={c.id} className={`rule-row ${violated.has(c.id) ? 'bad' : ''}`}>
+          <span className="rule-icon">
+            <Icon name={RULE_ICONS[c.type] ?? 'dimension'} size={13} strokeWidth={2.2} />
+          </span>
+          <span title={describeConstraint(plan, c)}>{describeConstraint(plan, c)}</span>
+          <button className="x" title="Remove this rule" onClick={() => onRemove(c.id)}>
+            <Icon name="close" size={12} strokeWidth={2} />
+          </button>
+        </div>
+      ))}
+      {rules.length === 0 && <p className="muted small" style={{ margin: 0 }}>No rules yet — this part of the plan moves freely.</p>}
+      {children}
+    </div>
+  )
+}
+
+/** "+ Add a rule": the two a single wall can hold on its own */
+function AddWallRule({ wall, has, onAdd }: { wall: Wall; has: (t: 'horizontal' | 'vertical') => boolean; onAdd: (t: 'horizontal' | 'vertical') => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    window.addEventListener('pointerdown', close)
+    return () => window.removeEventListener('pointerdown', close)
+  }, [open])
+  return (
+    <div className="popover-anchor" ref={ref} key={wall.id}>
+      <button className="rule-add" onClick={() => setOpen((o) => !o)}>
+        <Icon name="plus" size={13} strokeWidth={2} /> Add a rule
+      </button>
+      {open && (
+        <div className="menu">
+          <div className="menu-title">Hold this wall</div>
+          <button className="menu-item" disabled={has('horizontal')} onClick={() => (onAdd('horizontal'), setOpen(false))}>
+            Horizontal
+          </button>
+          <button className="menu-item" disabled={has('vertical')} onClick={() => (onAdd('vertical'), setOpen(false))}>
+            Vertical
+          </button>
+          <div className="menu-sep" />
+          <div className="menu-item muted" style={{ whiteSpace: 'normal', lineHeight: 1.4 }}>
+            Select two walls to make them parallel, perpendicular, equal or a fixed distance apart.
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** the value every item shares, or null when they differ */
 function common<T>(values: T[]): T | null {
   const first = values[0]
@@ -66,41 +196,44 @@ function WallProps({ wall }: { wall: Wall }) {
   const len = face.length
   const cs = constraintsReferencing(plan, { walls: [wall.id] })
   const lengthC = cs.find((c) => c.type === 'length')
-  const hasH = cs.some((c) => c.type === 'horizontal')
-  const hasV = cs.some((c) => c.type === 'vertical')
-  const toggle = (type: 'horizontal' | 'vertical', has: boolean) => {
-    if (has) {
-      const c = cs.find((c) => c.type === type)
-      if (c) removeConstraint(c.id)
-    } else addConstraint({ type, wallId: wall.id })
-  }
+  const otherRules = cs.filter((c) => c.id !== lengthC?.id)
+  const has = (type: 'horizontal' | 'vertical') => cs.some((c) => c.type === type)
   return (
-    <div className="props">
-      <h3>Wall {shortId(wall.id)}</h3>
-      <div className="row">
-        <LengthField label="Length" units={units} value={lengthC && lengthC.type === 'length' && lengthC.side ? lengthC.value : len} onChange={(v) => setWallLength(wall.id, v, true, side)} />
-        <button className={`lock ${lengthC ? 'on' : ''} ${lengthC && violated.has(lengthC.id) ? 'bad' : ''}`} title={lengthC ? 'Unlock length' : 'Lock length'} onClick={() => (lengthC ? removeConstraint(lengthC.id) : addConstraint({ type: 'length', wallId: wall.id, value: len, side }))}>
-          {lengthC ? '🔒' : '🔓'}
-        </button>
+    <>
+      <div className="props">
+        <PropsTitle id={wall.id}>Wall</PropsTitle>
+        <LockedMeasure
+          label="Length"
+          units={units}
+          value={lengthC && lengthC.type === 'length' && lengthC.side ? lengthC.value : len}
+          locked={!!lengthC}
+          violated={!!lengthC && violated.has(lengthC.id)}
+          onChange={(v) => setWallLength(wall.id, v, true, side)}
+          onToggle={() => (lengthC ? removeConstraint(lengthC.id) : addConstraint({ type: 'length', wallId: wall.id, value: len, side }))}
+          hint={
+            <>
+              Face to face, as drawn on the plan. Centreline <span className="num">{formatLength(wallLength(plan, wall), units)}</span>.{' '}
+              {lengthC ? 'Unlock it to let the solver move this wall.' : 'Type a length to lock it.'}
+            </>
+          }
+        />
       </div>
-      <p className="muted small">
-        Face to face, as drawn on the plan. Centreline {formatLength(wallLength(plan, wall), units)}. Typing a length locks it.
-      </p>
-      <LengthField label="Thickness" units={units} value={wall.thickness} onChange={(v) => updateWall(wall.id, { thickness: v })} />
-      <LengthField label="Height" units={units} value={wall.height} onChange={(v) => updateWall(wall.id, { height: v })} />
+      <div className="props">
+        <h4>Geometry</h4>
+        <LengthField label="Thickness" units={units} value={wall.thickness} onChange={(v) => updateWall(wall.id, { thickness: v })} />
+        <LengthField label="Height" units={units} value={wall.height} onChange={(v) => updateWall(wall.id, { height: v })} />
         <label className="field">
           <span>Finish</span>
           <FinishSelect use="wall" value={wall.finish} allowDefault="Room walls" onChange={(v) => updateWall(wall.id, { finish: v })} />
         </label>
-      <div className="chips">
-        <button className={hasH ? 'chip on' : 'chip'} onClick={() => toggle('horizontal', hasH)}>
-          Horizontal
-        </button>
-        <button className={hasV ? 'chip on' : 'chip'} onClick={() => toggle('vertical', hasV)}>
-          Vertical
-        </button>
       </div>
-    </div>
+      <div className="props">
+        <h4>Rules on this wall</h4>
+        <RuleList rules={otherRules} onRemove={removeConstraint}>
+          <AddWallRule wall={wall} has={has} onAdd={(type) => addConstraint({ type, wallId: wall.id })} />
+        </RuleList>
+      </div>
+    </>
   )
 }
 
@@ -165,26 +298,29 @@ function TwoWallsProps({ a, b }: { a: Wall; b: Wall }) {
   return (
     <div className="props">
       <h3>
-        Walls {shortId(a.id)} + {shortId(b.id)}
+        <span>Walls</span>
+        <span className="num">
+          {shortId(a.id)} + {shortId(b.id)}
+        </span>
       </h3>
       {gap?.parallel && (
         <div className="row">
           <LengthField label="Gap" units={units} value={gapC && gapC.type === 'wallGap' ? gapC.value : gap.distance} onChange={(v) => setWallGap(a.id, b.id, v, true)} />
           <button className={`lock ${gapC ? 'on' : ''} ${gapC && violated.has(gapC.id) ? 'bad' : ''}`} title={gapC ? 'Unlock the gap' : 'Lock the gap'} onClick={() => (gapC ? removeConstraint(gapC.id) : addConstraint({ type: 'wallGap', wallA: a.id, wallB: b.id, value: gap.distance }))}>
-            {gapC ? '🔒' : '🔓'}
+            <LockIcon size={14} open={!gapC} strokeWidth={2.2} />
           </button>
         </div>
       )}
       {gap?.parallel && <p className="muted small">Clear distance between the facing sides. Typing a value moves the second wall and locks it.</p>}
       <div className="chips">
         <button className={has('parallel') ? 'chip on' : 'chip'} onClick={() => toggle('parallel')}>
-          ∥ Parallel
+          <Icon name="parallel" size={13} strokeWidth={2.2} /> Parallel
         </button>
         <button className={has('perpendicular') ? 'chip on' : 'chip'} onClick={() => toggle('perpendicular')}>
-          ⟂ Perpendicular
+          <Icon name="perpendicular" size={13} strokeWidth={2.2} /> Perpendicular
         </button>
         <button className={has('equalLength') ? 'chip on' : 'chip'} onClick={() => toggle('equalLength')}>
-          = Equal length
+          <Icon name="equal" size={13} strokeWidth={2.2} /> Equal length
         </button>
       </div>
       <div className="row">
@@ -216,12 +352,12 @@ function PointProps({ id }: { id: string }) {
   const fixed = Object.values(plan.constraints).find((c) => c.type === 'fixed' && c.pointId === id)
   return (
     <div className="props">
-      <h3>Corner {shortId(id)}</h3>
-      <p className="muted small">
+      <PropsTitle id={id}>Corner</PropsTitle>
+      <p className="muted small num">
         {p.x.toFixed(3)}, {p.y.toFixed(3)} m
       </p>
       <button className={fixed ? 'chip on' : 'chip'} onClick={() => (fixed ? removeConstraint(fixed.id) : addConstraint({ type: 'fixed', pointId: id, x: p.x, y: p.y }))}>
-        {fixed ? '📌 Anchored — click to release' : '📌 Anchor in place'}
+        <Icon name="anchor" size={13} strokeWidth={2} /> {fixed ? 'Anchored — click to release' : 'Anchor in place'}
       </button>
       <p className="muted small">An anchored corner never moves when constraints are solved. Anchor one corner so the plan doesn't drift.</p>
     </div>
@@ -240,7 +376,7 @@ function TwoPointsProps({ a, b }: { a: string; b: string }) {
       <div className="row">
         <LengthField label="Distance" units={units} value={existing && existing.type === 'distance' ? existing.value : d} onChange={(v) => addConstraint({ type: 'distance', pointA: a, pointB: b, value: v })} />
         <button className={`lock ${existing ? 'on' : ''}`} onClick={() => addConstraint({ type: 'distance', pointA: a, pointB: b, value: d })} title="Lock current distance">
-          {existing ? '🔒' : '🔓'}
+          <LockIcon size={14} open={!existing} strokeWidth={2.2} />
         </button>
       </div>
     </div>
@@ -267,22 +403,20 @@ function OpeningProps({ opening }: { opening: Opening }) {
   const fromB = len - opening.offset - opening.width - face.insetB
   return (
     <div className="props">
-      <h3>
-        {opening.kind === 'door' ? 'Door' : 'Window'} {shortId(opening.id)}
-      </h3>
+      <PropsTitle id={opening.id}>{opening.kind === 'door' ? 'Door' : 'Window'}</PropsTitle>
       <LengthField label="Width" units={units} value={opening.width} onChange={(v) => updateOpening(opening.id, { width: v })} />
       <LengthField label="Height" units={units} value={opening.height} onChange={(v) => updateOpening(opening.id, { height: v })} />
       {opening.kind === 'window' && <LengthField label="Sill height" units={units} value={opening.sill} onChange={(v) => updateOpening(opening.id, { sill: v })} />}
       <div className="row">
         <LengthField label="From start" units={units} value={ca && ca.type === 'openingOffsetA' && ca.side ? ca.value : fromA} onChange={(v) => addConstraint({ type: 'openingOffsetA', openingId: opening.id, value: v, side })} />
-        <button className={`lock ${ca ? 'on' : ''} ${ca && violated.has(ca.id) ? 'bad' : ''}`} onClick={() => (ca ? removeConstraint(ca.id) : addConstraint({ type: 'openingOffsetA', openingId: opening.id, value: fromA, side }))}>
-          {ca ? '🔒' : '🔓'}
+        <button className={`lock ${ca ? 'on' : ''} ${ca && violated.has(ca.id) ? 'bad' : ''}`} title={ca ? 'Unlock this offset' : 'Lock this offset'} onClick={() => (ca ? removeConstraint(ca.id) : addConstraint({ type: 'openingOffsetA', openingId: opening.id, value: fromA, side }))}>
+          <LockIcon size={14} open={!ca} strokeWidth={2.2} />
         </button>
       </div>
       <div className="row">
         <LengthField label="From end" units={units} value={cb && cb.type === 'openingOffsetB' && cb.side ? cb.value : fromB} onChange={(v) => addConstraint({ type: 'openingOffsetB', openingId: opening.id, value: v, side })} />
-        <button className={`lock ${cb ? 'on' : ''} ${cb && violated.has(cb.id) ? 'bad' : ''}`} onClick={() => (cb ? removeConstraint(cb.id) : addConstraint({ type: 'openingOffsetB', openingId: opening.id, value: fromB, side }))}>
-          {cb ? '🔒' : '🔓'}
+        <button className={`lock ${cb ? 'on' : ''} ${cb && violated.has(cb.id) ? 'bad' : ''}`} title={cb ? 'Unlock this offset' : 'Lock this offset'} onClick={() => (cb ? removeConstraint(cb.id) : addConstraint({ type: 'openingOffsetB', openingId: opening.id, value: fromB, side }))}>
+          <LockIcon size={14} open={!cb} strokeWidth={2.2} />
         </button>
       </div>
       <div className="chips">
@@ -292,10 +426,10 @@ function OpeningProps({ opening }: { opening: Opening }) {
         {opening.kind === 'door' && (
           <>
             <button className="chip" onClick={() => updateOpening(opening.id, { hingeB: !opening.hingeB })}>
-              ⇄ Hinge side
+              <Icon name="flipH" size={13} strokeWidth={2} /> Hinge side
             </button>
             <button className="chip" onClick={() => updateOpening(opening.id, { swingRight: !opening.swingRight })}>
-              ⇅ Swing side
+              <Icon name="flipV" size={13} strokeWidth={2} /> Swing side
             </button>
           </>
         )}
@@ -322,7 +456,7 @@ function FurnitureProps({ piece }: { piece: Furniture }) {
   const attach = () => {
     const near = nearestWallToSide(plan, piece, side)
     if (!near) {
-      alert('No wall found facing that side of the piece.')
+      useEditor.getState().setNotice('No wall faces that side of the piece. Turn it, or move it closer to a wall.')
       return
     }
     addConstraint({ type: 'furnitureWallGap', furnitureId: piece.id, wallId: near.wallId, side, value: Math.round(near.gap * 100) / 100 })
@@ -353,13 +487,13 @@ function FurnitureProps({ piece }: { piece: Furniture }) {
       </label>
       <div className="chips">
         <button className="chip" onClick={() => updateFurniture(piece.id, { angle: piece.angle + Math.PI / 2 })}>
-          ↻ Rotate 90° <kbd>R</kbd>
+          <Icon name="rotate" size={13} strokeWidth={2} /> Rotate 90° <kbd>R</kbd>
         </button>
         <button className={fixed ? 'chip on' : 'chip'} onClick={() => (fixed ? removeConstraint(fixed.id) : addConstraint({ type: 'furnitureFixed', furnitureId: piece.id, x: piece.x, y: piece.y, angle: piece.angle }))}>
-          📌 {fixed ? 'Anchored' : 'Anchor'}
+          <Icon name="anchor" size={13} strokeWidth={2} /> {fixed ? 'Anchored' : 'Anchor'}
         </button>
       </div>
-      <h4>Wall constraints</h4>
+      <h4>Rules against walls</h4>
       {gaps.length === 0 && <p className="muted small">None yet. Drop the piece against a wall, or attach a side below.</p>}
       {gaps.map((g) => (
         <div className="row" key={g.id}>
@@ -369,8 +503,8 @@ function FurnitureProps({ piece }: { piece: Furniture }) {
             value={g.value}
             onChange={(v) => addConstraint({ type: 'furnitureWallGap', furnitureId: piece.id, wallId: g.wallId, side: g.side, value: v })}
           />
-          <button className={`lock on ${violated.has(g.id) ? 'bad' : ''}`} title="Remove constraint" onClick={() => removeConstraint(g.id)}>
-            🔒
+          <button className={`lock on ${violated.has(g.id) ? 'bad' : ''}`} title="Drop this rule" onClick={() => removeConstraint(g.id)}>
+            <LockIcon size={14} strokeWidth={2.2} />
           </button>
         </div>
       ))}
@@ -406,10 +540,10 @@ function OpeningsProps({ openings }: { openings: Opening[] }) {
       {windows === 0 && (
         <div className="chips">
           <button className="chip" onClick={() => updateOpenings(ids, { hingeB: !openings.every((o) => o.hingeB) })}>
-            ⇄ Hinge side
+            <Icon name="flipH" size={13} strokeWidth={2} /> Hinge side
           </button>
           <button className="chip" onClick={() => updateOpenings(ids, { swingRight: !openings.every((o) => o.swingRight) })}>
-            ⇅ Swing side
+            <Icon name="flipV" size={13} strokeWidth={2} /> Swing side
           </button>
         </div>
       )}
@@ -469,7 +603,7 @@ function FurnitureMultiProps({ pieces }: { pieces: Furniture[] }) {
             useEditor.getState().commit({ ...plan, furniture })
           }}
         >
-          ↻ Rotate 90° <kbd>R</kbd>
+          <Icon name="rotate" size={13} strokeWidth={2} /> Rotate 90° <kbd>R</kbd>
         </button>
         <button
           className={allAnchored ? 'chip on' : anchors.some(Boolean) ? 'chip some' : 'chip'}
@@ -478,7 +612,7 @@ function FurnitureMultiProps({ pieces }: { pieces: Furniture[] }) {
             else pieces.forEach((p, i) => !anchors[i] && addConstraint({ type: 'furnitureFixed', furnitureId: p.id, x: p.x, y: p.y, angle: p.angle }))
           }}
         >
-          📌 {allAnchored ? 'Anchored' : 'Anchor'}
+          <Icon name="anchor" size={13} strokeWidth={2} /> {allAnchored ? 'Anchored' : 'Anchor'}
         </button>
       </div>
       <p className="muted small">Changes apply to every selected piece. A field reading “Mixed” keeps each piece's own value until you type one.</p>
@@ -493,9 +627,7 @@ function FurnitureAndWallProps({ piece, wall }: { piece: Furniture; wall: Wall }
   const [gap, setGap] = useState(0)
   return (
     <div className="props">
-      <h3>
-        {piece.name} + wall {shortId(wall.id)}
-      </h3>
+      <PropsTitle id={wall.id}>{piece.name} + wall</PropsTitle>
       <div className="row">
         <select value={side} onChange={(e) => setSide(e.target.value as FurnitureSide)}>
           {SIDES.map((s) => (
@@ -528,7 +660,7 @@ export function CataloguePanel() {
       <div className="row space">
         <h3>Furniture</h3>
         <button onClick={() => setImporting(true)} title="Import a .glb or .gltf model">
-          + Import…
+          <Icon name="upload" size={13} strokeWidth={2} /> Import
         </button>
       </div>
       {importing && <ImportModelDialog onClose={() => setImporting(false)} onImported={() => setCategory(CUSTOM_CATEGORY)} />}
@@ -555,10 +687,16 @@ export function CataloguePanel() {
                 title="Delete this model"
                 onClick={(e) => {
                   e.stopPropagation()
-                  if (confirm(`Delete "${c.name}" from your models? Pieces already placed keep their size but lose the model.`)) void deleteCustomModel(c.key)
+                  void confirmAction({
+                    title: `Delete “${c.name}” from your models?`,
+                    body: 'Pieces already placed keep their size, but lose the model they were drawn from.',
+                    confirmLabel: 'Delete model',
+                  }).then((ok) => {
+                    if (ok) void deleteCustomModel(c.key)
+                  })
                 }}
               >
-                ×
+                <Icon name="close" size={13} strokeWidth={2} />
               </span>
             )}
           </button>
@@ -585,7 +723,7 @@ function FloorAreaRow() {
   return (
     <div className="field">
       <span>Floor area</span>
-      <span className="muted small">
+      <span className="muted small num">
         {formatArea(here, units)}
         {project.floors.length > 1 ? ` · all floors ${formatArea(total, units)}` : ''}
       </span>
@@ -612,7 +750,7 @@ function SettingsProps() {
         <h3>Floor</h3>
         <label className="field">
           <span>Name</span>
-          <span className="field-input">
+          <span className="field-input wide">
             <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => floor && name.trim() && name !== floor.name && renameFloor(floor.id, name.trim())} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
           </span>
         </label>
@@ -694,7 +832,7 @@ function RoomsProps({ rooms, indexOf }: { rooms: Room[]; indexOf: (room: Room) =
       {single && (
         <label className="field">
           <span>Name</span>
-          <span className="field-input">
+          <span className="field-input wide">
             <input
               value={name}
               placeholder={`Room ${indexOf(single) + 1}`}

@@ -292,7 +292,8 @@ function writeIndex(index: ProjectIndex) {
   }
 }
 
-function loadProject(id: string): Project | null {
+/** read a project out of local storage without opening it — the project cards draw their plans from this */
+export function loadProject(id: string): Project | null {
   const raw = readJson<unknown>(projectKey(id))
   return raw ? normalizeProject(raw, normalizePlan) : null
 }

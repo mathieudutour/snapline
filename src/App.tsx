@@ -11,6 +11,8 @@ import { Landing } from './pages/Landing'
 import { Login } from './pages/Login'
 import { navigate, useRoute } from './router'
 import { ConflictDialog, Notice } from './panels/Conflict'
+import { ConfirmSheet } from './panels/Confirm'
+import { CanvasChrome } from './panels/CanvasChrome'
 import { MOBILE_QUERY, useMedia } from './panels/useMedia'
 import { ViewLinkPage } from './pages/ViewLink'
 
@@ -35,11 +37,13 @@ export function EditorApp() {
             <Scene3D walk={mode === 'walk'} />
           </Suspense>
         )}
+        <CanvasChrome />
         <BottomBar />
         {prefsOpen && <PreferencesPanel />}
       </div>
       <Inspector />
       <ConflictDialog />
+      <ConfirmSheet />
       <Notice />
     </div>
   )
@@ -78,6 +82,7 @@ export function App() {
       <>
         <Projects />
         <ConflictDialog />
+        <ConfirmSheet />
         <Notice />
       </>
     ) : null

@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useEditor } from '../model/store'
 import { addMember, listMembers, removeMember, setViewLink, viewLinkUrl, type MemberRole, type Person, type ProjectMember, type ProjectRole } from '../sync/api'
+import { confirmAction } from './Confirm'
+import { Icon } from '../brand/Icons'
 
 const ROLE_LABEL: Record<MemberRole, string> = { editor: 'Can edit', viewer: 'Can view' }
 
@@ -22,6 +24,9 @@ export function ShareDialog({ projectId, onClose }: { projectId: string; onClose
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
   const linkToken = project?.viewToken ?? null
+  /** who is in the live session right now, so the list can say so instead of just listing access */
+  const peers = useEditor((s) => s.live.peers)
+  const here = useMemo(() => new Set(peers.map((p) => p.email.toLowerCase())), [peers])
 
   useEffect(() => {
     let live = true
@@ -99,15 +104,14 @@ export function ShareDialog({ projectId, onClose }: { projectId: string; onClose
     <div className="modal-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" onPointerDown={(e) => e.stopPropagation()}>
         <div className="panel-head">
-          <strong>Share “{project?.name ?? 'project'}”</strong>
+          <strong>Share this plan</strong>
           <button className="x" onClick={onClose} title="Close">
-            ×
+            <Icon name="close" size={15} strokeWidth={2} />
           </button>
         </div>
         <div className="props">
           {role === 'owner' ? (
             <>
-              <p className="muted small">People you invite sign in with Google using that email and then see this project in their list. Editors change the plan live with you; viewers only look. Edits made while offline are merged when you reconnect.</p>
               <form
                 className="row"
                 onSubmit={(e) => {
@@ -115,15 +119,16 @@ export function ShareDialog({ projectId, onClose }: { projectId: string; onClose
                   void invite()
                 }}
               >
-                <input className="grow" type="email" placeholder="name@example.com" value={email} onChange={(e) => setEmail(e.target.value)} disabled={busy} autoFocus />
+                <input className="grow" type="email" placeholder="Invite by Google email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={busy} autoFocus />
                 <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as MemberRole)} disabled={busy} title="What they can do">
                   <option value="editor">{ROLE_LABEL.editor}</option>
                   <option value="viewer">{ROLE_LABEL.viewer}</option>
                 </select>
-                <button className="button primary" type="submit" disabled={busy || !email.trim()}>
+                <button className="primary" type="submit" disabled={busy || !email.trim()}>
                   Invite
                 </button>
               </form>
+              <p className="muted small">People you invite sign in with Google using that email and then see this project in their list. Editors change the plan live with you; viewers only look.</p>
             </>
           ) : (
             <p className="muted small">
@@ -136,8 +141,11 @@ export function ShareDialog({ projectId, onClose }: { projectId: string; onClose
               <li>
                 <span className="avatar small">{(owner.name || owner.email).slice(0, 1).toUpperCase()}</span>
                 <span className="grow">
-                  {owner.name || owner.email}
-                  {owner.name && <span className="muted small"> {owner.email}</span>}
+                  <div className="member-name">
+                    {owner.name || owner.email}
+                    {here.has(owner.email.toLowerCase()) && <span className="here-now"> · here now</span>}
+                  </div>
+                  {owner.name && <div className="member-mail">{owner.email}</div>}
                 </span>
                 <span className="muted small">Owner</span>
               </li>
@@ -146,18 +154,20 @@ export function ShareDialog({ projectId, onClose }: { projectId: string; onClose
               <li key={m.email}>
                 <span className="avatar small">{(m.name || m.email).slice(0, 1).toUpperCase()}</span>
                 <span className="grow">
-                  {m.name || m.email}
-                  {m.name && <span className="muted small"> {m.email}</span>}
-                  {!m.name && <span className="muted small"> · not signed in yet</span>}
+                  <div className="member-name">
+                    {m.name || m.email}
+                    {here.has(m.email.toLowerCase()) && <span className="here-now"> · here now</span>}
+                  </div>
+                  <div className="member-mail">{m.name ? m.email : 'Not signed in yet'}</div>
                 </span>
                 {role === 'owner' ? (
                   <>
-                    <select className="small" value={m.role} onChange={(e) => void changeRole(m, e.target.value as MemberRole)} disabled={busy}>
+                    <select value={m.role} onChange={(e) => void changeRole(m, e.target.value as MemberRole)} disabled={busy}>
                       <option value="editor">{ROLE_LABEL.editor}</option>
                       <option value="viewer">{ROLE_LABEL.viewer}</option>
                     </select>
-                    <button className="icon-btn" title="Remove" disabled={busy} onClick={() => void remove(m)}>
-                      ✕
+                    <button className="icon-btn" title={`Remove ${m.name || m.email}`} disabled={busy} onClick={() => void remove(m)}>
+                      <Icon name="close" size={14} strokeWidth={2} />
                     </button>
                   </>
                 ) : (
@@ -173,7 +183,11 @@ export function ShareDialog({ projectId, onClose }: { projectId: string; onClose
           {role === 'owner' && (
             <div className="link-share">
               <label className="toggle block">
-                <input type="checkbox" checked={!!linkToken} disabled={busy} onChange={(e) => void toggleLink(e.target.checked)} /> Anyone with the link can view
+                <span>
+                  <div className="member-name">Anyone with the link can view</div>
+                  <div className="member-mail">Read-only, live, no account needed</div>
+                </span>
+                <input className="switch" type="checkbox" checked={!!linkToken} disabled={busy} onChange={(e) => void toggleLink(e.target.checked)} />
               </label>
               {linkToken && (
                 <div className="row">
@@ -181,7 +195,9 @@ export function ShareDialog({ projectId, onClose }: { projectId: string; onClose
                   <button onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</button>
                 </div>
               )}
-              <p className="muted small">People with the link follow the plan live without an account and cannot change it. Turn the link off to revoke it.</p>
+              <p className="muted small" style={{ margin: 0 }}>
+                Turn the link off to revoke it.
+              </p>
             </div>
           )}
           {error && <p className="warn small">{error}</p>}
@@ -189,12 +205,13 @@ export function ShareDialog({ projectId, onClose }: { projectId: string; onClose
             <div className="row end">
               <button
                 className="danger"
-                onClick={() => {
-                  if (confirm(`Leave “${project?.name}”? It stays with its owner; you can be invited again later.`)) {
+                onClick={() =>
+                  void confirmAction({ title: `Leave “${project?.name}”?`, body: 'It stays with its owner, and you can be invited again later.', confirmLabel: 'Leave project' }).then((ok) => {
+                    if (!ok) return
                     deleteProject(projectId)
                     onClose()
-                  }
-                }}
+                  })
+                }
               >
                 Leave project
               </button>

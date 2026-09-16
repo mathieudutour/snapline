@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { isReadOnly, useEditor } from '../model/store'
 import type { PlanComment, Vec2 } from '../model/types'
+import { confirmAction } from '../panels/Confirm'
+import { Icon } from '../brand/Icons'
 
 const when = (t: number) => {
   const d = new Date(t)
@@ -26,7 +28,7 @@ export function CommentComposer({ screen, onSubmit, onCancel }: { screen: Vec2; 
       <div className="thread-head">
         <strong className="grow">New comment</strong>
         <button className="x" onClick={onCancel} title="Cancel">
-          ×
+          <Icon name="close" size={14} strokeWidth={2} />
         </button>
       </div>
       <form
@@ -48,7 +50,7 @@ export function CommentComposer({ screen, onSubmit, onCancel }: { screen: Vec2; 
             }
           }}
         />
-        <button className="button primary" type="submit" disabled={!text.trim()}>
+        <button className="primary" type="submit" disabled={!text.trim()}>
           Post
         </button>
       </form>
@@ -73,7 +75,13 @@ export function CommentThread({ comment, screen, onClose }: { comment: PlanComme
   return (
     <div className="comment-thread" style={placeStyle(screen)} onPointerDown={(e) => e.stopPropagation()}>
       <div className="thread-head">
-        {comment.resolved ? <span className="resolved-tag">✓ Resolved</span> : <strong>Comment</strong>}
+        {comment.resolved ? (
+          <span className="resolved-tag">
+            <Icon name="check" size={12} strokeWidth={2.4} /> Resolved
+          </span>
+        ) : (
+          <strong>Comment</strong>
+        )}
         <span className="grow" />
         {!readOnly && (
           <button className="small" onClick={() => setCommentResolved(comment.id, !comment.resolved)} title={comment.resolved ? 'Reopen' : 'Mark as resolved'}>
@@ -81,12 +89,16 @@ export function CommentThread({ comment, screen, onClose }: { comment: PlanComme
           </button>
         )}
         {!readOnly && mine(comment.author.email) && (
-          <button className="x" title="Delete comment" onClick={() => confirm('Delete this comment and its replies?') && deleteComment(comment.id)}>
-            🗑
+          <button
+            className="x"
+            title="Delete comment"
+            onClick={() => void confirmAction({ title: 'Delete this comment?', body: 'Its replies go with it.', confirmLabel: 'Delete comment' }).then((ok) => ok && deleteComment(comment.id))}
+          >
+            <Icon name="trash" size={14} strokeWidth={1.9} />
           </button>
         )}
         <button className="x" onClick={onClose} title="Close">
-          ×
+          <Icon name="close" size={14} strokeWidth={2} />
         </button>
       </div>
       <div className="thread-body">
@@ -114,7 +126,7 @@ export function CommentThread({ comment, screen, onClose }: { comment: PlanComme
               }
             }}
           />
-          <button className="button primary" type="submit" disabled={!text.trim()}>
+          <button className="primary" type="submit" disabled={!text.trim()}>
             Reply
           </button>
         </form>

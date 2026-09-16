@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { isReadOnly, useEditor } from '../model/store'
+import { confirmAction } from './Confirm'
 
 /** the active floor's underlay image: import, opacity, rotation, lock, scale calibration */
 export function UnderlayProps() {
@@ -56,7 +57,8 @@ export function UnderlayProps() {
           {!readOnly && (
             <>
               <label className="toggle block">
-                <input type="checkbox" checked={underlay.locked} onChange={(e) => setUnderlay({ locked: e.target.checked })} /> Locked in place
+                <span>Locked in place</span>
+                <input className="switch" type="checkbox" checked={underlay.locked} onChange={(e) => setUnderlay({ locked: e.target.checked })} />
               </label>
               <div className="row">
                 <button
@@ -75,7 +77,12 @@ export function UnderlayProps() {
                 <button onClick={() => fileRef.current?.click()} disabled={busy}>
                   Replace…
                 </button>
-                <button className="danger" onClick={() => confirm('Remove the underlay from this floor?') && setUnderlay(null)}>
+                <button
+                  className="danger"
+                  onClick={() =>
+                    void confirmAction({ title: 'Remove the underlay?', body: 'The image you traced over is dropped from this floor. The walls you drew on top of it stay.', confirmLabel: 'Remove underlay' }).then((ok) => ok && setUnderlay(null))
+                  }
+                >
                   Remove
                 </button>
               </div>

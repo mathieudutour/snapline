@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+<g stroke="#CFC9B8" stroke-width=".7"><path d="M16 6V114M48 6V114M104 6V114M6 16H114M6 48H114M6 104H114"></path></g>
+<line x1="16" y1="16" x2="104" y2="104" stroke="#E0891D" stroke-width="1" stroke-dasharray="3 2.4"></line>
+<path d="M16 16 H104 V48 H48 V104 H16 Z" fill="#1F2328"></path>
+<line x1="16" y1="16" x2="48" y2="48" stroke="#2F6FED" stroke-width="2.2"></line>
+<circle cx="48" cy="48" r="2.6" fill="#fff" stroke="#E0891D" stroke-width="1.1"></circle>
+<g stroke="#2F6FED" stroke-width=".9"><path d="M16 111H48M16 108V114M48 108V114"></path><path d="M111 16V48M108 16H114M108 48H114"></path></g>
+</svg>

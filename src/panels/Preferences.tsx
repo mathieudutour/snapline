@@ -1,5 +1,6 @@
 import { useEditor } from '../model/store'
 import { UNIT_LABELS, type Units } from '../model/units'
+import { Icon } from '../brand/Icons'
 
 export function PreferencesPanel() {
   const units = useEditor((s) => s.units)
@@ -16,7 +17,7 @@ export function PreferencesPanel() {
       <div className="panel-head">
         <strong>Preferences</strong>
         <button className="x" onClick={() => setPrefsOpen(false)} title="Close">
-          ×
+          <Icon name="close" size={15} strokeWidth={2} />
         </button>
       </div>
       <div className="props">
@@ -31,13 +32,16 @@ export function PreferencesPanel() {
       <div className="props">
         <h4>Drawing</h4>
         <label className="toggle block">
-          <input type="checkbox" checked={snapGrid} onChange={(e) => setSnapGrid(e.target.checked)} /> Snap to the 5 cm grid
+          <span>Snap to the 5 cm grid</span>
+          <input className="switch" type="checkbox" checked={snapGrid} onChange={(e) => setSnapGrid(e.target.checked)} />
         </label>
         <label className="toggle block">
-          <input type="checkbox" checked={autoHV} onChange={(e) => setAutoHV(e.target.checked)} /> Auto-lock: straight walls and furniture dropped against walls
+          <span>Auto-lock straight walls and furniture dropped against walls</span>
+          <input className="switch" type="checkbox" checked={autoHV} onChange={(e) => setAutoHV(e.target.checked)} />
         </label>
         <label className="toggle block">
-          <input type="checkbox" checked={showFloorBelow} onChange={(e) => setShowFloorBelow(e.target.checked)} /> Show the floor below as a ghost
+          <span>Show the floor below as a ghost</span>
+          <input className="switch" type="checkbox" checked={showFloorBelow} onChange={(e) => setShowFloorBelow(e.target.checked)} />
         </label>
       </div>
     </div>

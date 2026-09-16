@@ -4,6 +4,8 @@ import { Hierarchy } from './Hierarchy'
 import { CataloguePanel } from './Sidebar'
 import { ShareDialog } from './Share'
 import { ExportDialog } from './Export'
+import { confirmAction, InlineRename } from './Confirm'
+import { Icon } from '../brand/Icons'
 import { navigate } from '../router'
 
 function ProjectMenu() {
@@ -11,12 +13,14 @@ function ProjectMenu() {
   const renameProject = useEditor((s) => s.renameProject)
   const deleteProject = useEditor((s) => s.deleteProject)
   const importProject = useEditor((s) => s.importProject)
+  const setNotice = useEditor((s) => s.setNotice)
   const user = useEditor((s) => s.user)
   const meta = useEditor((s) => s.projects.find((p) => p.id === s.project.id))
   const viewLink = useEditor((s) => s.viewLink)
   const readOnly = useEditor(isReadOnly)
   const isEditor = meta?.role === 'editor' || meta?.role === 'viewer'
   const [open, setOpen] = useState(false)
+  const [renaming, setRenaming] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -29,13 +33,28 @@ function ProjectMenu() {
     window.addEventListener('pointerdown', close)
     return () => window.removeEventListener('pointerdown', close)
   }, [open])
+  const remove = async () => {
+    setOpen(false)
+    const ok = await confirmAction(
+      isEditor
+        ? { title: `Leave “${project.name}”?`, body: 'It stays with its owner, and you can be invited again later.', confirmLabel: 'Leave project' }
+        : { title: `Delete “${project.name}”?`, body: 'The plan, every floor on it and its rules go with it. This cannot be undone.', confirmLabel: 'Delete project' },
+    )
+    if (ok) deleteProject(project.id)
+  }
   return (
     <div className="popover-anchor project-head" ref={ref}>
-      <button className="project-name" onClick={() => setOpen((o) => !o)} title="Project menu">
-        {project.name}{' '}
-        {viewLink ? <span className="badge">view only · by {viewLink.owner.name || viewLink.owner.email}</span> : readOnly ? <span className="badge">view only</span> : isEditor ? <span className="badge">shared with you</span> : meta?.memberCount || meta?.viewToken ? <span className="badge">shared</span> : null}{' '}
-        <span className="chev">▾</span>
-      </button>
+      {renaming && !readOnly ? (
+        <InlineRename value={project.name} onCommit={(name) => (renameProject(name), setRenaming(false))} onCancel={() => setRenaming(false)} />
+      ) : (
+        <button className="project-name" onClick={() => setOpen((o) => !o)} onDoubleClick={() => !readOnly && setRenaming(true)} title={readOnly ? 'Project menu' : 'Project menu · double-click to rename'}>
+          <span>{project.name}</span>
+          {viewLink ? <span className="badge">view only · by {viewLink.owner.name || viewLink.owner.email}</span> : readOnly ? <span className="badge">view only</span> : isEditor ? <span className="badge">shared with you</span> : meta?.memberCount || meta?.viewToken ? <span className="badge">shared</span> : null}
+          <span className="chev">
+            <Icon name="chevronDown" size={13} strokeWidth={2} />
+          </span>
+        </button>
+      )}
       {open && (
         <div className="menu">
           <button className="menu-item" onClick={() => (navigate(viewLink ? '/' : '/projects'), setOpen(false))}>
@@ -43,15 +62,8 @@ function ProjectMenu() {
           </button>
           <div className="menu-sep" />
           {!readOnly && (
-            <button
-              className="menu-item"
-              onClick={() => {
-                const name = prompt('Project name', project.name)
-                if (name) renameProject(name)
-                setOpen(false)
-              }}
-            >
-              Rename…
+            <button className="menu-item" onClick={() => (setRenaming(true), setOpen(false))}>
+              Rename
             </button>
           )}
           {user && !viewLink && (
@@ -70,13 +82,7 @@ function ProjectMenu() {
           {!viewLink && (
             <>
               <div className="menu-sep" />
-              <button
-                className="menu-item danger"
-                onClick={() => {
-                  if (confirm(isEditor ? `Leave "${project.name}"? It stays with its owner.` : `Delete project "${project.name}"? This cannot be undone.`)) deleteProject(project.id)
-                  setOpen(false)
-                }}
-              >
+              <button className="menu-item danger" onClick={() => void remove()}>
                 {isEditor ? 'Leave project' : 'Delete project'}
               </button>
             </>
@@ -92,7 +98,10 @@ function ProjectMenu() {
         hidden
         onChange={(e) => {
           const f = e.target.files?.[0]
-          if (f) f.text().then((t) => importProject(JSON.parse(t))).catch(() => alert('Could not read this file as a Cordeau project.'))
+          if (f)
+            f.text()
+              .then((t) => importProject(JSON.parse(t)))
+              .catch(() => setNotice('That file could not be read as a Cordeau project.'))
           e.target.value = ''
         }}
       />
@@ -109,10 +118,9 @@ function FloorsList() {
   const removeFloor = useEditor((s) => s.removeFloor)
   const renameFloor = useEditor((s) => s.renameFloor)
   const readOnly = useEditor(isReadOnly)
-  const rename = (id: string, current: string) => {
-    if (readOnly) return
-    const name = prompt('Floor name', current)
-    if (name && name.trim()) renameFloor(id, name.trim())
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const remove = async (id: string, name: string) => {
+    if (await confirmAction({ title: `Remove “${name}”?`, body: 'Its walls, doors, windows, furniture and the rules that hold them go with it.', confirmLabel: 'Remove floor' })) removeFloor(id)
   }
   // top floor first, like a building
   const floors = [...project.floors].reverse()
@@ -122,29 +130,41 @@ function FloorsList() {
         <span>Floors</span>
         {!readOnly && (
           <button className="icon-btn" onClick={addFloor} title="Add a floor on top">
-            +
+            <Icon name="plus" size={14} strokeWidth={2} title="Add a floor" />
           </button>
         )}
       </div>
       {floors.map((f) => (
-        <div key={f.id} className={`floor-row ${f.id === activeFloorId ? 'on' : ''}`} onClick={() => setActiveFloor(f.id)} onDoubleClick={() => rename(f.id, f.name)} title={readOnly ? 'PageUp / PageDown' : 'Double-click to rename · PageUp / PageDown'}>
-          <span className="tree-label">{f.name}</span>
-          <span className="row-actions" hidden={readOnly}>
-            <button className="icon-btn" title="Duplicate above" onClick={(e) => (e.stopPropagation(), duplicateFloor(f.id))}>
-              ⧉
-            </button>
-            <button
-              className="icon-btn"
-              title="Remove floor"
-              disabled={project.floors.length <= 1}
-              onClick={(e) => {
-                e.stopPropagation()
-                if (confirm(`Remove "${f.name}" and everything on it?`)) removeFloor(f.id)
-              }}
-            >
-              ✕
-            </button>
-          </span>
+        <div
+          key={f.id}
+          className={`floor-row ${f.id === activeFloorId ? 'on' : ''}`}
+          onClick={() => setActiveFloor(f.id)}
+          onDoubleClick={() => !readOnly && setRenaming(f.id)}
+          title={readOnly ? 'PageUp / PageDown' : 'Double-click to rename · PageUp / PageDown'}
+        >
+          {renaming === f.id ? (
+            <InlineRename value={f.name} onCommit={(name) => (renameFloor(f.id, name), setRenaming(null))} onCancel={() => setRenaming(null)} />
+          ) : (
+            <>
+              <span className="tree-label">{f.name}</span>
+              <span className="row-actions" hidden={readOnly}>
+                <button className="icon-btn" title="Duplicate above" onClick={(e) => (e.stopPropagation(), duplicateFloor(f.id))}>
+                  <Icon name="duplicate" size={14} strokeWidth={1.9} title="Duplicate" />
+                </button>
+                <button
+                  className="icon-btn"
+                  title="Remove floor"
+                  disabled={project.floors.length <= 1}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void remove(f.id, f.name)
+                  }}
+                >
+                  <Icon name="trash" size={14} strokeWidth={1.9} title="Remove" />
+                </button>
+              </span>
+            </>
+          )}
         </div>
       ))}
     </div>
