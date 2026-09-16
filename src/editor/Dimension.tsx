@@ -22,6 +22,11 @@ interface Props {
   editHeld?: boolean
 }
 
+/** the chip's size is known before paint (mono type at 6.7 px a character), so labels can be laid out without a measurement pass */
+export function dimensionChipSize(text: string, px: number, locked?: boolean): { width: number; height: number } {
+  return { width: (text.length * 6.7 + (locked ? 15 : 0) + 16) * px, height: 18 * px }
+}
+
 const ACCENT = '#2f6fed'
 const DANGER = '#d7263d'
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace'
@@ -45,10 +50,13 @@ export function Dimension({ p1, p2, side, distance, text, px, locked, violated, 
   const held = !!locked || !!violated
   const line = violated ? DANGER : locked ? ACCENT : muted ? '#c8cbd1' : '#b9bcc2'
   const fill = violated ? DANGER : locked ? ACCENT : '#fff'
-  const ink = held ? '#fff' : muted ? '#9aa0a6' : '#6b7280'
+  // a quieter label is quieter in its hairline and its missing border, never in its text:
+  // 11 px type needs the full 4.5:1, and the muted grey it used to get was 2.5:1
+  const ink = held ? '#fff' : '#6b7280'
   const fontSize = 11 * px
-  const width = (text.length * 6.7 + (locked && !violated ? 15 : 0) + 16) * px
-  const height = 18 * px
+  // the padlock is the rule's identity and red is its state: a violated rule keeps its padlock
+  // (and the width reserved for it), or the chip would twitch and read as a free length gone red
+  const { width, height } = dimensionChipSize(text, px, locked)
   return (
     <g className="dimension" style={{ pointerEvents: 'none' }}>
       {/* the line and its ticks often cross other walls: only the label takes the pointer */}
@@ -71,13 +79,13 @@ export function Dimension({ p1, p2, side, distance, text, px, locked, violated, 
         style={{ cursor: onClick && editHeld ? 'text' : undefined }}
       >
         <rect x={-width / 2} y={-height / 2} width={width} height={height} rx={height / 2} fill={fill} stroke={held ? 'none' : '#dcdde0'} strokeWidth={px} />
-        {locked && !violated && (
+        {locked && (
           <g transform={`translate(${-width / 2 + 7 * px} ${-4.5 * px}) scale(${px})`} fill="none" stroke="#fff" strokeWidth={1.3}>
             <rect x={0.5} y={4} width={7} height={5.5} rx={1} fill="#fff" stroke="none" />
             <path d="M2 4 V2.5 a2 2 0 0 1 4 0 V4" />
           </g>
         )}
-        <text x={locked && !violated ? 7 * px : 0} y={0} fontSize={fontSize} fontWeight={held ? 600 : 400} textAnchor="middle" dominantBaseline="central" fill={ink} fontFamily={MONO}>
+        <text x={locked ? 7 * px : 0} y={0} fontSize={fontSize} fontWeight={held ? 600 : 400} textAnchor="middle" dominantBaseline="central" fill={ink} fontFamily={MONO}>
           {text}
         </text>
       </g>

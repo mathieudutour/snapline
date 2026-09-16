@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { isReadOnly, isSelected, useEditor, type SelectionItem } from '../model/store'
-import { floorArea, roomName } from '../model/rooms'
+import { floorArea, roomName, roomNameSuggestions } from '../model/rooms'
 import { findRooms, pointInPolygon, wallLength } from '../model/geometry'
-import { constraintsReferencing, describeConstraint, shortId } from '../model/constraints'
+import { constraintsReferencing, constraintTargets, describeConstraint, shortId } from '../model/constraints'
 import { formatArea, formatLength } from '../model/units'
 import type { Constraint, Furniture, Opening, Wall } from '../model/types'
 import { Icon, LockIcon, WarningIcon } from '../brand/Icons'
@@ -21,6 +21,7 @@ function Group({
   onStartRename,
   onRename,
   onCancelRename,
+  suggestions,
 }: {
   title: string
   count: number
@@ -34,6 +35,7 @@ function Group({
   onStartRename?: () => void
   onRename?: (name: string) => void
   onCancelRename?: () => void
+  suggestions?: string[]
 }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
@@ -50,7 +52,7 @@ function Group({
           <Icon name="chevronRight" size={12} strokeWidth={2.2} />
         </button>
         {renaming && onRename && onCancelRename ? (
-          <InlineRename value={title} onCommit={onRename} onCancel={onCancelRename} />
+          <InlineRename value={title} onCommit={onRename} onCancel={onCancelRename} suggestions={suggestions} />
         ) : (
           <>
             <span className="tree-label">{title}</span>
@@ -63,78 +65,39 @@ function Group({
   )
 }
 
-export function Hierarchy() {
+/** rooms (largest first, ids stable) with their walls, openings and furniture, and what is outside any room */
+export function PlanTree() {
   const plan = useEditor((s) => s.plan)
   const selection = useEditor((s) => s.selection)
   const select = useEditor((s) => s.select)
-  const violated = useEditor((s) => s.report.violated)
-  const removeConstraint = useEditor((s) => s.removeConstraint)
   const units = useEditor((s) => s.units)
   const rooms = useMemo(() => findRooms(plan), [plan])
+  const underlay = useEditor((s) => s.project.floors.find((f) => f.id === s.activeFloorId)?.underlay)
   const nameRoom = useEditor((s) => s.nameRoom)
-  const comments = useMemo(() => Object.values(plan.comments ?? {}).sort((a, b) => a.createdAt - b.createdAt), [plan])
-  const openComment = useEditor((s) => s.openComment)
-  const setOpenComment = useEditor((s) => s.setOpenComment)
-  const showResolved = useEditor((s) => s.showResolved)
-  const setShowResolved = useEditor((s) => s.setShowResolved)
-  const setMode = useEditor((s) => s.setMode)
   const readOnly = useEditor(isReadOnly)
   const [renamingRoom, setRenamingRoom] = useState<string | null>(null)
   const walls = Object.values(plan.walls)
   const openings = Object.values(plan.openings)
   const furniture = Object.values(plan.furniture)
-  const constraints = Object.values(plan.constraints)
 
   const pick = (items: SelectionItem[], e: React.MouseEvent) => select(items, e.shiftKey)
-  const selectFor = (c: Constraint, e: React.MouseEvent) => {
-    switch (c.type) {
-      case 'length':
-      case 'horizontal':
-      case 'vertical':
-        return pick([{ kind: 'wall', id: c.wallId }], e)
-      case 'parallel':
-      case 'perpendicular':
-      case 'equalLength':
-      case 'angle':
-      case 'wallGap':
-        return pick(
-          [
-            { kind: 'wall', id: c.wallA },
-            { kind: 'wall', id: c.wallB },
-          ],
-          e,
-        )
-      case 'fixed':
-        return pick([{ kind: 'point', id: c.pointId }], e)
-      case 'distance':
-        return pick(
-          [
-            { kind: 'point', id: c.pointA },
-            { kind: 'point', id: c.pointB },
-          ],
-          e,
-        )
-      case 'furnitureWallGap':
-      case 'furnitureFixed':
-        return pick([{ kind: 'furniture', id: c.furnitureId }], e)
-      default:
-        return pick([{ kind: 'opening', id: c.openingId }], e)
-    }
-  }
-  const constraintSelected = (c: Constraint) => constraintsReferencing(plan, { walls: selection.filter((s) => s.kind === 'wall').map((s) => s.id), points: selection.filter((s) => s.kind === 'point').map((s) => s.id), openings: selection.filter((s) => s.kind === 'opening').map((s) => s.id), furniture: selection.filter((s) => s.kind === 'furniture').map((s) => s.id) }).some((x) => x.id === c.id)
 
-  // membership: a wall belongs to every room it bounds; an opening to its wall's rooms; furniture to the room containing its centre
-  const roomsWithContent = rooms.map((r, i) => {
-    const roomWalls = walls.filter((w) => r.pointIds.includes(w.a) && r.pointIds.includes(w.b))
-    const wallIds = new Set(roomWalls.map((w) => w.id))
-    return {
-      room: r,
-      index: i,
-      walls: roomWalls,
-      openings: openings.filter((o) => wallIds.has(o.wallId)),
-      furniture: furniture.filter((f) => pointInPolygon({ x: f.x, y: f.y }, r.polygon)),
-    }
-  })
+  // membership: a wall belongs to every room it bounds; an opening to its wall's rooms; furniture to the room containing its centre.
+  // Rooms are found in geometric order, which is what gives a default name its number; they are listed largest first, so the
+  // list stops reshuffling as you draw and "Room 1" keeps its name wherever it lands.
+  const roomsWithContent = rooms
+    .map((r, i) => {
+      const roomWalls = walls.filter((w) => r.pointIds.includes(w.a) && r.pointIds.includes(w.b))
+      const wallIds = new Set(roomWalls.map((w) => w.id))
+      return {
+        room: r,
+        index: i,
+        walls: roomWalls,
+        openings: openings.filter((o) => wallIds.has(o.wallId)),
+        furniture: furniture.filter((f) => pointInPolygon({ x: f.x, y: f.y }, r.polygon)),
+      }
+    })
+    .sort((a, b) => b.room.area - a.room.area)
   const placedWalls = new Set(roomsWithContent.flatMap((r) => r.walls.map((w) => w.id)))
   const placedOpenings = new Set(roomsWithContent.flatMap((r) => r.openings.map((o) => o.id)))
   const placedFurniture = new Set(roomsWithContent.flatMap((r) => r.furniture.map((f) => f.id)))
@@ -219,6 +182,7 @@ export function Hierarchy() {
             onStartRename={readOnly ? undefined : () => setRenamingRoom(r.room.id)}
             onRename={(name) => (nameRoom(r.room, name), setRenamingRoom(null))}
             onCancelRename={() => setRenamingRoom(null)}
+            suggestions={renamingRoom === r.room.id ? roomNameSuggestions(underlay, r.room) : undefined}
           >
             {contents(r, 1)}
           </Group>
@@ -229,13 +193,58 @@ export function Hierarchy() {
           {contents(outside, 1)}
         </Group>
       )}
-      {/* "rule" is what the user typed; "constraint" is the maths underneath it */}
-      <Group title="Rules" count={constraints.length}>
-        {constraints.length === 0 && <div className="tree-empty">Select a wall and lock its length in the inspector, or ⌥ + click a measurement on the plan and type a value.</div>}
-        {constraints.map((c) => (
-          <div key={c.id} className={`tree-row ${violated.has(c.id) ? 'bad' : ''} ${constraintSelected(c) ? 'on' : ''}`} onClick={(e) => selectFor(c, e)}>
-            <span className="tree-icon">{violated.has(c.id) ? <WarningIcon size={13} strokeWidth={2} /> : <LockIcon size={13} strokeWidth={2} />}</span>
-            <span className="tree-label">{describeConstraint(plan, c)}</span>
+    </div>
+  )
+}
+
+/**
+ * Every rule on the floor, as a view of its own. A row under the pointer lights the geometry
+ * it is about and draws its badge on the plan — the badges used to sit on every wall by
+ * default, which made forty rules look like clutter instead of the feature they are.
+ * "Rule" is what the user typed; "constraint" is the maths underneath it.
+ */
+export function RulesList() {
+  const plan = useEditor((s) => s.plan)
+  const selection = useEditor((s) => s.selection)
+  const select = useEditor((s) => s.select)
+  const violated = useEditor((s) => s.report.violated)
+  const removeConstraint = useEditor((s) => s.removeConstraint)
+  const setHoverRule = useEditor((s) => s.setHoverRule)
+  const readOnly = useEditor(isReadOnly)
+  const constraints = Object.values(plan.constraints)
+  // the ones that cannot hold first: they are the ones you came here for
+  const ordered = [...constraints].sort((a, b) => Number(violated.has(b.id)) - Number(violated.has(a.id)))
+  const constraintSelected = (c: Constraint) =>
+    constraintsReferencing(plan, {
+      walls: selection.filter((s) => s.kind === 'wall').map((s) => s.id),
+      points: selection.filter((s) => s.kind === 'point').map((s) => s.id),
+      openings: selection.filter((s) => s.kind === 'opening').map((s) => s.id),
+      furniture: selection.filter((s) => s.kind === 'furniture').map((s) => s.id),
+    }).some((x) => x.id === c.id)
+  return (
+    <div className="tree">
+      {constraints.length === 0 && <div className="tree-empty">Select a wall and lock its length in the inspector, or ⌥ + click a measurement on the plan and type a value.</div>}
+      {constraints.length > 0 && (
+        <div className="tree-total">
+          <span>Rules</span>
+          <span className="tree-detail">
+            {constraints.length}
+            {violated.size > 0 && ` · ${violated.size} can't hold`}
+          </span>
+        </div>
+      )}
+      {ordered.map((c) => (
+        <div
+          key={c.id}
+          className={`tree-row ${violated.has(c.id) ? 'bad' : ''} ${constraintSelected(c) ? 'on' : ''}`}
+          onClick={(e) => select(constraintTargets(c), e.shiftKey)}
+          onPointerEnter={() => setHoverRule(c.id)}
+          onPointerLeave={() => setHoverRule(null)}
+          title="Hover to see it on the plan · click to select what it holds"
+        >
+          <span className="tree-icon">{violated.has(c.id) ? <WarningIcon size={13} strokeWidth={2} /> : <LockIcon size={13} strokeWidth={2} />}</span>
+          <span className="tree-label">{describeConstraint(plan, c)}</span>
+          {!readOnly && (
             <button
               className="x"
               title="Drop this rule"
@@ -246,36 +255,49 @@ export function Hierarchy() {
             >
               <Icon name="close" size={12} strokeWidth={2} />
             </button>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** the comments pinned on this floor's plan */
+export function NotesList() {
+  const plan = useEditor((s) => s.plan)
+  const comments = useMemo(() => Object.values(plan.comments ?? {}).sort((a, b) => a.createdAt - b.createdAt), [plan])
+  const openComment = useEditor((s) => s.openComment)
+  const setOpenComment = useEditor((s) => s.setOpenComment)
+  const showResolved = useEditor((s) => s.showResolved)
+  const setShowResolved = useEditor((s) => s.setShowResolved)
+  const setMode = useEditor((s) => s.setMode)
+  return (
+    <div className="tree">
+      {comments.length === 0 && <div className="tree-empty">Press C and click on the plan to pin a comment.</div>}
+      {comments
+        .filter((c) => showResolved || !c.resolved)
+        .map((c) => (
+          <div key={c.id} className={`tree-row comment ${c.resolved ? 'resolved' : ''} ${openComment === c.id ? 'on' : ''}`} onClick={() => (setMode('plan'), setOpenComment(openComment === c.id ? null : c.id))}>
+            <span className="tree-icon">
+              <Icon name={c.resolved ? 'check' : 'comment'} size={13} strokeWidth={2} />
+            </span>
+            <span className="tree-label">
+              <b>{c.author.name}</b> {c.text.length > 60 ? c.text.slice(0, 60) + '…' : c.text}
+              {c.replies.length > 0 && (
+                <span className="muted">
+                  {' '}
+                  · {c.replies.length} repl{c.replies.length > 1 ? 'ies' : 'y'}
+                </span>
+              )}
+            </span>
           </div>
         ))}
-      </Group>
-      <Group title="Comments" count={comments.filter((c) => !c.resolved).length}>
-        {comments.length === 0 && <div className="tree-empty">Press C and click on the plan to pin a comment.</div>}
-        {comments
-          .filter((c) => showResolved || !c.resolved)
-          .map((c) => (
-            <div key={c.id} className={`tree-row comment ${c.resolved ? 'resolved' : ''} ${openComment === c.id ? 'on' : ''}`} onClick={() => (setMode('plan'), setOpenComment(openComment === c.id ? null : c.id))}>
-              <span className="tree-icon">
-                <Icon name={c.resolved ? 'check' : 'comment'} size={13} strokeWidth={2} />
-              </span>
-              <span className="tree-label">
-                <b>{c.author.name}</b> {c.text.length > 60 ? c.text.slice(0, 60) + '…' : c.text}
-                {c.replies.length > 0 && (
-                  <span className="muted">
-                    {' '}
-                    · {c.replies.length} repl{c.replies.length > 1 ? 'ies' : 'y'}
-                  </span>
-                )}
-              </span>
-            </div>
-          ))}
-        {comments.some((c) => c.resolved) && (
-          <label className="toggle block tree-empty">
-            <span>Show resolved</span>
-            <input className="switch" type="checkbox" checked={showResolved} onChange={(e) => setShowResolved(e.target.checked)} />
-          </label>
-        )}
-      </Group>
+      {comments.some((c) => c.resolved) && (
+        <label className="toggle block tree-empty">
+          <span>Show resolved</span>
+          <input className="switch" type="checkbox" checked={showResolved} onChange={(e) => setShowResolved(e.target.checked)} />
+        </label>
+      )}
     </div>
   )
 }

@@ -56,8 +56,10 @@ The interaction model follows Figma: single-key tools, scroll to pan, Ctrl/⌘ +
 Esc to go back to the Select tool. Press `?` in the app for the full list.
 
 The editor is laid out like Figma: an icon rail on the left (layers, furniture, projects, preferences),
-a left panel with the floors and a hierarchy of rooms, walls, openings, furniture and constraints, the
-canvas in the middle with a floating toolbar at the bottom, and an inspector for the selection on the right.
+a left panel with the floors and three views of the current floor (Plan: rooms, walls, openings and
+furniture; Rules: every constraint; Notes: comments), the canvas in the middle with a floating toolbar at the
+bottom and a view pill at the top (floor, zoom, drawing scale, measurement density), and an inspector for the
+selection on the right.
 
 | Action | How |
 | --- | --- |
@@ -67,8 +69,9 @@ canvas in the middle with a floating toolbar at the bottom, and an inspector for
 | Move things | Drag corners, walls or openings, or nudge the selection with the arrow keys (Shift for 10×). Constraints are respected. |
 | Select | Click, Shift+click to add, drag on empty space for a marquee, Ctrl/⌘+A for everything, or click rows in the Layers panel. Clicking a room's floor selects the room. |
 | Edit several at once | When the selection is all walls, all doors/windows, all furniture or all rooms, the inspector shows their shared properties (thickness, height, finish, width, sill, elevation, rotation…). A field reading "Mixed" keeps each item's value until you type one; a change applies to every selected item as a single undo step. |
-| Rooms | Click a room's floor (or its row in the Layers panel) to select it: the inspector shows its name, area, floor and wall finishes, and a button to select its walls. Double-clicking the floor renames it too. |
-| Navigate | Scroll to pan, Ctrl/⌘+scroll or pinch to zoom, Space+drag to pan, `+`/`-`, Shift+0 (100%), Shift+1 (fit), Shift+2 (fit selection). The zoom readout in the inspector header fits the plan. |
+| Rooms | Click a room's floor (or its row in the Plan list, largest room first) to select it: the inspector shows its name, area, floor and wall finishes, and a button to select its walls. Double-clicking the floor renames it too; when the floor has a PDF underlay, the names printed on it are offered as one-click suggestions. |
+| Navigate | Scroll to pan, Ctrl/⌘+scroll or pinch to zoom, Space+drag to pan, `+`/`-`, Shift+0 (100%), Shift+1 (fit), Shift+2 (fit selection). The view pill above the canvas shows the zoom and the drawing scale, snapped to a conventional value (≈ when it is only close); click the scale to zoom to 1:20, 1:50, 1:100… exactly. |
+| Measurements shown | Shift+D (or the pill item) cycles the density: **Overall** draws the building's outside size on each side plus room names; **Working** (the default) adds a chained string of bays outside each side, the locked and violated lengths, and free lengths on hover; **All** dimensions every wall face and opening. The selection is always dimensioned. At every level, two numbers never overlap: a label that would sit on another is dropped for a small dot that shows its value on hover, and a bay or room too small for its number gets a leader out to the margin. |
 | Join walls | Drop a corner onto another corner or onto a wall. |
 | Doors / windows | `D` / `N`, then click on a wall. Select an opening to lock its distance from either wall end. |
 | Furniture | `F` or the Furniture rail tab opens the catalogue in the left panel; click a piece, then click on the plan. `R` rotates. Dropping a piece against a wall snaps its back to the wall and locks the gap. |
@@ -78,6 +81,7 @@ canvas in the middle with a floating toolbar at the bottom, and an inspector for
 | Comments | `C` then click on the plan pins a comment; click a pin to read, reply, resolve or delete. Comments are part of the project, so collaborators see them (live too) and the Layers panel lists the open ones. |
 | Measure between walls | Select a wall, hold ⌥ (Option / Alt) and hover another wall: the clear distance between their facing sides appears in red, like Figma. Parallel walls are measured across their overlap (or in front of the hovered wall with a dashed extension); other pairs show the shortest distance. ⌥-click the hovered wall to type the distance: the wall moves to it and the gap is locked as a constraint (untick "Lock as constraint" to move it once). Shift-click two parallel walls to find the same Gap field in the inspector. |
 | Relate two walls | Shift-click two walls, then choose parallel / perpendicular / equal / angle in the inspector. |
+| See a rule | Rules are listed in the inspector for the selection and in the Rules tab for the whole floor. Hovering a row lights the geometry it holds on the plan and draws its badge (H, V, ∥, ⟂, =, ∠, ↔) there; clicking it selects that geometry. Rules that cannot hold are listed first. |
 | Anchor a corner | Select a corner and click "Anchor in place" so the plan does not drift. |
 | Floors | Floors list in the left panel: click to switch, `+` to add, hover a floor for duplicate / remove, double-click to rename; PageUp / PageDown switch floors. With nothing selected the inspector edits the floor's name and height. |
 | Roof | With nothing selected, pick the roof type, pitch, ridge direction, overhang and colour in the inspector. |

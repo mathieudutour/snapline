@@ -15,6 +15,14 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '')
  * headline, there is one primary action, the plan on the right shows a locked dimension
  * holding, and there are three features rather than six.
  */
+/** the landing page scrolls inside itself, so "how it works" scrolls to the features rather than trusting a fragment */
+function scrollToFeatures(e: React.MouseEvent<HTMLAnchorElement>) {
+  const target = document.getElementById('features')
+  if (!target) return
+  e.preventDefault()
+  target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
 export function Landing() {
   const user = useEditor((s) => s.user)
   const apiAvailable = useEditor((s) => s.apiAvailable)
@@ -27,7 +35,9 @@ export function Landing() {
           <Lockup size={26} />
         </a>
         <nav>
-          <a href="#features">How it works</a>
+          <a href="#features" onClick={scrollToFeatures}>
+            How it works
+          </a>
           <a href={`${base}/furniture/CREDITS.md`} target="_blank" rel="noreferrer">
             Furniture
           </a>
@@ -53,7 +63,7 @@ export function Landing() {
             <a className="button primary large" href={primary.href} onClick={primary.href === '/' ? onLinkClick : undefined}>
               {primary.label}
             </a>
-            <a className="button large" href="#features">
+            <a className="button large" href="#features" onClick={scrollToFeatures}>
               See how it works
             </a>
           </div>

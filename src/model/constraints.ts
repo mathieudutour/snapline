@@ -459,6 +459,44 @@ function fmt(m: number): string {
 }
 
 /** Constraints that reference the given entity ids. */
+/** the geometry a rule is about — what a list row lights on hover and what "Show both rules" selects */
+export function constraintTargets(c: Constraint): { kind: 'wall' | 'point' | 'opening' | 'furniture'; id: string }[] {
+  switch (c.type) {
+    case 'length':
+    case 'horizontal':
+    case 'vertical':
+      return [{ kind: 'wall', id: c.wallId }]
+    case 'parallel':
+    case 'perpendicular':
+    case 'equalLength':
+    case 'angle':
+    case 'wallGap':
+      return [
+        { kind: 'wall', id: c.wallA },
+        { kind: 'wall', id: c.wallB },
+      ]
+    case 'fixed':
+      return [{ kind: 'point', id: c.pointId }]
+    case 'distance':
+      return [
+        { kind: 'point', id: c.pointA },
+        { kind: 'point', id: c.pointB },
+      ]
+    case 'furnitureWallGap':
+      return [
+        { kind: 'furniture', id: c.furnitureId },
+        { kind: 'wall', id: c.wallId },
+      ]
+    case 'furnitureFixed':
+      return [{ kind: 'furniture', id: c.furnitureId }]
+    default:
+      return [{ kind: 'opening', id: c.openingId }]
+  }
+}
+
+/** the one-letter badge a rule wears on the plan when its row is hovered; rules that are numbers have none */
+export const RULE_BADGES: Partial<Record<Constraint['type'], string>> = { horizontal: 'H', vertical: 'V', parallel: '∥', perpendicular: '⟂', equalLength: '=', angle: '∠', wallGap: '↔' }
+
 export function constraintsReferencing(plan: Plan, ids: { walls?: string[]; points?: string[]; openings?: string[]; furniture?: string[] }): Constraint[] {
   const walls = new Set(ids.walls ?? [])
   const points = new Set(ids.points ?? [])

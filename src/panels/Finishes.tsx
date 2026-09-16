@@ -36,7 +36,8 @@ export function FinishesProps() {
   const setProjectFinishes = useEditor((s) => s.setProjectFinishes)
   const setRoomFinish = useEditor((s) => s.setRoomFinish)
   const roofType = useEditor((s) => s.project.roof.type)
-  const rooms = useMemo(() => findRooms(plan), [plan])
+  // largest room first, so the table reads the same way the layers tree does and does not reshuffle as you draw
+  const rooms = useMemo(() => findRooms(plan).map((room, index) => ({ room, index })).sort((a, b) => b.room.area - a.room.area), [plan])
   return (
     <div className="props">
       <h3>Finishes</h3>
@@ -60,7 +61,7 @@ export function FinishesProps() {
             </tr>
           </thead>
           <tbody>
-            {rooms.map((r, i) => {
+            {rooms.map(({ room: r, index: i }) => {
               const label = roomLabel(plan, r)
               return (
                 <tr key={r.id}>

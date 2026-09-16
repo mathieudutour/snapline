@@ -35,8 +35,10 @@ export function PlanThumb({ projectId, units }: { projectId: string; units: Unit
       transform: `translate(${dx} ${dy}) scale(${scale})`,
       rooms: rooms.map((r) => ({ id: r.id, points: r.polygon.map((p) => `${p.x},${p.y}`).join(' ') })),
       walls: Object.values(plan.walls).map((wall) => ({ id: wall.id, points: wallPolygon(plan, wall).map((p) => `${p.x},${p.y}`).join(' ') })),
-      // every floor counts towards the area shown on the card
+      // every floor counts towards the area shown on the card — and the card says so, because
+      // the drawing above it is the ground floor alone and a number must match its picture
       area: project.floors.reduce((sum, f) => sum + floorArea(findRooms(f.plan)), 0),
+      floors: project.floors.length,
     }
   }, [projectId])
 
@@ -61,7 +63,12 @@ export function PlanThumb({ projectId, units }: { projectId: string; units: Unit
           ))}
         </g>
       </svg>
-      {drawing.area > 0 && <span className="area">{formatArea(drawing.area, units)}</span>}
+      {drawing.area > 0 && (
+        <span className="area">
+          {formatArea(drawing.area, units)}
+          {drawing.floors > 1 && ` · ${drawing.floors} floors`}
+        </span>
+      )}
     </div>
   )
 }

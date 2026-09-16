@@ -27,6 +27,14 @@ export interface Underlay {
   rotation: number
   opacity: number
   locked: boolean
+  /** text found on the page (PDFs), in image pixels: offered as room names when a room is renamed */
+  texts?: UnderlayText[]
+}
+
+export interface UnderlayText {
+  text: string
+  x: number
+  y: number
 }
 
 export type RoofType = 'none' | 'flat' | 'gable' | 'hip'

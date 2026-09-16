@@ -13,7 +13,7 @@ import { constraintsReferencing, describeConstraint, pointDistance, shortId } fr
 import { useMemo } from 'react'
 import { dimensionSide, findRooms, oppositeSide, wallFace, wallLength } from '../model/geometry'
 import { formatArea, formatLength, parseLength, type Units } from '../model/units'
-import { floorArea, roomLabel, roomName } from '../model/rooms'
+import { floorArea, roomLabel, roomName, roomNameSuggestions } from '../model/rooms'
 import { wallGap } from '../model/measure'
 
 /** a length input; `value` null means the selected items disagree and the field shows "Mixed" until a value is typed */
@@ -118,10 +118,12 @@ const RULE_ICONS: Partial<Record<Constraint['type'], IconName>> = {
 function RuleList({ rules, onRemove, children }: { rules: Constraint[]; onRemove: (id: string) => void; children?: React.ReactNode }) {
   const plan = useEditor((s) => s.plan)
   const violated = useEditor((s) => s.report.violated)
+  const setHoverRule = useEditor((s) => s.setHoverRule)
   return (
     <div className="rule-list">
       {rules.map((c) => (
-        <div key={c.id} className={`rule-row ${violated.has(c.id) ? 'bad' : ''}`}>
+        // hovering a rule lights its geometry on the plan and draws its badge there — where you asked for it, not by default
+        <div key={c.id} className={`rule-row ${violated.has(c.id) ? 'bad' : ''}`} onPointerEnter={() => setHoverRule(c.id)} onPointerLeave={() => setHoverRule(null)}>
           <span className="rule-icon">
             <Icon name={RULE_ICONS[c.type] ?? 'dimension'} size={13} strokeWidth={2.2} />
           </span>
@@ -819,6 +821,8 @@ function RoomsProps({ rooms, indexOf }: { rooms: Room[]; indexOf: (room: Room) =
   const currentName = single ? roomName(plan, single, indexOf(single)) : ''
   const [name, setName] = useState(currentName)
   useEffect(() => setName(currentName), [currentName])
+  const underlay = useEditor((s) => s.project.floors.find((f) => f.id === s.activeFloorId)?.underlay)
+  const suggestions = single ? roomNameSuggestions(underlay, single).filter((s) => s !== currentName) : []
   const labels = rooms.map((r) => roomLabel(plan, r))
   const floorFinish = common(labels.map((l) => l?.floor ?? ''))
   const wallFinish = common(labels.map((l) => l?.wall ?? ''))
@@ -844,6 +848,15 @@ function RoomsProps({ rooms, indexOf }: { rooms: Room[]; indexOf: (room: Room) =
             />
           </span>
         </label>
+      )}
+      {single && suggestions.length > 0 && (
+        <div className="chips" title="Names found on the underlay">
+          {suggestions.map((s) => (
+            <button key={s} className="chip" onClick={() => nameRoom(single, s)}>
+              {s}
+            </button>
+          ))}
+        </div>
       )}
       <p className="muted small">
         {single ? 'Area' : 'Total area'} {formatArea(area, units)}, inside the walls.

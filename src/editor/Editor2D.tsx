@@ -4,14 +4,15 @@ import { furnitureCorners, localToPlan, snapFurnitureToWall } from '../model/fur
 import { resolvePlanIconUrl } from '../furniture/catalog'
 import { add, dimensionSide, dist, dot, findRooms, normalize, oppositeSide, perp, planBounds, pointInPolygon, projectOnSegment, scale, sideNormal, sub, wallFace, wallLength, wallPolygon, wallsAtPoint } from '../model/geometry'
 import { floorBelow, isReadOnly, isSelected, useEditor, type SelectionItem } from '../model/store'
-import { constraintsReferencing } from '../model/constraints'
+import { constraintsReferencing, constraintTargets, RULE_BADGES } from '../model/constraints'
 import { formatArea, formatLength, parseLength, type Units } from '../model/units'
 import { snapPosition, type SnapResult } from './snapping'
 import { screenToWorld, worldToScreen, type Viewport } from './viewport'
-import { Dimension } from './Dimension'
+import { Dimension, dimensionChipSize } from './Dimension'
+import { chainedStrings, cullLabels, nearestSide, onSide, planEnvelope, RANK, rotatedRect, type LabelCandidate } from './labels'
 import { setLiveCursor } from '../sync/liveController'
 import { wallGap } from '../model/measure'
-import { roomLabel, roomName } from '../model/rooms'
+import { roomLabel, roomName, roomNameSuggestions } from '../model/rooms'
 import { FINISH_BY_KEY } from '../model/finishes'
 import { stairSteps, structureKind } from '../model/structures'
 import { PeerCursors, usePeerSelections } from './Peers'
@@ -76,6 +77,8 @@ export function Editor2D() {
   const snapGrid = useEditor((s) => s.snapGrid)
   const gridSize = useEditor((s) => s.gridSize)
   const rooms = useMemo(() => findRooms(plan), [plan])
+  const envelope = useMemo(() => planEnvelope(plan), [plan])
+  const strings = useMemo(() => (envelope ? chainedStrings(plan, envelope) : []), [plan, envelope])
   const readOnly = useEditor(isReadOnly)
   const underlay = useEditor((s) => s.project.floors.find((f) => f.id === s.activeFloorId)?.underlay)
   const calibrating = useEditor((s) => s.calibrating)
@@ -104,6 +107,10 @@ export function Editor2D() {
   const below = useEditor((s) => floorBelow(s))
   const belowPoints = useMemo(() => (showFloorBelow && below ? Object.values(below.points).map((p) => ({ x: p.x, y: p.y })) : []), [showFloorBelow, below])
   const showShortcuts = useEditor((s) => s.showShortcuts)
+  const labelDensity = useEditor((s) => s.labelDensity)
+  const hoverRule = useEditor((s) => s.hoverRule)
+  const setLabelStats = useEditor((s) => s.setLabelStats)
+  const zoomRequest = useEditor((s) => s.zoomRequest)
   const dragRef = useRef<DragState | null>(null)
   /** active touch points by pointer id (for pinch zoom) */
   const touchesRef = useRef(new Map<number, Vec2>())
@@ -165,7 +172,7 @@ export function Editor2D() {
 
   const setZoom = useCallback((newScale: number, anchor?: Vec2) => {
     const { vp, size } = latest.current
-    const s = Math.min(600, Math.max(8, newScale))
+    const s = Math.min(600, Math.max(7, newScale))
     const ax = anchor?.x ?? size.width / 2
     const ay = anchor?.y ?? size.height / 2
     const before = screenToWorld(vp, { x: ax, y: ay }, size.width, size.height)
@@ -207,6 +214,9 @@ export function Editor2D() {
   useEffect(() => {
     if (sized) fitBounds(planBounds(useEditor.getState().plan))
   }, [fitVersion, sized, fitBounds])
+  useEffect(() => {
+    if (zoomRequest.version > 0) setZoom(zoomRequest.scale)
+  }, [zoomRequest, setZoom])
 
   const finishDrawing = useCallback(() => {
     setDrawing(null)
@@ -379,6 +389,10 @@ export function Editor2D() {
         return
       }
       if (mod || e.altKey) return
+      if (e.shiftKey && key === 'd') {
+        st.cycleLabelDensity()
+        return
+      }
       const map: Record<string, typeof st.tool> = { v: 'select', w: 'wall', d: 'door', n: 'window', f: 'furniture', h: 'pan', c: 'comment' }
       const t = map[key]
       if (t) {
@@ -809,7 +823,7 @@ export function Editor2D() {
     const i = rooms.findIndex((r) => pointInPolygon(world, r.polygon))
     if (i < 0) return
     const room = rooms[i]
-    void askForValue({ title: 'Name this room', field: 'Name', initial: roomName(plan, room, i), confirmLabel: 'Rename room' }).then((name) => {
+    void askForValue({ title: 'Name this room', field: 'Name', initial: roomName(plan, room, i), confirmLabel: 'Rename room', suggestions: roomNameSuggestions(underlay, room) }).then((name) => {
       if (name !== null) useEditor.getState().nameRoom(room, name)
     })
   }
@@ -879,16 +893,10 @@ export function Editor2D() {
     return ids
   }, [violated, plan])
   const lengthConstraintFor = (wallId: string) => Object.values(plan.constraints).find((c) => c.type === 'length' && c.wallId === wallId)
-  const wallBadges = (wallId: string) => {
-    const cs = constraintsReferencing(plan, { walls: [wallId] })
-    const badges: { label: string; violated: boolean; id: string }[] = []
-    for (const c of cs) {
-      if (c.type === 'length' || c.type === 'furnitureWallGap' || c.type === 'furnitureFixed') continue
-      const label = { horizontal: 'H', vertical: 'V', parallel: '∥', perpendicular: '⟂', equalLength: '=', angle: '∠', wallGap: '↔' }[c.type as string] ?? '?'
-      badges.push({ label, violated: violated.has(c.id), id: c.id })
-    }
-    return badges
-  }
+  /** the rule whose row is under the pointer in a list, and the geometry it is about */
+  const litRule = hoverRule ? plan.constraints[hoverRule] : undefined
+  const litTargets = useMemo(() => (litRule ? constraintTargets(litRule) : []), [litRule])
+  const isLit = (kind: 'wall' | 'point' | 'opening' | 'furniture', id: string) => litTargets.some((t) => t.kind === kind && t.id === id)
 
   const visibleMin = screenToWorld(vp, { x: 0, y: 0 }, size.width, size.height)
   const visibleMax = screenToWorld(vp, { x: size.width, y: size.height }, size.width, size.height)
@@ -899,7 +907,6 @@ export function Editor2D() {
 
   const cursorStyle = tool === 'pan' || space ? 'grab' : tool === 'wall' || tool === 'door' || tool === 'window' || (tool === 'furniture' && placing) ? 'crosshair' : 'default'
 
-  const selectedOpenings = selection.filter((s) => s.kind === 'opening').map((s) => plan.openings[s.id]).filter(Boolean)
   const editingValue = (() => {
     if (!editing) return ''
     if (editing.kind === 'wallLength') {
@@ -910,6 +917,203 @@ export function Editor2D() {
     const f = openingFace(plan.openings[editing.openingId])
     return formatLength(editing.end === 'a' ? f.fromA : f.fromB, units, false)
   })()
+
+  // ---- labels: what the plan writes on itself ----
+  //
+  // Every number is a candidate first and a label second. Candidates carry a rank (a rule you
+  // set > the selection > a room name > a number the plan merely measures) and the box they
+  // would occupy; the cull in labels.ts keeps the ones that fit and turns the rest into dots.
+  // Two numbers must never overlap: an unreadable number is worse than a hidden one.
+  type PlanLabel = LabelCandidate & { node: React.ReactNode; dot: Vec2; value: string }
+  const labels: PlanLabel[] = []
+  /** outer faces carrying their own chip: a bay of the chained string that is exactly one of them is already numbered */
+  const chippedFaces: { a: Vec2; b: Vec2; n: Vec2 }[] = []
+  const chip = (
+    key: string,
+    p1: Vec2,
+    p2: Vec2,
+    side: Vec2,
+    distance: number,
+    text: string,
+    rank: number,
+    opts: { locked?: boolean; violated?: boolean; muted?: boolean; onClick?: (e: React.PointerEvent | React.MouseEvent) => void; wrap?: { kind: 'wall' | 'opening'; id: string; cursor?: string } } = {},
+  ) => {
+    const a = add(p1, scale(side, distance))
+    const b = add(p2, scale(side, distance))
+    const mid = scale(add(a, b), 0.5)
+    const u = normalize(sub(p2, p1))
+    let angle = (Math.atan2(u.y, u.x) * 180) / Math.PI
+    if (angle > 90 || angle <= -90) angle += 180
+    const { width, height } = dimensionChipSize(text, px, opts.locked)
+    const dim = <Dimension p1={p1} p2={p2} side={side} distance={distance} text={text} px={px} locked={opts.locked} violated={opts.violated} muted={opts.muted} onClick={opts.onClick} editHeld={alt} />
+    const node = opts.wrap ? (
+      <g key={key} data-kind={opts.wrap.kind} data-id={opts.wrap.id} style={{ cursor: tool === 'select' ? opts.wrap.cursor ?? 'move' : undefined }}>
+        {dim}
+      </g>
+    ) : (
+      <g key={key}>{dim}</g>
+    )
+    labels.push({ key, rect: rotatedRect(mid, angle, width, height), rank, length: dist(p1, p2), node, dot: mid, value: text })
+  }
+  /** a value that does not fit where it belongs, led out to the margin instead */
+  const leaderChip = (key: string, from: Vec2, at: Vec2, lines: string[], rank: number, length: number) => {
+    const w = Math.max(...lines.map((l) => l.length)) * 6.7 * px + 16 * px
+    const h = (lines.length * 14 + 6) * px
+    const node = (
+      <g key={key} style={{ pointerEvents: 'none' }}>
+        <line x1={from.x} y1={from.y} x2={at.x} y2={at.y} stroke="#b9bcc2" strokeWidth={px} />
+        <circle cx={from.x} cy={from.y} r={2 * px} fill="#b9bcc2" />
+        <rect x={at.x - w / 2} y={at.y - h / 2} width={w} height={h} rx={5 * px} fill="#fff" stroke="#dcdde0" strokeWidth={px} />
+        {lines.map((l, i) => (
+          <text key={i} x={at.x} y={at.y + (i - (lines.length - 1) / 2) * 14 * px} fontSize={11 * px} fontWeight={i === 0 && lines.length > 1 ? 600 : 400} textAnchor="middle" dominantBaseline="central" fill={i === 0 && lines.length > 1 ? '#5d5240' : '#6b7280'} fontFamily={i === 0 && lines.length > 1 ? 'ui-sans-serif, system-ui, sans-serif' : 'ui-monospace, SFMono-Regular, Menlo, monospace'}>
+            {l}
+          </text>
+        ))}
+      </g>
+    )
+    labels.push({ key, rect: { x: at.x - w / 2, y: at.y - h / 2, w, h }, rank, length, node, dot: from, value: lines.join(' · ') })
+  }
+
+  // a wall's own chip: every wall at "all"; locked, hovered and lit ones when working; the selection always
+  for (const w of Object.values(plan.walls)) {
+    const lc = lengthConstraintFor(w.id)
+    const sel = isSelected(selection, 'wall', w.id)
+    const hov = hover?.kind === 'wall' && hover.id === w.id && tool === 'select'
+    const lit = isLit('wall', w.id)
+    const locked = !!lc
+    const bad = locked && violated.has(lc.id)
+    const show = labelDensity === 'all' || sel || lit || (labelDensity === 'working' && (locked || hov))
+    if (!show) continue
+    const side = wallSide(w)
+    const face = wallFace(plan, w, side)
+    if (face.length < 0.01) continue
+    chippedFaces.push({ a: face.a, b: face.b, n: sideNormal(plan, w, side) })
+    // the label belongs to its wall: a plain click selects the wall, ⌥ + click edits the length
+    chip('wall:' + w.id, face.a, face.b, sideNormal(plan, w, side), DIM_GAP, formatLength(face.length, units), locked ? RANK.rule : sel || lit || hov ? RANK.selected : RANK.derived, {
+      locked,
+      violated: bad,
+      onClick: tool === 'select' ? (e) => startEditWall(w, e) : undefined,
+      wrap: { kind: 'wall', id: w.id },
+    })
+  }
+
+  // an opening's offsets: the selection's in full; a locked offset on its own from "working" up
+  for (const o of Object.values(plan.openings)) {
+    if (!plan.walls[o.wallId]) continue
+    const cs = constraintsReferencing(plan, { openings: [o.id] })
+    const ca = cs.find((c) => c.type === 'openingOffsetA')
+    const cb = cs.find((c) => c.type === 'openingOffsetB')
+    const cc = cs.find((c) => c.type === 'openingCentered')
+    const sel = isSelected(selection, 'opening', o.id) || isLit('opening', o.id)
+    const lockedA = !!ca || !!cc
+    const lockedB = !!cb || !!cc
+    const showLocked = labelDensity !== 'overall'
+    if (!sel && !(showLocked && (lockedA || lockedB))) continue
+    const f = openingFace(o)
+    const badA = (ca && violated.has(ca.id)) || (cc && violated.has(cc.id))
+    const badB = (cb && violated.has(cb.id)) || (cc && violated.has(cc.id))
+    if (f.fromA > 0.01 && (sel || lockedA))
+      chip('opening:' + o.id + ':a', f.face.a, f.start, f.n, DIM_GAP, formatLength(f.fromA, units), lockedA ? RANK.rule : RANK.selected, { locked: lockedA, violated: !!badA, onClick: tool === 'select' ? (e) => startEditOpening(o, 'a', e) : undefined, wrap: { kind: 'opening', id: o.id, cursor: 'ew-resize' } })
+    if (sel) chip('opening:' + o.id + ':w', f.start, f.end, f.n, DIM_GAP, formatLength(o.width, units), RANK.selected, { muted: true, wrap: { kind: 'opening', id: o.id, cursor: 'ew-resize' } })
+    if (f.fromB > 0.01 && (sel || lockedB))
+      chip('opening:' + o.id + ':b', f.end, f.face.b, f.n, DIM_GAP, formatLength(f.fromB, units), lockedB ? RANK.rule : RANK.selected, { locked: lockedB, violated: !!badB, onClick: tool === 'select' ? (e) => startEditOpening(o, 'b', e) : undefined, wrap: { kind: 'opening', id: o.id, cursor: 'ew-resize' } })
+  }
+
+  // chained strings outside the envelope: one run per bay, and the overall size outboard of it.
+  // The string sits a fixed number of screen pixels off the building, clear of the wall chips.
+  const stringGap = Math.max(36 * px, DIM_GAP + 20 * px)
+  const overallGap = stringGap + 36 * px
+  const marginGap = (labelDensity === 'working' ? overallGap : stringGap) + 30 * px
+  /** the string's line and ticks, drawn once per side so a bay left unnumbered still has its ticks */
+  const stringLines: React.ReactNode[] = []
+  /** is this run of the string exactly an outer face that already carries its own chip? */
+  const alreadyChipped = (p1: Vec2, p2: Vec2, n: Vec2) =>
+    chippedFaces.some((f) => dot(f.n, n) > 0.99 && ((dist(f.a, p1) < 0.03 && dist(f.b, p2) < 0.03) || (dist(f.a, p2) < 0.03 && dist(f.b, p1) < 0.03)))
+  if (envelope && labelDensity !== 'all') {
+    for (const str of strings) {
+      const chained = labelDensity === 'working' && str.runs.length > 1
+      if (chained) {
+        const a = add(onSide(str.side, envelope, str.overall.from), scale(str.normal, stringGap))
+        const b = add(onSide(str.side, envelope, str.overall.to), scale(str.normal, stringGap))
+        stringLines.push(
+          <g key={'string:' + str.side} style={{ pointerEvents: 'none' }}>
+            <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#b9bcc2" strokeWidth={px} />
+            {str.ticks.map((t) => {
+              const c = add(onSide(str.side, envelope, t), scale(str.normal, stringGap))
+              const k = scale(str.normal, 6 * px)
+              return <line key={t} x1={c.x - k.x} y1={c.y - k.y} x2={c.x + k.x} y2={c.y + k.y} stroke="#b9bcc2" strokeWidth={px} />
+            })}
+          </g>,
+        )
+        for (const run of str.runs) {
+          const text = formatLength(run.length, units)
+          const p1 = onSide(str.side, envelope, run.from)
+          const p2 = onSide(str.side, envelope, run.to)
+          if (alreadyChipped(p1, p2, str.normal)) continue // its wall's chip, right next to it, is the number
+          const { width } = dimensionChipSize(text, px)
+          const key = `chain:${str.side}:${run.from.toFixed(3)}`
+          if (run.length >= width + 8 * px) chip(key, p1, p2, str.normal, stringGap, text, RANK.derived)
+          else {
+            // a bay too short for its number: the number goes out to the margin on a leader
+            const mid = add(scale(add(p1, p2), 0.5), scale(str.normal, stringGap))
+            leaderChip(key, mid, add(scale(add(p1, p2), 0.5), scale(str.normal, marginGap)), [text], RANK.derived, run.length)
+          }
+        }
+      }
+      const o1 = onSide(str.side, envelope, str.overall.from)
+      const o2 = onSide(str.side, envelope, str.overall.to)
+      if (!chained && alreadyChipped(o1, o2, str.normal)) continue
+      chip(`overall:${str.side}`, o1, o2, str.normal, chained ? overallGap : stringGap, formatLength(str.overall.length, units), RANK.derived)
+    }
+  }
+
+  // room names and areas, in the room when they fit and led out to the margin when they do not
+  for (const [i, r] of rooms.entries()) {
+    const name = roomName(plan, r, i)
+    const area = formatArea(r.area, units)
+    const w = Math.max(name.length * 7.2, area.length * 6.2) * px
+    const h = 34 * px
+    const rect = { x: r.centroid.x - w / 2, y: r.centroid.y - h / 2, w, h }
+    const corners = [
+      { x: rect.x, y: rect.y },
+      { x: rect.x + w, y: rect.y },
+      { x: rect.x + w, y: rect.y + h },
+      { x: rect.x, y: rect.y + h },
+    ]
+    if (!envelope || corners.every((c) => pointInPolygon(c, r.polygon))) {
+      labels.push({
+        key: 'room:' + r.id,
+        rect,
+        rank: RANK.room,
+        length: r.area,
+        dot: r.centroid,
+        value: `${name} · ${area}`,
+        node: (
+          <g key={'room:' + r.id} style={{ pointerEvents: 'none' }}>
+            <text x={r.centroid.x} y={r.centroid.y - 8 * px} fontSize={12.5 * px} fontWeight={600} textAnchor="middle" dominantBaseline="central" fill="#5d5240" stroke="white" strokeWidth={3 * px} paintOrder="stroke" fontFamily="ui-sans-serif, system-ui, sans-serif">
+              {name}
+            </text>
+            <text x={r.centroid.x} y={r.centroid.y + 8 * px} fontSize={11 * px} textAnchor="middle" dominantBaseline="central" fill="#7d7160" stroke="white" strokeWidth={3 * px} paintOrder="stroke" fontFamily="ui-sans-serif, system-ui, sans-serif">
+              {area}
+            </text>
+          </g>
+        ),
+      })
+    } else {
+      const side = nearestSide(r.centroid, envelope)
+      const along = side === 'top' || side === 'bottom' ? r.centroid.x : r.centroid.y
+      const edge = onSide(side, envelope, along)
+      const n = { top: { x: 0, y: -1 }, bottom: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } }[side]
+      leaderChip('room:' + r.id, r.centroid, add(edge, scale(n, marginGap)), [name, area], RANK.room, r.area)
+    }
+  }
+
+  const culled = cullLabels(labels, 2 * px)
+  const keptKeys = new Set(culled.kept.map((l) => l.key))
+  const droppedLabels = labels.filter((l) => !keptKeys.has(l.key))
+  const shownCount = culled.kept.length
+  const hiddenCount = droppedLabels.length
+  useEffect(() => setLabelStats({ shown: shownCount, hidden: hiddenCount }), [shownCount, hiddenCount, setLabelStats])
 
   return (
     <div ref={containerRef} className="editor2d" style={{ cursor: cursorStyle }}>
@@ -1084,72 +1288,6 @@ export function Editor2D() {
               return <polygon points={g.corners.map((p) => `${p.x},${p.y}`).join(' ')} fill="rgba(47,111,237,0.35)" stroke="#2f6fed" strokeWidth={px} style={{ pointerEvents: 'none' }} />
             })()}
 
-          {/* wall dimensions */}
-          {Object.values(plan.walls).map((w) => {
-            const a = plan.points[w.a]
-            const b = plan.points[w.b]
-            const lc = lengthConstraintFor(w.id)
-            const side = wallSide(w)
-            const n = sideNormal(plan, w, side)
-            const face = wallFace(plan, w, side)
-            if (face.length < 0.01) return null
-            const badges = wallBadges(w.id)
-            const mid = scale(add(face.a, face.b), 0.5)
-            const badgePos = add(mid, scale(n, DIM_GAP + 14 * px))
-            const u = normalize(sub(b, a))
-            return (
-              <g key={w.id}>
-                {/* the label belongs to its wall: a plain click selects the wall, ⌥ + click edits the length */}
-                <g data-kind="wall" data-id={w.id} style={{ cursor: tool === 'select' ? 'move' : undefined }}>
-                  <Dimension
-                    p1={face.a}
-                    p2={face.b}
-                    side={n}
-                    distance={DIM_GAP}
-                    text={formatLength(face.length, units)}
-                    px={px}
-                    locked={!!lc}
-                    violated={!!lc && violated.has(lc.id)}
-                    onClick={tool === 'select' ? (e) => startEditWall(w, e) : undefined}
-                    editHeld={alt}
-                  />
-                </g>
-                {badges.map((bd, i) => {
-                  const p = add(badgePos, scale(u, (i - (badges.length - 1) / 2) * 16 * px))
-                  return (
-                    <g key={bd.id} transform={`translate(${p.x} ${p.y})`} style={{ pointerEvents: 'none' }}>
-                      <circle r={7 * px} fill={bd.violated ? '#d7263d' : '#1d6fe0'} />
-                      <text fontSize={9 * px} textAnchor="middle" dominantBaseline="central" fill="white" fontFamily="ui-sans-serif, system-ui, sans-serif" fontWeight={600}>
-                        {bd.label}
-                      </text>
-                    </g>
-                  )
-                })}
-              </g>
-            )
-          })}
-
-          {/* opening dimensions for selected openings */}
-          {selectedOpenings.map((o) => {
-            if (!plan.walls[o.wallId]) return null
-            const f = openingFace(o)
-            const cs = constraintsReferencing(plan, { openings: [o.id] })
-            const ca = cs.find((c) => c.type === 'openingOffsetA')
-            const cb = cs.find((c) => c.type === 'openingOffsetB')
-            const cc = cs.find((c) => c.type === 'openingCentered')
-            return (
-              <g key={o.id} data-kind="opening" data-id={o.id}>
-                {f.fromA > 0.01 && (
-                  <Dimension p1={f.face.a} p2={f.start} side={f.n} distance={DIM_GAP} text={formatLength(f.fromA, units)} px={px} locked={!!ca || !!cc} violated={(ca && violated.has(ca.id)) || (cc && violated.has(cc.id))} onClick={tool === 'select' ? (e) => startEditOpening(o, 'a', e) : undefined} editHeld={alt} />
-                )}
-                <Dimension p1={f.start} p2={f.end} side={f.n} distance={DIM_GAP} text={formatLength(o.width, units)} px={px} muted />
-                {f.fromB > 0.01 && (
-                  <Dimension p1={f.end} p2={f.face.b} side={f.n} distance={DIM_GAP} text={formatLength(f.fromB, units)} px={px} locked={!!cb || !!cc} violated={(cb && violated.has(cb.id)) || (cc && violated.has(cc.id))} onClick={tool === 'select' ? (e) => startEditOpening(o, 'b', e) : undefined} editHeld={alt} />
-                )}
-              </g>
-            )
-          })}
-
           {/* points */}
           <g data-export="skip">
           {Object.values(plan.points).map((p) => {
@@ -1211,17 +1349,47 @@ export function Editor2D() {
               <CommentPin key={c.id} comment={c} px={px} open={openComment === c.id} interactive={tool === 'select' || tool === 'comment'} onOpen={() => (setComposer(null), setOpenComment(openComment === c.id ? null : c.id))} />
             ))}
           </g>
-          {/* room names and areas, above the furniture */}
-          {rooms.map((r, i) => (
-            <g key={'label' + r.id} style={{ pointerEvents: 'none' }}>
-              <text x={r.centroid.x} y={r.centroid.y - 8 * px} fontSize={12.5 * px} fontWeight={600} textAnchor="middle" dominantBaseline="central" fill="#5d5240" stroke="white" strokeWidth={3 * px} paintOrder="stroke" fontFamily="ui-sans-serif, system-ui, sans-serif">
-                {roomName(plan, r, i)}
-              </text>
-              <text x={r.centroid.x} y={r.centroid.y + 8 * px} fontSize={11 * px} textAnchor="middle" dominantBaseline="central" fill="#7d7160" stroke="white" strokeWidth={3 * px} paintOrder="stroke" fontFamily="ui-sans-serif, system-ui, sans-serif">
-                {formatArea(r.area, units)}
-              </text>
+          {/* every number on the plan, laid out so none overlaps another; the losers keep a dot that says the value on hover */}
+          <g>{stringLines}</g>
+          <g>{labels.filter((l) => keptKeys.has(l.key)).map((l) => l.node)}</g>
+          <g data-export="skip">
+            {droppedLabels.map((l) => (
+              <circle key={'dot:' + l.key} cx={l.dot.x} cy={l.dot.y} r={4 * px} fill="#8b9099" stroke="#fff" strokeWidth={px} style={{ pointerEvents: 'auto' }}>
+                <title>{l.value}</title>
+              </circle>
+            ))}
+          </g>
+          {/* the rule under the pointer in a list: its geometry lit, and its badge drawn where you asked for it */}
+          {litRule && (
+            <g data-export="skip" style={{ pointerEvents: 'none' }}>
+              {litTargets.map((t) => {
+                const color = violated.has(litRule.id) ? 'rgba(215,38,61,0.35)' : 'rgba(47,111,237,0.35)'
+                if (t.kind === 'wall' && plan.walls[t.id]) return <polygon key={'lit' + t.id} points={wallPolygon(plan, plan.walls[t.id]).map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke={color} strokeWidth={9 * px} strokeLinejoin="round" />
+                if (t.kind === 'point' && plan.points[t.id]) return <circle key={'lit' + t.id} cx={plan.points[t.id].x} cy={plan.points[t.id].y} r={9 * px} fill={color} />
+                if (t.kind === 'opening' && plan.openings[t.id]) {
+                  const g = openingGeometry(plan, plan.openings[t.id])
+                  return g ? <polygon key={'lit' + t.id} points={g.corners.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke={color} strokeWidth={9 * px} strokeLinejoin="round" /> : null
+                }
+                if (t.kind === 'furniture' && plan.furniture[t.id]) return <polygon key={'lit' + t.id} points={furnitureCorners(plan.furniture[t.id]).map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke={color} strokeWidth={9 * px} strokeLinejoin="round" />
+                return null
+              })}
+              {RULE_BADGES[litRule.type] &&
+                litTargets
+                  .filter((t) => t.kind === 'wall' && plan.walls[t.id])
+                  .map((t) => {
+                    const w = plan.walls[t.id]
+                    const p = scale(add(plan.points[w.a], plan.points[w.b]), 0.5)
+                    return (
+                      <g key={'badge' + t.id} transform={`translate(${p.x} ${p.y})`}>
+                        <circle r={8 * px} fill={violated.has(litRule.id) ? '#d7263d' : '#2f6fed'} />
+                        <text fontSize={9.5 * px} textAnchor="middle" dominantBaseline="central" fill="white" fontFamily="ui-sans-serif, system-ui, sans-serif" fontWeight={600}>
+                          {RULE_BADGES[litRule.type]}
+                        </text>
+                      </g>
+                    )
+                  })}
             </g>
-          ))}
+          )}
           {/* measurement between walls, above everything on the plan */}
           {gapPair && (
             <g data-export="skip">
@@ -1325,56 +1493,91 @@ function EditBox({ screen, initial, units, onCommit, onCancel }: { screen: Vec2;
   )
 }
 
-const SHORTCUTS: [string, string][] = [
-  ['V', 'Select / move'],
-  ['W', 'Wall'],
-  ['D', 'Door'],
-  ['N', 'Window'],
-  ['H', 'Hand (pan)'],
-  ['Space + drag', 'Pan'],
-  ['Scroll', 'Pan'],
-  ['Ctrl / ⌘ + scroll, pinch', 'Zoom'],
-  ['+ / −', 'Zoom in / out'],
-  ['Shift + 0', 'Zoom to 100%'],
-  ['Shift + 1', 'Zoom to fit'],
-  ['⌥ + click a measurement', 'Type a length and lock it'],
-  ['⌥ + hover', 'Distance from the selected wall to another wall'],
-  ['⌥ + click that wall', 'Type the distance between the two walls and lock it'],
-  ['Esc / Enter / right-click', 'Finish drawing walls'],
-  ['C', 'Comment: click on the plan to pin one'],
-  ['Shift + 2', 'Zoom to selection'],
-  ['Shift + click', 'Add to selection'],
-  ['Drag on empty space', 'Marquee select'],
-  ['Ctrl / ⌘ + A', 'Select all'],
-  ['Arrows', 'Nudge 5 cm (Shift: 50 cm)'],
-  ['Shift while drawing', 'Constrain to 45°'],
-  ['Ctrl / ⌘ while drawing', 'Disable snapping'],
-  ['Enter / Esc', 'Finish wall chain'],
-  ['Esc', 'Deselect, back to Select'],
-  ['Delete', 'Delete selection'],
-  ['Ctrl / ⌘ + Z', 'Undo'],
-  ['Ctrl / ⌘ + Shift + Z', 'Redo'],
-  ['PageUp / PageDown', 'Floor above / below'],
-  ['?', 'This panel'],
+/** grouped the way the app is: what you pick, how you look, what you measure, how you draw and edit */
+const SHORTCUTS: { title: string; keys: [string, string][] }[] = [
+  {
+    title: 'Tools',
+    keys: [
+      ['V', 'Select / move'],
+      ['W', 'Wall'],
+      ['D', 'Door'],
+      ['N', 'Window'],
+      ['F', 'Furniture'],
+      ['C', 'Comment: click on the plan to pin one'],
+      ['H', 'Hand (pan)'],
+      ['Esc', 'Deselect, back to Select'],
+    ],
+  },
+  {
+    title: 'View',
+    keys: [
+      ['Scroll', 'Pan'],
+      ['Space + drag', 'Pan'],
+      ['Ctrl / ⌘ + scroll, pinch', 'Zoom'],
+      ['+ / −', 'Zoom in / out'],
+      ['Shift + 0', 'Zoom to 100%'],
+      ['Shift + 1', 'Zoom to fit'],
+      ['Shift + 2', 'Zoom to selection'],
+      ['Shift + D', 'Measurements: overall → working → all'],
+      ['PageUp / PageDown', 'Floor above / below'],
+    ],
+  },
+  {
+    title: 'Measure',
+    keys: [
+      ['⌥ + click a measurement', 'Type a length and lock it'],
+      ['⌥ + hover', 'Distance from the selected wall to another wall'],
+      ['⌥ + click that wall', 'Type the distance between the two walls and lock it'],
+    ],
+  },
+  {
+    title: 'Draw',
+    keys: [
+      ['Shift while drawing', 'Constrain to 45°'],
+      ['Ctrl / ⌘ while drawing', 'Disable snapping'],
+      ['Esc / Enter / right-click', 'Finish drawing walls'],
+      ['R', 'Rotate the furniture being placed or selected'],
+    ],
+  },
+  {
+    title: 'Edit',
+    keys: [
+      ['Shift + click', 'Add to selection'],
+      ['Drag on empty space', 'Marquee select'],
+      ['Ctrl / ⌘ + A', 'Select all'],
+      ['Arrows', 'Nudge 5 cm (Shift: 50 cm)'],
+      ['Delete', 'Delete selection'],
+      ['Ctrl / ⌘ + Z', 'Undo'],
+      ['Ctrl / ⌘ + Shift + Z', 'Redo'],
+      ['?', 'This panel'],
+    ],
+  },
 ]
 
 function ShortcutsPanel({ onClose }: { onClose: () => void }) {
+  // the conflict card has the same corner; when one is showing, the sheet takes the slot below it
+  const conflictShowing = useEditor((s) => s.report.violated.size > 0)
   return (
-    <div className="shortcuts" onPointerDown={(e) => e.stopPropagation()}>
+    <div className={`shortcuts ${conflictShowing ? 'below-conflict' : ''}`} onPointerDown={(e) => e.stopPropagation()}>
       <div className="shortcuts-head">
         <strong>Keyboard shortcuts</strong>
         <button className="x" onClick={onClose} title="Close (Esc)">
           <Icon name="close" size={15} strokeWidth={2} />
         </button>
       </div>
-      <div className="shortcuts-grid">
-        {SHORTCUTS.map(([k, label]) => (
-          <div key={k} className="shortcut">
-            <kbd>{k}</kbd>
-            <span>{label}</span>
+      {SHORTCUTS.map((group) => (
+        <div key={group.title} className="shortcuts-group">
+          <h4>{group.title}</h4>
+          <div className="shortcuts-grid">
+            {group.keys.map(([k, label]) => (
+              <div key={k} className="shortcut">
+                <kbd>{k}</kbd>
+                <span>{label}</span>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </div>
+      ))}
     </div>
   )
 }

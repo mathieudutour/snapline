@@ -37,6 +37,8 @@ const PATHS = {
   equal: 'M5 9h14M5 15h14',
   angle: 'M5 19h14M5 19 16 6M9 19a5 5 0 0 0 1.6-3.6',
   dimension: 'M3 12h18M3 8v8M21 8v8',
+  /** three ticks on a line: the density of measurements shown, not a single dimension */
+  density: 'M3 12h18M7 8v8M12 8v8M17 8v8',
   anchor: 'M12 8v12M12 8a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5M5 13a7 7 0 0 0 14 0',
 
   // actions
@@ -58,6 +60,8 @@ const PATHS = {
   eye: 'M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Zm10 2.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z',
   chevronRight: 'm9 5 7 7-7 7',
   chevronDown: 'm5 9 7 7 7-7',
+  /** the fit-to-view corners; "dimension" used to stand in for it and read as "show dimensions" */
+  fit: 'M4 9V4h5M20 15v5h-5M4 15v5h5M20 9V4h-5',
 
   // export formats
   filePdf: 'M6 2h8l4 4v16H6zM14 2v5h5',

@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { nextDensity, type LabelDensity } from '../editor/labels'
 import type { Author, Constraint, ConstraintInput, Furniture, Opening, OpeningKind, Plan, PlanPoint, Room, Vec2, Wall } from './types'
 import { roomLabel } from './rooms'
 import { CATALOG_BY_KEY } from '../furniture/catalog'
@@ -132,8 +133,27 @@ export interface EditorState {
   lastSaved: number
   /** bumped whenever a whole new plan is loaded so the editor zooms to fit */
   fitVersion: number
+  /** a zoom the view pill asked for (pixels per metre); the canvas applies it when the version changes */
+  zoomRequest: { scale: number; version: number }
+  requestZoom: (scale: number) => void
   showShortcuts: boolean
   toggleShortcuts: (v?: boolean) => void
+  /**
+   * How many measurements the plan draws — a property of the view, persisted with the other
+   * view preferences, never in the project file. See src/editor/labels.ts.
+   */
+  labelDensity: LabelDensity
+  setLabelDensity: (d: LabelDensity) => void
+  cycleLabelDensity: () => void
+  /** labels kept and dropped by the collision cull, for the view pill's title */
+  labelStats: { shown: number; hidden: number }
+  setLabelStats: (v: { shown: number; hidden: number }) => void
+  /** the rule under the pointer in a list: the canvas lights its geometry and draws its badge */
+  hoverRule: string | null
+  setHoverRule: (id: string | null) => void
+  /** what the left panel shows under the floors */
+  leftTab: 'plan' | 'rules' | 'notes'
+  setLeftTab: (tab: 'plan' | 'rules' | 'notes') => void
   /** catalogue key of the piece being placed with the furniture tool */
   placing: string | null
   setPlacing: (key: string | null) => void
@@ -232,9 +252,10 @@ interface Prefs {
   snapGrid: boolean
   autoHV: boolean
   showFloorBelow: boolean
+  labelDensity: LabelDensity
 }
 function loadPrefs(): Prefs {
-  const d: Prefs = { units: 'm', snapGrid: true, autoHV: true, showFloorBelow: true }
+  const d: Prefs = { units: 'm', snapGrid: true, autoHV: true, showFloorBelow: true, labelDensity: 'working' }
   const raw = readJson<Partial<Prefs>>(PREFS_KEY)
   return raw ? { ...d, ...raw } : d
 }
@@ -524,7 +545,7 @@ export const useEditor = create<EditorState>((set, get) => {
   const prefs = loadPrefs()
   const persistPrefs = () => {
     const s = get()
-    savePrefs({ units: s.units, snapGrid: s.snapGrid, autoHV: s.autoHV, showFloorBelow: s.showFloorBelow })
+    savePrefs({ units: s.units, snapGrid: s.snapGrid, autoHV: s.autoHV, showFloorBelow: s.showFloorBelow, labelDensity: s.labelDensity })
   }
   const index = loadIndex()
   let initialProject = (index.activeId && loadProject(index.activeId)) || null
@@ -1031,8 +1052,30 @@ export const useEditor = create<EditorState>((set, get) => {
     dragSnapshot: null,
     lastSaved: Date.now(),
     fitVersion: 0,
+    zoomRequest: { scale: 0, version: 0 },
+    requestZoom: (scale) => set({ zoomRequest: { scale, version: get().zoomRequest.version + 1 } }),
     showShortcuts: false,
     toggleShortcuts: (v) => set({ showShortcuts: v ?? !get().showShortcuts }),
+    labelDensity: prefs.labelDensity,
+    setLabelDensity: (labelDensity) => {
+      set({ labelDensity })
+      persistPrefs()
+    },
+    cycleLabelDensity: () => {
+      set({ labelDensity: nextDensity(get().labelDensity) })
+      persistPrefs()
+    },
+    labelStats: { shown: 0, hidden: 0 },
+    setLabelStats: (labelStats) => {
+      const cur = get().labelStats
+      if (cur.shown !== labelStats.shown || cur.hidden !== labelStats.hidden) set({ labelStats })
+    },
+    hoverRule: null,
+    setHoverRule: (hoverRule) => {
+      if (get().hoverRule !== hoverRule) set({ hoverRule })
+    },
+    leftTab: 'plan',
+    setLeftTab: (leftTab) => set({ leftTab }),
     placing: null,
     setPlacing: (placing) => set({ placing }),
 
@@ -1565,7 +1608,7 @@ export const useEditor = create<EditorState>((set, get) => {
     },
     importUnderlay: async (file) => {
       if (readOnly()) return
-      const { blob, width, height } = await rasterize(file)
+      const { blob, width, height, texts } = await rasterize(file)
       const key = newFileKey()
       await addFile(key, blob)
       const { project, activeFloorId, plan } = get()
@@ -1576,7 +1619,7 @@ export const useEditor = create<EditorState>((set, get) => {
       const pts = Object.values(plan.points)
       const cx = pts.length ? pts.reduce((a, p) => a + p.x, 0) / pts.length : 6
       const cy = pts.length ? pts.reduce((a, p) => a + p.y, 0) / pts.length : 4
-      const underlay: Underlay = { key, name: file.name, width, height, scale, x: cx - (width * scale) / 2, y: cy - (height * scale) / 2, rotation: 0, opacity: 0.6, locked: false }
+      const underlay: Underlay = { key, name: file.name, width, height, scale, x: cx - (width * scale) / 2, y: cy - (height * scale) / 2, rotation: 0, opacity: 0.6, locked: false, ...(texts.length > 0 ? { texts: texts.slice(0, 200) } : {}) }
       if (floor.underlay) void removeFile(floor.underlay.key)
       commitProject({ ...project, floors: project.floors.map((f) => (f.id === floor.id ? { ...f, underlay } : f)) })
       if (get().user && !get().viewLink) await putProjectFile(project.id, key, blob).catch(() => set({ notice: 'The underlay stays on this device: it could not be uploaded to the account.' }))

@@ -125,7 +125,11 @@ input[type='number'] {
 }
 
 /* ==========================================================================
-   Buttons — three variants and no more.
+   Buttons — three variants and no more, plus one state.
+
+   .active is a state, not a variant: the pressed tool in the bottom bar and the chosen
+   segment in a .seg. It is scoped to those two, so nothing else can pick it up and
+   turn into a fourth filled button that is indistinguishable from .primary.
 
    primary   the one action the sheet is for
    secondary the default: bordered, white
@@ -211,12 +215,6 @@ button.x:hover:not(:disabled) {
 .button.large {
   padding: 13px 20px;
   font-size: 15px;
-}
-button.active,
-button.active:hover:not(:disabled) {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: white;
 }
 .icon-btn {
   padding: 4px;
@@ -528,7 +526,8 @@ kbd {
   margin-left: 3px;
   color: var(--muted);
 }
-button.active kbd {
+.bottom-bar button.active kbd,
+.seg button.active kbd {
   background: rgba(255, 255, 255, 0.2);
   border-color: rgba(255, 255, 255, 0.35);
   color: white;
@@ -824,6 +823,28 @@ fieldset.plain:disabled {
   display: flex;
   width: 100%;
 }
+/* Plan / Rules / Notes under the floors: the same switch as the inspector's, with the counts that matter */
+.panel-tabs {
+  display: flex;
+  margin: 2px 12px 6px;
+}
+.panel-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 8px;
+  font-size: 12.5px;
+}
+.panel-tabs .count {
+  padding: 0 6px;
+  font-size: 10.5px;
+  line-height: 16px;
+}
+.panel-tabs .count.bad {
+  background: var(--danger-soft);
+  color: var(--danger-ink);
+}
 .props {
   padding: 12px 14px;
   border-bottom: 1px solid var(--border-soft);
@@ -959,6 +980,10 @@ fieldset.plain:disabled {
   line-height: 0;
   flex: none;
 }
+.rule-row:hover {
+  border-color: var(--accent-line);
+  background: var(--accent-tint);
+}
 .rule-row.bad {
   border-color: var(--danger-line);
   background: var(--danger-soft);
@@ -1045,6 +1070,14 @@ fieldset.plain:disabled {
 }
 .canvas-chrome.left {
   left: 14px;
+  /* its menus (floors, drawing scale) hang below it, so it cannot clip; the end items round their own corners */
+  overflow: visible;
+}
+.canvas-chrome .pill-item:first-child {
+  border-radius: var(--r) 0 0 var(--r);
+}
+.canvas-chrome button.pill-item:last-of-type {
+  border-radius: 0 var(--r) var(--r) 0;
 }
 .canvas-chrome.right {
   right: 14px;
@@ -1064,6 +1097,20 @@ fieldset.plain:disabled {
 }
 .canvas-chrome .pill-item.num {
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.canvas-chrome .pill-item.density {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+}
+.canvas-chrome .pill-item.density svg {
+  color: var(--accent);
+}
+.menu-item.num {
+  font-family: var(--mono);
+  font-size: 12px;
 }
 .canvas-chrome .pill-sep {
   width: 1px;
@@ -1097,7 +1144,8 @@ fieldset.plain:disabled {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  z-index: 6;
+  /* above the shortcuts sheet, which shares this corner: the conflict is the more urgent of the two */
+  z-index: 7;
 }
 .conflict-card .conflict-title {
   display: flex;
@@ -1216,13 +1264,19 @@ fieldset.plain:disabled {
   background: var(--accent);
   color: white;
 }
+/* the key on each tool: 10 px at full colour, and only where it is readable — white on the
+   active accent at 8 px was decoration, and the title already carries the key */
 .tool-key {
   position: absolute;
   right: 4px;
   bottom: 2px;
-  font-size: 8px;
+  font-size: 10px;
+  line-height: 1;
   font-family: var(--mono);
-  opacity: 0.55;
+  color: var(--muted);
+}
+.bottom-bar button.active .tool-key {
+  display: none;
 }
 .bar-sep {
   width: 1px;
@@ -1354,11 +1408,26 @@ fieldset.plain:disabled {
   padding: 12px 14px;
   z-index: 6;
 }
+.shortcuts.below-conflict {
+  top: 190px;
+  max-height: calc(100% - 204px);
+}
 .shortcuts-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
+}
+.shortcuts-group + .shortcuts-group {
+  margin-top: 12px;
+}
+.shortcuts-group h4 {
+  margin: 0 0 5px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--faint);
+  font-weight: 700;
 }
 .shortcuts-grid {
   display: grid;

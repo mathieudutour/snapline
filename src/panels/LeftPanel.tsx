@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { isReadOnly, useEditor } from '../model/store'
-import { Hierarchy } from './Hierarchy'
+import { NotesList, PlanTree, RulesList } from './Hierarchy'
 import { CataloguePanel } from './Sidebar'
 import { ShareDialog } from './Share'
 import { ExportDialog } from './Export'
@@ -171,6 +171,39 @@ function FloorsList() {
   )
 }
 
+/**
+ * Under the floors, three views of the same floor: the plan's tree, its rules and its notes.
+ * The rules used to be one group at the bottom of the tree; once a rule lights its geometry
+ * on hover, forty of them are a view in their own right, not a folder three levels down.
+ */
+function LayerTabs() {
+  const leftTab = useEditor((s) => s.leftTab)
+  const setLeftTab = useEditor((s) => s.setLeftTab)
+  const rules = useEditor((s) => Object.keys(s.plan.constraints).length)
+  const violated = useEditor((s) => s.report.violated.size)
+  const notes = useEditor((s) => Object.values(s.plan.comments ?? {}).filter((c) => !c.resolved).length)
+  const tabs: { id: 'plan' | 'rules' | 'notes'; label: string; count?: number; bad?: boolean }[] = [
+    { id: 'plan', label: 'Plan' },
+    { id: 'rules', label: 'Rules', count: rules, bad: violated > 0 },
+    { id: 'notes', label: 'Notes', count: notes },
+  ]
+  return (
+    <div className="section">
+      <div className="seg panel-tabs">
+        {tabs.map((t) => (
+          <button key={t.id} className={leftTab === t.id ? 'active' : ''} onClick={() => setLeftTab(t.id)}>
+            {t.label}
+            {t.count ? <span className={`count ${t.bad ? 'bad' : ''}`}>{t.count}</span> : null}
+          </button>
+        ))}
+      </div>
+      {leftTab === 'plan' && <PlanTree />}
+      {leftTab === 'rules' && <RulesList />}
+      {leftTab === 'notes' && <NotesList />}
+    </div>
+  )
+}
+
 export function LeftPanel() {
   const railTab = useEditor((s) => s.railTab)
   return (
@@ -183,12 +216,7 @@ export function LeftPanel() {
       ) : (
         <div className="panel-scroll">
           <FloorsList />
-          <div className="section">
-            <div className="section-head">
-              <span>Layers</span>
-            </div>
-            <Hierarchy />
-          </div>
+          <LayerTabs />
         </div>
       )}
     </aside>

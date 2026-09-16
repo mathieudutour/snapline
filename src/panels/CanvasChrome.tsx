@@ -3,9 +3,8 @@ import { isReadOnly, useEditor } from '../model/store'
 import { AccountButton } from './Account'
 import { PeerAvatars } from '../editor/Peers'
 import { Icon, WarningIcon } from '../brand/Icons'
-import { describeConstraint } from '../model/constraints'
-import type { Constraint } from '../model/types'
-import type { SelectionItem } from '../model/store'
+import { constraintTargets, describeConstraint } from '../model/constraints'
+import { DENSITY_HINTS, DENSITY_LABELS, drawingScale, DRAWING_SCALES, zoomForScale } from '../editor/labels'
 
 /** a CSS pixel is 1/96 in, so a metre drawn `zoom` px across is `zoom / 3.7795` mm on the glass */
 const PX_PER_MM = 96 / 25.4
@@ -30,28 +29,34 @@ export function CanvasChrome() {
   )
 }
 
-/** floor · zoom · the scale the plan is actually drawn at */
+/** floor · zoom · the scale the plan is drawn at · how many measurements it shows */
 function ViewPill() {
   const floors = useEditor((s) => s.project.floors)
   const activeFloorId = useEditor((s) => s.activeFloorId)
   const setActiveFloor = useEditor((s) => s.setActiveFloor)
   const zoom = useEditor((s) => s.zoomLevel)
   const requestFit = useEditor((s) => s.requestFit)
-  const [open, setOpen] = useState(false)
+  const requestZoom = useEditor((s) => s.requestZoom)
+  const density = useEditor((s) => s.labelDensity)
+  const cycleDensity = useEditor((s) => s.cycleLabelDensity)
+  const labelStats = useEditor((s) => s.labelStats)
+  const [open, setOpen] = useState<'floors' | 'scale' | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
     const close = (e: PointerEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+      if (!ref.current?.contains(e.target as Node)) setOpen(null)
     }
     window.addEventListener('pointerdown', close)
     return () => window.removeEventListener('pointerdown', close)
   }, [open])
   const floor = floors.find((f) => f.id === activeFloorId)
-  const denominator = zoom > 0 ? Math.round(1000 / (zoom / PX_PER_MM)) : 0
+  // a drawing scale is a conventional value: 1:83 as you scroll implies a precision the screen has not got
+  const scale = drawingScale(zoom, PX_PER_MM)
+  const hidden = labelStats.hidden > 0 ? `, ${labelStats.hidden} hidden so none overlap` : ''
   return (
     <div className="canvas-chrome left popover-anchor" ref={ref}>
-      <button className="pill-item strong" onClick={() => setOpen((o) => !o)} title="Switch floor (PageUp / PageDown)">
+      <button className="pill-item strong" onClick={() => setOpen((o) => (o === 'floors' ? null : 'floors'))} title="Switch floor (PageUp / PageDown)">
         {floor?.name ?? 'Floor'}
       </button>
       <span className="pill-sep" />
@@ -59,19 +64,34 @@ function ViewPill() {
         {Math.round(zoom)}%
       </span>
       <span className="pill-sep" />
-      <span className="pill-item num" title="The scale the plan is drawn at on a 96 dpi screen">
-        1:{denominator || '—'}
-      </span>
+      <button className="pill-item num" onClick={() => setOpen((o) => (o === 'scale' ? null : 'scale'))} title={scale.approx ? `Drawn at about 1:${scale.exact} on a 96 dpi screen — pick a scale to zoom to` : `Drawn at 1:${scale.nearest} on a 96 dpi screen — pick a scale to zoom to`}>
+        {scale.nearest ? `${scale.approx ? '≈ ' : ''}1:${scale.nearest}` : '1:—'}
+      </button>
+      <span className="pill-sep" />
+      <button className="pill-item density" onClick={cycleDensity} title={`Measurements: ${DENSITY_LABELS[density].toLowerCase()} — ${DENSITY_HINTS[density]} (${labelStats.shown} shown${hidden}). Shift+D cycles.`}>
+        <Icon name="density" size={15} />
+        {DENSITY_LABELS[density]}
+      </button>
       <span className="pill-sep" />
       <button className="pill-item" onClick={requestFit} title="Zoom to fit (Shift+1)">
-        <Icon name="dimension" size={15} title="Zoom to fit" />
+        <Icon name="fit" size={15} title="Zoom to fit" />
       </button>
-      {open && (
+      {open === 'floors' && (
         <div className="menu">
           <div className="menu-title">Floors</div>
           {[...floors].reverse().map((f) => (
-            <button key={f.id} className={`menu-item ${f.id === activeFloorId ? 'on' : ''}`} onClick={() => (setActiveFloor(f.id), setOpen(false))}>
+            <button key={f.id} className={`menu-item ${f.id === activeFloorId ? 'on' : ''}`} onClick={() => (setActiveFloor(f.id), setOpen(null))}>
               {f.name}
+            </button>
+          ))}
+        </div>
+      )}
+      {open === 'scale' && (
+        <div className="menu">
+          <div className="menu-title">Draw at</div>
+          {DRAWING_SCALES.map((d) => (
+            <button key={d} className={`menu-item num ${d === scale.nearest && !scale.approx ? 'on' : ''}`} onClick={() => (requestZoom(zoomForScale(d, PX_PER_MM)), setOpen(null))}>
+              1:{d}
             </button>
           ))}
         </div>
@@ -101,37 +121,6 @@ function PresencePill() {
   )
 }
 
-/** the geometry a rule is about, so "Show both rules" can take you to it */
-function targetsOf(c: Constraint): SelectionItem[] {
-  switch (c.type) {
-    case 'length':
-    case 'horizontal':
-    case 'vertical':
-      return [{ kind: 'wall', id: c.wallId }]
-    case 'parallel':
-    case 'perpendicular':
-    case 'equalLength':
-    case 'angle':
-    case 'wallGap':
-      return [
-        { kind: 'wall', id: c.wallA },
-        { kind: 'wall', id: c.wallB },
-      ]
-    case 'fixed':
-      return [{ kind: 'point', id: c.pointId }]
-    case 'distance':
-      return [
-        { kind: 'point', id: c.pointA },
-        { kind: 'point', id: c.pointB },
-      ]
-    case 'furnitureWallGap':
-    case 'furnitureFixed':
-      return [{ kind: 'furniture', id: c.furnitureId }]
-    default:
-      return [{ kind: 'opening', id: c.openingId }]
-  }
-}
-
 /**
  * A conflict, reported next to the conflict.
  *
@@ -155,7 +144,7 @@ function ConflictCard() {
       [...violated]
         .map((id) => plan.constraints[id])
         .filter(Boolean)
-        .map((c) => ({ id: c.id, text: describeConstraint(plan, c), targets: targetsOf(c) })),
+        .map((c) => ({ id: c.id, text: describeConstraint(plan, c), targets: constraintTargets(c) })),
     [violated, plan],
   )
   // a different set of rules is a different conflict, so dismissing one does not hide the next

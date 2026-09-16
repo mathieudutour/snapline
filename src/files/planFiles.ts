@@ -88,8 +88,12 @@ export function newFileKey(): string {
   return 'uf-' + [...buf].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-/** turn an image or PDF file into a PNG/JPEG blob with its pixel size (PDFs: first page, ~150 dpi) */
-export async function rasterize(file: File): Promise<{ blob: Blob; width: number; height: number }> {
+/**
+ * turn an image or PDF file into a PNG/JPEG blob with its pixel size (PDFs: first page, ~150 dpi).
+ * A PDF also gives up the text on its page, with each run's position in the rendered image:
+ * the room names on a plan you are tracing are usually right there.
+ */
+export async function rasterize(file: File): Promise<{ blob: Blob; width: number; height: number; texts: { text: string; x: number; y: number }[] }> {
   if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
     const pdfjs = await import('pdfjs-dist')
     const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url')
@@ -107,7 +111,21 @@ export async function rasterize(file: File): Promise<{ blob: Blob; width: number
     ctx.fillRect(0, 0, canvas.width, canvas.height)
     await page.render({ canvasContext: ctx, viewport }).promise
     const blob = await new Promise<Blob>((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error('render failed'))), 'image/png'))
-    return { blob, width: canvas.width, height: canvas.height }
+    const texts: { text: string; x: number; y: number }[] = []
+    try {
+      const content = await page.getTextContent()
+      for (const item of content.items) {
+        if (!('str' in item) || !item.transform) continue
+        const text = item.str.trim()
+        if (!text || text.length > 40 || /^[\d\s.,:;'"°×xX%/()+-]+$/.test(text)) continue // numbers and dimensions are not names
+        // the transform's translation is the run's origin in PDF space (bottom-left up); centre it on the run
+        const [x, y] = viewport.convertToViewportPoint(item.transform[4] + item.width / 2, item.transform[5] + item.height / 2)
+        texts.push({ text, x: Math.round(x), y: Math.round(y) })
+      }
+    } catch {
+      // a page without extractable text is still a fine underlay
+    }
+    return { blob, width: canvas.width, height: canvas.height, texts }
   }
   if (!/^image\/(png|jpeg|webp|gif|svg\+xml)$/.test(file.type)) throw new Error('Choose a PNG, JPEG, WebP, GIF, SVG or PDF file.')
   const url = URL.createObjectURL(file)
@@ -128,9 +146,9 @@ export async function rasterize(file: File): Promise<{ blob: Blob; width: number
       canvas.height = Math.round(height * k)
       canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height)
       const blob = await new Promise<Blob>((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error('render failed'))), 'image/png'))
-      return { blob, width: canvas.width, height: canvas.height }
+      return { blob, width: canvas.width, height: canvas.height, texts: [] }
     }
-    return { blob: file, width, height }
+    return { blob: file, width, height, texts: [] }
   } finally {
     URL.revokeObjectURL(url)
   }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { create } from 'zustand'
 
 /**
@@ -25,6 +25,8 @@ export interface AskOptions extends Omit<ConfirmOptions, 'danger'> {
   field: string
   initial?: string
   placeholder?: string
+  /** one-click answers, e.g. room names read off the underlay */
+  suggestions?: string[]
 }
 
 interface Pending extends ConfirmOptions {
@@ -76,6 +78,7 @@ export function ConfirmSheet() {
   if (!pending) return null
   const cancel = () => answer(pending.ask ? null : false)
   const accept = () => answer(pending.ask ? value : true)
+  const suggestions = pending.ask?.suggestions?.filter((s) => s !== value) ?? []
   return (
     <div className="modal-backdrop" onPointerDown={(e) => e.target === e.currentTarget && cancel()}>
       <div className="modal confirm" role={pending.ask ? 'dialog' : 'alertdialog'} aria-modal="true" aria-label={pending.title} onPointerDown={(e) => e.stopPropagation()}>
@@ -97,6 +100,15 @@ export function ConfirmSheet() {
                 </span>
               </label>
             )}
+            {suggestions.length > 0 && (
+              <div className="chips" style={{ marginTop: 8 }}>
+                {suggestions.map((s) => (
+                  <button key={s} type="button" className="chip" onClick={() => answer(s)} title="Found on the underlay">
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div className="row end">
             <button type="button" onClick={cancel}>
@@ -117,30 +129,42 @@ export function ConfirmSheet() {
  * the row becomes the field rather than opening a browser prompt somewhere else on screen.
  * Enter commits, Escape and blur-with-no-change cancel.
  */
-export function InlineRename({ value, onCommit, onCancel, placeholder }: { value: string; onCommit: (name: string) => void; onCancel: () => void; placeholder?: string }) {
+export function InlineRename({ value, onCommit, onCancel, placeholder, suggestions }: { value: string; onCommit: (name: string) => void; onCancel: () => void; placeholder?: string; suggestions?: string[] }) {
   const [text, setText] = useState(value)
+  const listId = useId()
   const commit = () => {
     const name = text.trim()
     if (name && name !== value) onCommit(name)
     else onCancel()
   }
   return (
-    <input
-      className="inline-rename"
-      autoFocus
-      value={text}
-      placeholder={placeholder}
-      onChange={(e) => setText(e.target.value)}
-      onFocus={(e) => e.target.select()}
-      onClick={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => e.stopPropagation()}
-      onPointerDown={(e) => e.stopPropagation()}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        e.stopPropagation()
-        if (e.key === 'Enter') commit()
-        if (e.key === 'Escape') onCancel()
-      }}
-    />
+    <>
+      {/* names read off the underlay, offered by the browser's own suggestion list under the field */}
+      {suggestions && suggestions.length > 0 && (
+        <datalist id={listId}>
+          {suggestions.map((s) => (
+            <option key={s} value={s} />
+          ))}
+        </datalist>
+      )}
+      <input
+        className="inline-rename"
+        autoFocus
+        list={suggestions && suggestions.length > 0 ? listId : undefined}
+        value={text}
+        placeholder={placeholder}
+        onChange={(e) => setText(e.target.value)}
+        onFocus={(e) => e.target.select()}
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          e.stopPropagation()
+          if (e.key === 'Enter') commit()
+          if (e.key === 'Escape') onCancel()
+        }}
+      />
+    </>
   )
 }
