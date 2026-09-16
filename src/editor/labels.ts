@@ -11,7 +11,7 @@
  * Everything here is pure geometry so it can be tested without a DOM.
  */
 import type { Plan, Vec2 } from '../model/types'
-import { wallPolygon } from '../model/geometry'
+import { dot, wallDir, wallPolygon } from '../model/geometry'
 
 export type LabelDensity = 'overall' | 'working' | 'all'
 
@@ -118,6 +118,8 @@ export interface ChainRun {
   from: number
   to: number
   length: number
+  /** a wall's thickness rather than the clear distance between two walls */
+  wall?: boolean
 }
 
 export interface ChainString {
@@ -181,9 +183,12 @@ function visibleFrom(plan: Plan, pointId: string, side: EnvelopeSide, env: Envel
 }
 
 /**
- * One string per side of the envelope: the corners visible from that side, projected onto
- * it, are the ticks; the runs between them are the bays. The outermost ticks are the outer
- * faces, so the string reads face to face like a tape held against the building.
+ * One string per side of the envelope, read the way a set-out drawing reads: wall, clear,
+ * wall, clear, wall. The ticks are the faces of the walls that meet that side, so every run
+ * is something a tape can be held against — the clear distance between two walls, or a
+ * wall's thickness. A tick at a wall's centreline is a number nobody can measure on site.
+ * Only corners visible from the side count, so a partition in the middle of the plan does
+ * not tick every side. The outermost ticks are the outer faces.
  */
 export function chainedStrings(plan: Plan, env: Envelope, merge = 0.02): ChainString[] {
   const polygons = Object.values(plan.walls)
@@ -191,21 +196,40 @@ export function chainedStrings(plan: Plan, env: Envelope, merge = 0.02): ChainSt
     .map((w) => ({ wallId: w.id, a: w.a, b: w.b, poly: wallPolygon(plan, w) }))
   return ENVELOPE_SIDES.map((side) => {
     const along = side === 'top' || side === 'bottom' ? 'x' : 'y'
+    const tangent = along === 'x' ? { x: 1, y: 0 } : { x: 0, y: 1 }
     const lo = along === 'x' ? env.min.x : env.min.y
     const hi = along === 'x' ? env.max.x : env.max.y
-    // a corner sits half a wall inside the outer face: that close to the end, it is the end
-    const half = (id: string) => Math.max(0, ...polygons.filter((w) => w.a === id || w.b === id).map((w) => plan.walls[w.wallId].thickness / 2))
-    const offsets = Object.values(plan.points)
-      .filter((p) => visibleFrom(plan, p.id, side, env, polygons))
-      .filter((p) => p[along] > lo + half(p.id) + merge && p[along] < hi - half(p.id) - merge)
-      .map((p) => p[along])
-      .sort((a, b) => a - b)
+    /** the two faces of each wall that runs into this side */
+    const faces: { lo: number; hi: number }[] = []
+    const offsets: number[] = []
+    for (const p of Object.values(plan.points)) {
+      if (!visibleFrom(plan, p.id, side, env, polygons)) continue
+      const at = p[along]
+      let intoSide = false
+      for (const w of polygons) {
+        if (w.a !== p.id && w.b !== p.id) continue
+        const wall = plan.walls[w.wallId]
+        // a wall running into the side (perpendicular-ish) ticks at both faces; one running along it ends here
+        if (Math.abs(dot(wallDir(plan, wall), tangent)) < 0.7) {
+          intoSide = true
+          faces.push({ lo: at - wall.thickness / 2, hi: at + wall.thickness / 2 })
+          offsets.push(at - wall.thickness / 2, at + wall.thickness / 2)
+        }
+      }
+      if (!intoSide) offsets.push(at)
+    }
+    const inside = offsets.filter((o) => o > lo + merge && o < hi - merge).sort((a, b) => a - b)
     const ticks: number[] = [lo]
-    for (const o of offsets) if (o - ticks[ticks.length - 1] > merge) ticks.push(o)
+    for (const o of inside) if (o - ticks[ticks.length - 1] > merge) ticks.push(o)
     if (hi - ticks[ticks.length - 1] > merge) ticks.push(hi)
     else ticks[ticks.length - 1] = hi
     const runs: ChainRun[] = []
-    for (let i = 1; i < ticks.length; i++) runs.push({ from: ticks[i - 1], to: ticks[i], length: ticks[i] - ticks[i - 1] })
+    for (let i = 1; i < ticks.length; i++) {
+      const from = ticks[i - 1]
+      const to = ticks[i]
+      const wall = faces.some((f) => f.lo <= from + merge && to <= f.hi + merge)
+      runs.push({ from, to, length: to - from, ...(wall ? { wall: true } : {}) })
+    }
     return { side, normal: SIDE_NORMAL[side], at: along === 'x' ? (side === 'top' ? env.min.y : env.max.y) : side === 'left' ? env.min.x : env.max.x, ticks, runs, overall: { from: lo, to: hi, length: hi - lo } }
   })
 }

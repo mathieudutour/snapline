@@ -45,19 +45,21 @@ describe('envelope and chained strings', () => {
     expect(planEnvelope(emptyPlan())).toBeNull()
   })
 
-  it('ticks a side only at the corners you can see from it', () => {
+  it('ticks a side at the faces of the walls you can see from it: wall, clear, wall', () => {
     const plan = house()
     const strings = chainedStrings(plan, planEnvelope(plan)!)
     const top = strings.find((s) => s.side === 'top')!
-    // the partition meets the front wall at x = 2; the island in the middle is hidden behind it
-    expect(top.ticks.map((t) => Math.round(t * 100) / 100)).toEqual([-0.1, 2, 6.1])
-    expect(top.runs.map((r) => Math.round(r.length * 100) / 100)).toEqual([2.1, 4.1])
+    const r2 = (t: number) => Math.round(t * 100) / 100
+    // the left wall, the partition meeting the front wall at x = 2, and the right wall; the island in the middle is hidden
+    expect(top.ticks.map(r2)).toEqual([-0.1, 0.1, 1.9, 2.1, 5.9, 6.1])
+    expect(top.runs.map((r) => r2(r.length))).toEqual([0.2, 1.8, 0.2, 3.8, 0.2])
+    expect(top.runs.map((r) => !!r.wall)).toEqual([true, false, true, false, true])
     expect(top.overall.length).toBeCloseTo(6.2, 6)
     const bottom = strings.find((s) => s.side === 'bottom')!
-    expect(bottom.ticks.map((t) => Math.round(t * 100) / 100)).toEqual([-0.1, 6.1])
+    expect(bottom.ticks.map(r2)).toEqual([-0.1, 0.1, 5.9, 6.1])
     // the island's ends are visible from the left and right only through the back or front walls: no ticks
     const left = strings.find((s) => s.side === 'left')!
-    expect(left.ticks.map((t) => Math.round(t * 100) / 100)).toEqual([-0.1, 4.1])
+    expect(left.ticks.map(r2)).toEqual([-0.1, 0.1, 3.9, 4.1])
     expect(left.normal).toEqual({ x: -1, y: 0 })
   })
 
@@ -67,6 +69,7 @@ describe('envelope and chained strings', () => {
       { id: 'b', a: [3.005, 0], b: [6, 0] },
     ])
     const top = chainedStrings(plan, planEnvelope(plan)!).find((s) => s.side === 'top')!
+    // two collinear walls end to end: their shared end is one tick, not two
     expect(top.ticks).toHaveLength(3)
     expect(top.runs.every((r) => r.length > 0.02)).toBe(true)
   })

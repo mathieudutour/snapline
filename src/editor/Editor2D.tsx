@@ -1053,6 +1053,7 @@ export function Editor2D() {
           const { width } = dimensionChipSize(text, px)
           const key = `chain:${str.side}:${run.from.toFixed(3)}`
           if (run.length >= width + 8 * px) chip(key, p1, p2, str.normal, stringGap, text, RANK.derived)
+          else if (run.wall) continue // a wall's thickness: its ticks say enough until you zoom in, and a leader per wall would be noise
           else {
             // a bay too short for its number: the number goes out to the margin on a leader
             const mid = add(scale(add(p1, p2), 0.5), scale(str.normal, stringGap))
