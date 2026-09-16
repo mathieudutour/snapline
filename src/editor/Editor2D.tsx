@@ -85,6 +85,31 @@ export function Editor2D() {
 
   const [cursor, setCursor] = useState<Vec2 | null>(null)
   const [hover, setHover] = useState<SelectionItem | null>(null)
+  /**
+   * The wall whose free chip is on screen. Doors, windows, corner handles and other labels all
+   * sit on top of a wall, so the pointer leaves the wall polygon constantly while it is plainly
+   * still on the wall — and reaching for the chip to ⌥ + click it leaves the wall too. The chip
+   * follows the wall under the pointer in that wider sense, and lingers for a moment after.
+   */
+  const [chipWall, setChipWall] = useState<string | null>(null)
+  const chipTimer = useRef<number | null>(null)
+  /** the pointer is over the chip itself (the wall's own leave event fires first, so the effect below must not release it) */
+  const overChip = useRef<string | null>(null)
+  const keepChip = useCallback((id: string) => {
+    if (chipTimer.current) clearTimeout(chipTimer.current)
+    chipTimer.current = null
+    setChipWall(id)
+  }, [])
+  const releaseChip = useCallback(() => {
+    if (chipTimer.current) clearTimeout(chipTimer.current)
+    chipTimer.current = window.setTimeout(() => {
+      chipTimer.current = null
+      setChipWall(null)
+    }, 400)
+  }, [])
+  useEffect(() => () => {
+    if (chipTimer.current) clearTimeout(chipTimer.current)
+  }, [])
   /** Option/Alt held: show the distance from the selected wall to the hovered one */
   const [alt, setAlt] = useState(false)
   const [snap, setSnap] = useState<SnapResult | null>(null)
@@ -155,6 +180,20 @@ export function Editor2D() {
     return best?.id ?? null
   }, [measuring, cursor, plan, px])
   const measureTarget = hover?.kind === 'wall' ? hover.id : hover?.kind === 'opening' ? plan.openings[hover.id]?.wallId : wallAtCursor
+  /** the wall the pointer is on: the wall itself, a door or window in it, or one of its corners while its chip is showing */
+  const wallUnderPointer =
+    hover?.kind === 'wall' ? hover.id : hover?.kind === 'opening' ? (plan.openings[hover.id]?.wallId ?? null) : hover?.kind === 'point' && chipWall && wallsAtPoint(plan, hover.id).some((w) => w.id === chipWall) ? chipWall : null
+  useEffect(() => {
+    if (tool !== 'select') {
+      if (chipTimer.current) clearTimeout(chipTimer.current)
+      chipTimer.current = null
+      setChipWall(null)
+      return
+    }
+    if (wallUnderPointer) keepChip(wallUnderPointer)
+    else if (hover === null && overChip.current === null) releaseChip()
+    // over something else (furniture, another wall's label): leave the chip as it is until the pointer settles
+  }, [wallUnderPointer, hover, tool, keepChip, releaseChip])
   /** the two walls the red measurement is drawn between: the pair being edited, else the selected and hovered walls */
   const gapPair: [string, string] | null =
     editing?.kind === 'wallGap' && plan.walls[editing.wallA] && plan.walls[editing.wallB]
@@ -936,7 +975,7 @@ export function Editor2D() {
     distance: number,
     text: string,
     rank: number,
-    opts: { locked?: boolean; violated?: boolean; muted?: boolean; onClick?: (e: React.PointerEvent | React.MouseEvent) => void; wrap?: { kind: 'wall' | 'opening'; id: string; cursor?: string } } = {},
+    opts: { locked?: boolean; violated?: boolean; muted?: boolean; onClick?: (e: React.PointerEvent | React.MouseEvent) => void; wrap?: { kind: 'wall' | 'opening'; id: string; cursor?: string }; onEnter?: () => void; onLeave?: () => void } = {},
   ) => {
     const a = add(p1, scale(side, distance))
     const b = add(p2, scale(side, distance))
@@ -947,7 +986,7 @@ export function Editor2D() {
     const { width, height } = dimensionChipSize(text, px, opts.locked)
     const dim = <Dimension p1={p1} p2={p2} side={side} distance={distance} text={text} px={px} locked={opts.locked} violated={opts.violated} muted={opts.muted} onClick={opts.onClick} editHeld={alt} />
     const node = opts.wrap ? (
-      <g key={key} data-kind={opts.wrap.kind} data-id={opts.wrap.id} style={{ cursor: tool === 'select' ? opts.wrap.cursor ?? 'move' : undefined }}>
+      <g key={key} data-kind={opts.wrap.kind} data-id={opts.wrap.id} style={{ cursor: tool === 'select' ? opts.wrap.cursor ?? 'move' : undefined }} onPointerEnter={opts.onEnter} onPointerLeave={opts.onLeave}>
         {dim}
       </g>
     ) : (
@@ -978,7 +1017,7 @@ export function Editor2D() {
   for (const w of Object.values(plan.walls)) {
     const lc = lengthConstraintFor(w.id)
     const sel = isSelected(selection, 'wall', w.id)
-    const hov = hover?.kind === 'wall' && hover.id === w.id && tool === 'select'
+    const hov = chipWall === w.id && tool === 'select'
     const lit = isLit('wall', w.id)
     const locked = !!lc
     const bad = locked && violated.has(lc.id)
@@ -987,13 +1026,22 @@ export function Editor2D() {
     const side = wallSide(w)
     const face = wallFace(plan, w, side)
     if (face.length < 0.01) continue
-    chippedFaces.push({ a: face.a, b: face.b, n: sideNormal(plan, w, side) })
+    // only a chip that stays (a rule, the selection) takes a bay's number off the string; a hover chip must not make the string blink
+    if (locked || sel || lit || labelDensity === 'all') chippedFaces.push({ a: face.a, b: face.b, n: sideNormal(plan, w, side) })
     // the label belongs to its wall: a plain click selects the wall, ⌥ + click edits the length
     chip('wall:' + w.id, face.a, face.b, sideNormal(plan, w, side), DIM_GAP, formatLength(face.length, units), locked ? RANK.rule : sel || lit || hov ? RANK.selected : RANK.derived, {
       locked,
       violated: bad,
       onClick: tool === 'select' ? (e) => startEditWall(w, e) : undefined,
       wrap: { kind: 'wall', id: w.id },
+      onEnter: () => {
+        overChip.current = w.id
+        keepChip(w.id)
+      },
+      onLeave: () => {
+        overChip.current = null
+        releaseChip()
+      },
     })
   }
 
