@@ -42,7 +42,10 @@ function ProjectMenu() {
         ? { title: `Leave “${project.name}”?`, body: 'It stays with its owner, and you can be invited again later.', confirmLabel: 'Leave project' }
         : { title: `Delete “${project.name}”?`, body: 'The plan, every floor on it and its rules go with it. This cannot be undone.', confirmLabel: 'Delete project' },
     )
-    if (ok) deleteProject(project.id)
+    if (!ok) return
+    // the plan you were editing is gone: the list is the place to pick the next one
+    navigate('/projects')
+    deleteProject(project.id)
   }
   return (
     <div className="popover-anchor project-head" ref={ref}>
