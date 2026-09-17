@@ -834,50 +834,6 @@ fieldset.plain:disabled {
   line-height: 1.5;
   color: var(--faint);
 }
-/* the once-per-project things: a status list, each row its current value and a way to where it is set */
-.status-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: 0 -6px;
-}
-.status-row {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  padding: 7px 8px;
-  border: none;
-  background: none;
-  border-radius: 8px;
-  text-align: left;
-  color: var(--text);
-}
-.status-row:hover:not(:disabled) {
-  background: var(--hover);
-}
-.status-text {
-  flex: 1;
-  min-width: 0;
-}
-.status-text b {
-  display: block;
-  font-weight: 500;
-  font-size: 12.5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.status-text span {
-  display: block;
-  font-size: 11.5px;
-  color: var(--faint);
-  font-family: var(--mono);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.status-row .chev,
 .underlay-row .chev {
   color: var(--faint);
   line-height: 0;
@@ -931,9 +887,6 @@ fieldset.plain:disabled {
 }
 .tree-head.on .provisional {
   color: var(--text);
-}
-.modal.settings {
-  width: min(460px, 100%);
 }
 .menu-item kbd {
   margin-left: auto;
@@ -1808,6 +1761,119 @@ button.danger-outline:hover:not(:disabled) {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+}
+
+/* a section heading with a readout: the readout is a number, not a heading */
+.props h4 {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.props h4 .num {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+/* the site: one location field with "Locate me" inside it, and a compass you turn */
+.field-input.locate {
+  gap: 6px;
+}
+.field-input.locate .link {
+  flex: none;
+  font-size: 12px;
+  text-decoration: none;
+  padding: 0 2px;
+  white-space: nowrap;
+}
+.north-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 6px;
+}
+.north-row > div {
+  flex: 1;
+  min-width: 0;
+}
+.compass.live {
+  cursor: grab;
+  touch-action: none;
+}
+.compass.live:active {
+  cursor: grabbing;
+}
+.north-arrow.on .compass circle {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+}
+/* the roof's type: four options in one glance; the finish and its colour in one field */
+.seg.roof-type {
+  display: flex;
+  width: 100%;
+  margin: 2px 0 8px;
+}
+.seg.roof-type button {
+  padding: 6px 4px;
+  font-size: 12.5px;
+}
+.finish-with-colour {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.finish-with-colour input[type='color'] {
+  width: 28px;
+  flex: none;
+}
+/* the building's floors, top first, the way a building stacks */
+.floor-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.floor-stack-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 9px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+  color: var(--text);
+  font-size: 12.5px;
+}
+.floor-stack-row:hover:not(:disabled) {
+  background: var(--hover);
+}
+.floor-stack-row.on {
+  border-color: var(--accent-line);
+  background: var(--accent-tint);
+  font-weight: 600;
+}
+/* a room's name in the schedule selects the room */
+.room-link {
+  color: var(--text);
+  text-decoration: none;
+  font-size: 12.5px;
+  text-align: left;
+}
+.room-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.room-link.on {
+  color: var(--accent);
+  font-weight: 600;
+}
+.room-link.provisional {
+  font-style: italic;
+  color: var(--muted);
 }
 
 /* ---------- modals & sheets ---------- */

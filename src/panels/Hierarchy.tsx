@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { isReadOnly, isSelected, ROOF_ITEM, useEditor, type SelectionItem } from '../model/store'
+import { isReadOnly, isSelected, useEditor, type SelectionItem } from '../model/store'
 import { floorArea, readingOrder, roomIsNamed, roomName, roomNameSuggestions } from '../model/rooms'
 import { findRooms, pointInPolygon, wallLength } from '../model/geometry'
 import { constraintsReferencing, constraintTargets, describeConstraint, shortId } from '../model/constraints'
@@ -68,7 +68,7 @@ function Group({
   )
 }
 
-/** rooms (in reading order, ids stable) with their walls, openings and furniture, what is outside any room, and the roof on the top floor */
+/** rooms (in reading order, ids stable) with their walls, openings and furniture, and what is outside any room */
 export function PlanTree() {
   const plan = useEditor((s) => s.plan)
   const selection = useEditor((s) => s.selection)
@@ -79,9 +79,6 @@ export function PlanTree() {
   const nameRoom = useEditor((s) => s.nameRoom)
   const readOnly = useEditor(isReadOnly)
   const [renamingRoom, setRenamingRoom] = useState<string | null>(null)
-  // the roof is one object per building, sitting on the top floor: it is listed there and selected like anything else
-  const roof = useEditor((s) => s.project.roof)
-  const onTopFloor = useEditor((s) => s.project.floors[s.project.floors.length - 1]?.id === s.activeFloorId)
   const walls = Object.values(plan.walls)
   const openings = Object.values(plan.openings)
   const furniture = Object.values(plan.furniture)
@@ -197,15 +194,6 @@ export function PlanTree() {
         <Group title="Outside rooms" count={outside.walls.length + outside.openings.length + outside.furniture.length} defaultOpen={rooms.length === 0}>
           {contents(outside, 1)}
         </Group>
-      )}
-      {onTopFloor && (
-        <div className={`tree-row ${isSelected(selection, 'roof', 'roof') ? 'on' : ''}`} onClick={() => select([ROOF_ITEM])} title="The roof covers this floor's outline">
-          <span className="tree-icon">
-            <Icon name="roof" size={13} strokeWidth={2} />
-          </span>
-          <span className="tree-label">Roof</span>
-          <span className="tree-detail">{describeRoof(roof)}</span>
-        </div>
       )}
     </div>
   )

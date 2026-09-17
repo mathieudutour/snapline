@@ -278,6 +278,9 @@ export function samePoint(a: Vec2, b: Vec2): boolean {
 
 function normalizeSite(raw: unknown): Site | undefined {
   const r = raw as Partial<Site> | null | undefined
-  if (!r || typeof r.lat !== 'number' || typeof r.lng !== 'number' || !Number.isFinite(r.lat) || !Number.isFinite(r.lng)) return undefined
-  return { lat: Math.max(-90, Math.min(90, r.lat)), lng: Math.max(-180, Math.min(180, r.lng)), north: typeof r.north === 'number' && Number.isFinite(r.north) ? ((r.north % 360) + 360) % 360 : 0 }
+  if (!r || typeof r !== 'object') return undefined
+  const north = typeof r.north === 'number' && Number.isFinite(r.north) ? ((r.north % 360) + 360) % 360 : 0
+  // a site may know only which way the plan faces; the location comes when the building is located
+  if (typeof r.lat !== 'number' || typeof r.lng !== 'number' || !Number.isFinite(r.lat) || !Number.isFinite(r.lng)) return { north }
+  return { lat: Math.max(-90, Math.min(90, r.lat)), lng: Math.max(-180, Math.min(180, r.lng)), north }
 }

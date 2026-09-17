@@ -27,3 +27,17 @@ describe('sun position', () => {
     expect(sunVector({ azimuth: 180, elevation: 45 }, 180)[2]).toBeCloseTo(-Math.SQRT1_2, 6)
   })
 })
+
+describe('pasted coordinates', () => {
+  it('reads the forms people paste', async () => {
+    const { parseLatLng } = await import('./sun')
+    expect(parseLatLng('45.9249, 6.6815')).toEqual({ lat: 45.9249, lng: 6.6815 })
+    expect(parseLatLng('45.9249 6.6815')).toEqual({ lat: 45.9249, lng: 6.6815 })
+    expect(parseLatLng(' -33.8688;151.2093 ')).toEqual({ lat: -33.8688, lng: 151.2093 })
+    expect(parseLatLng(`45°55'29.6"N 6°40'53.4"E`)).toEqual({ lat: 45.9249, lng: 6.6815 })
+    expect(parseLatLng(`33°52'S 151°12'E`)).toEqual({ lat: -33.8667, lng: 151.2 })
+    expect(parseLatLng('Annecy')).toBeNull()
+    expect(parseLatLng('95, 10')).toBeNull()
+    expect(parseLatLng('')).toBeNull()
+  })
+})

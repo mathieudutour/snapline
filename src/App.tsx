@@ -15,7 +15,6 @@ import type { SelectionItem } from './model/store'
 import { ConflictDialog, Notice } from './panels/Conflict'
 import { ConfirmSheet } from './panels/Confirm'
 import { CanvasChrome } from './panels/CanvasChrome'
-import { ProjectSettingsDialog } from './panels/ProjectSettings'
 import { MOBILE_QUERY, useMedia } from './panels/useMedia'
 import { ViewLinkPage } from './pages/ViewLink'
 
@@ -43,7 +42,6 @@ export function EditorApp() {
         <BottomBar />
       </div>
       <Inspector />
-      <ProjectSettingsDialog />
       <ConflictDialog />
       <ConfirmSheet />
       <Notice />
@@ -171,6 +169,8 @@ function ProjectRoute({ id, floorId, search }: { id: string; floorId: string | n
           case 'room':
             return (rooms ??= new Set(findRooms(plan).map((r) => r.id))).has(s.id)
           case 'roof':
+          case 'building':
+          case 'site':
             return true
           default:
             return false

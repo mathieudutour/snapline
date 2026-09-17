@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { UnderlayRow } from './Underlay'
+import { SiteProps } from './Site'
+import { projectTopElevation } from '../model/project'
 import { FinishSelect } from './Finishes'
-import { describeRoof } from './Hierarchy'
 import { DEFAULT_FINISHES, FINISH_BY_KEY } from '../model/finishes'
-import { MOBILE_QUERY, useMedia } from './useMedia'
 import { useEditor } from '../model/store'
 import type { Constraint, Furniture, FurnitureSide, Opening, Room, Wall } from '../model/types'
 import { nearestWallToSide, SIDE_LABELS } from '../model/furniture'
@@ -724,8 +724,8 @@ export function CataloguePanel() {
  * the underlay and the site, in one 1760 px scroll — and the sentence explaining how the
  * panel works was the last line of the roof's help text. Sorted by how often each thing
  * changes, three fields are touched while drawing and the rest once per project. So: the
- * hint first, the floor's live defaults, the underlay as one row, and a status list for
- * the once-per-project things, each showing its value and taking you to where it lives.
+ * hint first, then the floor's live defaults with the underlay as one row. The project's
+ * own objects — building, roof, site — are rows in the left panel, selected like anything.
  */
 function NothingSelected() {
   return (
@@ -736,7 +736,6 @@ function NothingSelected() {
         <span>Click a wall, corner, door, window or piece of furniture to edit it.</span>
       </div>
       <FloorProps />
-      <ProjectStatus />
     </>
   )
 }
@@ -768,74 +767,6 @@ function FloorProps() {
   )
 }
 
-/** not a nav: a status list. Each row shows its current value, and takes you to where it is set. */
-function ProjectStatus() {
-  const project = useEditor((s) => s.project)
-  const setLeftTab = useEditor((s) => s.setLeftTab)
-  const setRailTab = useEditor((s) => s.setRailTab)
-  const setDrawer = useEditor((s) => s.setDrawer)
-  const selectRoof = useEditor((s) => s.selectRoof)
-  const setProjectSettingsOpen = useEditor((s) => s.setProjectSettingsOpen)
-  const mobile = useMedia(MOBILE_QUERY)
-  const top = project.floors[project.floors.length - 1]
-  const exterior = FINISH_BY_KEY[project.finishes?.exterior ?? DEFAULT_FINISHES.exterior]?.name ?? 'Default'
-  const roofFinish = FINISH_BY_KEY[project.finishes?.roof ?? DEFAULT_FINISHES.roof]?.name ?? 'Default'
-  const site = project.site
-  const openFinishes = () => {
-    setRailTab('layers')
-    setLeftTab('finishes')
-    if (mobile) setDrawer('left')
-  }
-  return (
-    <div className="props">
-      <h4>This project</h4>
-      <div className="status-list">
-        <button className="status-row" onClick={openFinishes} title="Every room's floor and walls, and the exterior — in the left panel">
-          <span className="tree-icon">
-            <Icon name="finishes" size={15} />
-          </span>
-          <span className="status-text">
-            <b>Finishes</b>
-            <span>
-              {exterior} · {roofFinish.toLowerCase()}
-            </span>
-          </span>
-          <span className="chev">
-            <Icon name="chevronRight" size={13} strokeWidth={2} />
-          </span>
-        </button>
-        <button className="status-row" onClick={selectRoof} title={`The roof sits on ${top?.name ?? 'the top floor'} — select it to edit it`}>
-          <span className="tree-icon">
-            <Icon name="roof" size={15} />
-          </span>
-          <span className="status-text">
-            <b>Roof</b>
-            <span>
-              {describeRoof(project.roof)}
-              {project.floors.length > 1 && top ? ` · on ${top.name}` : ''}
-            </span>
-          </span>
-          <span className="chev">
-            <Icon name="chevronRight" size={13} strokeWidth={2} />
-          </span>
-        </button>
-        <button className="status-row" onClick={() => setProjectSettingsOpen(true)} title="Where the building stands and which way the plan faces — project settings">
-          <span className="tree-icon">
-            <Icon name="site" size={15} />
-          </span>
-          <span className="status-text">
-            <b>Site &amp; north</b>
-            <span>{site ? `${site.lat}, ${site.lng} · ${Math.round(site.north)}°` : 'Not set'}</span>
-          </span>
-          <span className="chev">
-            <Icon name="chevronRight" size={13} strokeWidth={2} />
-          </span>
-        </button>
-      </div>
-    </div>
-  )
-}
-
 /**
  * The roof is one object per building, not a property of the floor you happen to be on: it
  * used to be editable from the ground floor, showing values that belonged to the floor above.
@@ -849,21 +780,22 @@ function RoofProps() {
   const setProjectFinishes = useEditor((s) => s.setProjectFinishes)
   const top = useEditor((s) => s.project.floors[s.project.floors.length - 1])
   const units = useEditor((s) => s.units)
+  const finishKey = finishes?.roof ?? DEFAULT_FINISHES.roof
+  const plain = FINISH_BY_KEY[finishKey]?.pattern === 'plain'
   return (
     <div className="props">
       <h3>
         Roof
         <span className="num">on {top?.name ?? 'the top floor'}</span>
       </h3>
-      <label className="field">
-        <span>Type</span>
-        <select value={roof.type} onChange={(e) => setRoof({ type: e.target.value as typeof roof.type })}>
-          <option value="none">None</option>
-          <option value="flat">Flat</option>
-          <option value="gable">Gable</option>
-          <option value="hip">Hip</option>
-        </select>
-      </label>
+      {/* four options, one glance */}
+      <div className="seg roof-type" role="radiogroup" aria-label="Roof type">
+        {(['none', 'flat', 'gable', 'hip'] as const).map((t) => (
+          <button key={t} className={roof.type === t ? 'active' : ''} role="radio" aria-checked={roof.type === t} onClick={() => setRoof({ type: t })}>
+            {t[0].toUpperCase() + t.slice(1)}
+          </button>
+        ))}
+      </div>
       {(roof.type === 'gable' || roof.type === 'hip') && (
         <>
           <label className="field">
@@ -888,15 +820,64 @@ function RoofProps() {
           {roof.type === 'flat' && <LengthField label="Thickness" units={units} value={roof.thickness} onChange={(v) => setRoof({ thickness: Math.max(0.05, v) })} />}
           <label className="field">
             <span>Finish</span>
-            <FinishSelect use="roof" value={finishes?.roof ?? DEFAULT_FINISHES.roof} onChange={(v) => setProjectFinishes({ roof: v })} />
-          </label>
-          <label className="field">
-            <span>Colour</span>
-            <input type="color" value={roof.color} onChange={(e) => setRoof({ color: e.target.value })} />
+            <span className="finish-with-colour">
+              <FinishSelect use="roof" value={finishKey} onChange={(v) => setProjectFinishes({ roof: v })} />
+              {/* a plain finish is a colour; a textured one has its own */}
+              {plain && <input type="color" value={roof.color} title="Colour" onChange={(e) => setRoof({ color: e.target.value })} />}
+            </span>
           </label>
         </>
       )}
-      <p className="muted small">The roof covers the top floor's outline, aligned with its longest wall. The colour applies to plain finishes.</p>
+      <p className="muted small">Covers the top floor's outline, aligned with its longest wall.</p>
+    </div>
+  )
+}
+
+/**
+ * The building: what is true of every floor. Its exterior finish and the slab each upper
+ * floor stands on used to be orphaned — one in a finishes tab, one in a settings sheet with
+ * help text apologising for its location. Both are properties of the building.
+ */
+function BuildingProps() {
+  const project = useEditor((s) => s.project)
+  const activeFloorId = useEditor((s) => s.activeFloorId)
+  const setActiveFloor = useEditor((s) => s.setActiveFloor)
+  const setSlabThickness = useEditor((s) => s.setSlabThickness)
+  const setProjectFinishes = useEditor((s) => s.setProjectFinishes)
+  const units = useEditor((s) => s.units)
+  const areas = useMemo(() => project.floors.map((f) => floorArea(findRooms(f.plan))), [project])
+  const total = areas.reduce((a, b) => a + b, 0)
+  return (
+    <div className="props">
+      <h3>
+        Building
+        <span className="num">
+          {project.floors.length} floor{project.floors.length === 1 ? '' : 's'}
+          {total > 0 ? ` · ${formatArea(total, units)}` : ''}
+        </span>
+      </h3>
+      <label className="field">
+        <span>Exterior walls</span>
+        <FinishSelect use="exterior" value={project.finishes?.exterior ?? DEFAULT_FINISHES.exterior} onChange={(v) => setProjectFinishes({ exterior: v })} />
+      </label>
+      <LengthField label="Slab between floors" units={units} value={project.slabThickness} onChange={setSlabThickness} />
+      <p className="muted small">Faces with no room behind them use the exterior finish. Each upper floor stands on the slab.</p>
+      <h4>Floors</h4>
+      <div className="floor-stack">
+        {[...project.floors].reverse().map((f, i) => {
+          const index = project.floors.length - 1 - i
+          return (
+            <button key={f.id} className={`floor-stack-row ${f.id === activeFloorId ? 'on' : ''}`} onClick={() => setActiveFloor(f.id)} title="Go to this floor">
+              <span className="tree-label">{f.name}</span>
+              <span className="tree-detail">
+                {formatLength(f.plan.settings.wallHeight, units)}
+                {areas[index] > 0 ? ` · ${formatArea(areas[index], units)}` : ''}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+      <p className="muted small">Total height {formatLength(projectTopElevation(project), units)} incl. slab.</p>
     </div>
   )
 }
@@ -982,6 +963,8 @@ export function SelectionInspector() {
   const rooms = selection.filter((s) => s.kind === 'room').map((s) => allRooms.find((r) => r.id === s.id)).filter((r): r is Room => !!r)
 
   if (selection.length === 1 && selection[0].kind === 'roof') return <RoofProps />
+  if (selection.length === 1 && selection[0].kind === 'building') return <BuildingProps />
+  if (selection.length === 1 && selection[0].kind === 'site') return <SiteProps />
   if (rooms.length > 0 && rooms.length === selection.length) return <RoomsProps rooms={rooms} indexOf={(room) => allRooms.indexOf(room)} />
 
   if (furniture.length === 1 && walls.length === 1 && points.length === 0 && openings.length === 0) return <FurnitureAndWallProps piece={furniture[0]} wall={walls[0]} />

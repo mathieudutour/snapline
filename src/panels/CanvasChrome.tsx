@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { isReadOnly, useEditor } from '../model/store'
+import { isReadOnly, isSelected, SITE_ITEM, useEditor } from '../model/store'
 import { AccountButton } from './Account'
 import { PeerAvatars } from '../editor/Peers'
 import { Icon, LockIcon, WarningIcon } from '../brand/Icons'
-import { Compass } from './Site'
+import { Compass, withNorth } from './Site'
 import { constraintTargets, describeConstraint } from '../model/constraints'
 import { DENSITY_HINTS, DENSITY_LABELS, drawingScale, DRAWING_SCALES, zoomForScale } from '../editor/labels'
 
@@ -74,13 +74,16 @@ const ZOOM_PRESETS = [25, 50, 100, 200, 400]
 /**
  * The bottom right corner is the drawing's: the scale it is drawn at and which way is north,
  * the two things a title block carries. The scale snaps to a conventional value (≈ when it is
- * only close) and opens a menu of scales to zoom to exactly; the north arrow opens the site.
+ * only close) and opens a menu of scales to zoom to exactly; the north arrow selects the site.
  */
 function ScaleCorner() {
   const zoom = useEditor((s) => s.zoomLevel)
   const requestZoom = useEditor((s) => s.requestZoom)
-  const north = useEditor((s) => s.project.site?.north)
-  const setProjectSettingsOpen = useEditor((s) => s.setProjectSettingsOpen)
+  const site = useEditor((s) => s.project.site)
+  const siteSelected = useEditor((s) => isSelected(s.selection, 'site', 'site'))
+  const select = useEditor((s) => s.select)
+  const setSite = useEditor((s) => s.setSite)
+  const readOnly = useEditor(isReadOnly)
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -109,9 +112,10 @@ function ScaleCorner() {
           </div>
         )}
       </div>
-      {north !== undefined && (
-        <button className="north-arrow" title={`North is at ${Math.round(north)}° from the top of the plan · click to change`} onClick={() => setProjectSettingsOpen(true)}>
-          <Compass north={north} size={36} />
+      {site && (
+        // the arrow is the site's click target on the plan, the way a wall's poché is the wall's; selected, it turns
+        <button className={`north-arrow ${siteSelected ? 'on' : ''}`} title={siteSelected ? `North is at ${Math.round(site.north)}° — drag to turn the plan` : `North is at ${Math.round(site.north)}° from the top of the plan · click to select the site`} onClick={() => !siteSelected && select([SITE_ITEM])}>
+          <Compass north={site.north} size={36} onChange={siteSelected && !readOnly ? (n) => setSite(withNorth(site, n)) : undefined} />
         </button>
       )}
     </div>

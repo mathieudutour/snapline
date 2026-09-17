@@ -1,6 +1,5 @@
 import { isReadOnly, useEditor, type ViewMode } from '../model/store'
 import { SelectionInspector } from './Sidebar'
-import { SunControls } from './Sun'
 import { COARSE_POINTER_QUERY, useMedia } from './useMedia'
 
 const MODES: { id: ViewMode; label: string }[] = [
@@ -39,12 +38,7 @@ export function Inspector() {
         </div>
       </div>
       <div className="panel-scroll">
-        {mode === 'plan' && readOnly && <p className="props muted small">View only: you can look around, switch floors and open the 3D views, but not change the plan.</p>}
-        {mode === 'plan' && (
-          <fieldset className="plain" disabled={readOnly}>
-            <SelectionInspector />
-          </fieldset>
-        )}
+        {readOnly && <p className="props muted small">View only: you can look around, switch floors and open the 3D views, but not change the plan.</p>}
         {mode === '3d' && (
           <div className="props">
             <h3>3D view</h3>
@@ -55,7 +49,6 @@ export function Inspector() {
             <p className="muted small">Drag to orbit, right-drag to pan, scroll to zoom. Pick the floor to cut at in the Floors list.</p>
           </div>
         )}
-        {(mode === '3d' || mode === 'walk') && <SunControls />}
         {mode === 'walk' && (
           <div className="props">
             <h3>Walkthrough</h3>
@@ -76,6 +69,10 @@ export function Inspector() {
             </p>
           </div>
         )}
+        {/* the selection, in every mode: the site's sun is set here while the 3D view shows it */}
+        <fieldset className="plain" disabled={readOnly}>
+          <SelectionInspector />
+        </fieldset>
       </div>
     </aside>
   )

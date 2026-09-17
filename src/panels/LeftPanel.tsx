@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { isReadOnly, useEditor } from '../model/store'
+import { BUILDING_ITEM, isReadOnly, isSelected, SITE_ITEM, useEditor } from '../model/store'
+import { describeRoof } from './Hierarchy'
 import { NotesList, PlanTree, RulesList } from './Hierarchy'
 import { FinishesProps } from './Finishes'
 import { CataloguePanel } from './Sidebar'
@@ -19,7 +20,6 @@ function ProjectMenu() {
   const meta = useEditor((s) => s.projects.find((p) => p.id === s.project.id))
   const viewLink = useEditor((s) => s.viewLink)
   const readOnly = useEditor(isReadOnly)
-  const setProjectSettingsOpen = useEditor((s) => s.setProjectSettingsOpen)
   const isEditor = meta?.role === 'editor' || meta?.role === 'viewer'
   const [open, setOpen] = useState(false)
   const [renaming, setRenaming] = useState(false)
@@ -71,9 +71,6 @@ function ProjectMenu() {
               Rename
             </button>
           )}
-          <button className="menu-item" onClick={() => (setProjectSettingsOpen(true), setOpen(false))}>
-            Settings…
-          </button>
           {user && !viewLink && (
             <button className="menu-item" onClick={() => (setShareOpen(true), setOpen(false))}>
               {readOnly ? 'Shared with…' : 'Share…'}
@@ -113,6 +110,45 @@ function ProjectMenu() {
           e.target.value = ''
         }}
       />
+    </div>
+  )
+}
+
+/**
+ * The project's three objects — building, roof, site — above the floors, the way every other
+ * selectable thing is listed. Selecting one fills the inspector; Esc or a click on empty plan
+ * deselects. Nothing is navigated, so there is nothing to go back from. Each row carries its
+ * current value, which is the at-a-glance reading. Finishes is a schedule, not an object, so
+ * it is not here: the tab is its home.
+ */
+function ProjectObjects() {
+  const floors = useEditor((s) => s.project.floors.length)
+  const roof = useEditor((s) => s.project.roof)
+  const north = useEditor((s) => s.project.site?.north)
+  const selection = useEditor((s) => s.selection)
+  const select = useEditor((s) => s.select)
+  const selectRoof = useEditor((s) => s.selectRoof)
+  const rows: { kind: 'building' | 'roof' | 'site'; label: string; icon: 'fileModel' | 'roof' | 'site'; detail: string; pick: () => void }[] = [
+    { kind: 'building', label: 'Building', icon: 'fileModel', detail: `${floors} floor${floors === 1 ? '' : 's'}`, pick: () => select([BUILDING_ITEM]) },
+    { kind: 'roof', label: 'Roof', icon: 'roof', detail: describeRoof(roof).toLowerCase(), pick: selectRoof },
+    { kind: 'site', label: 'Site', icon: 'site', detail: north !== undefined ? `N ${Math.round(north)}°` : '—', pick: () => select([SITE_ITEM]) },
+  ]
+  return (
+    <div className="section">
+      <div className="section-head">
+        <span>Project</span>
+      </div>
+      <div className="tree">
+        {rows.map((r) => (
+          <div key={r.kind} className={`tree-row ${isSelected(selection, r.kind, r.kind) ? 'on' : ''}`} onClick={r.pick}>
+            <span className="tree-icon">
+              <Icon name={r.icon} size={13} strokeWidth={2} />
+            </span>
+            <span className="tree-label">{r.label}</span>
+            <span className="tree-detail">{r.detail}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -226,6 +262,7 @@ export function LeftPanel() {
         </div>
       ) : (
         <div className="panel-scroll">
+          <ProjectObjects />
           <FloorsList />
           <LayerTabs />
         </div>

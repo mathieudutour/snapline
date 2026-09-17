@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { isReadOnly, useEditor } from '../model/store'
+import { isReadOnly, isSelected, useEditor } from '../model/store'
 import { DEFAULT_FINISHES, FINISH_BY_KEY, finishesFor, type FinishUse } from '../model/finishes'
 import { findRooms } from '../model/geometry'
 import { readingOrder, roomIsNamed, roomLabel, roomName } from '../model/rooms'
@@ -29,28 +29,22 @@ export function FinishSelect({ use, value, onChange, allowDefault, mixed }: { us
   )
 }
 
-/** exterior and roof finishes, and per-room floors and walls of the active floor */
+/**
+ * The finishes schedule: every room on the floor, in reading order, with its floor and walls.
+ * It is a view of rooms, not an object — the exterior finish is on the Building, the roof's on
+ * the Roof — and a room's name selects the room, so the table and the tree agree on a click.
+ */
 export function FinishesProps() {
   const plan = useEditor((s) => s.plan)
-  const finishes = useEditor((s) => s.project.finishes)
-  const setProjectFinishes = useEditor((s) => s.setProjectFinishes)
+  const selection = useEditor((s) => s.selection)
+  const select = useEditor((s) => s.select)
   const setRoomFinish = useEditor((s) => s.setRoomFinish)
-  const roofType = useEditor((s) => s.project.roof.type)
   // in reading order on the plan, the same order as the Plan tree, so a row's position means something
   const rooms = useMemo(() => readingOrder(findRooms(plan)), [plan])
   return (
     <div className="props">
       <h3>Finishes</h3>
-      <label className="field">
-        <span>Exterior walls</span>
-        <FinishSelect use="exterior" value={finishes?.exterior ?? DEFAULT_FINISHES.exterior} onChange={(v) => setProjectFinishes({ exterior: v })} />
-      </label>
-      {roofType !== 'none' && (
-        <label className="field">
-          <span>Roof</span>
-          <FinishSelect use="roof" value={finishes?.roof ?? DEFAULT_FINISHES.roof} onChange={(v) => setProjectFinishes({ roof: v })} />
-        </label>
-      )}
+      {rooms.length === 0 && <p className="muted small">Close a loop of walls to create a room; its floor and walls are set here.</p>}
       {rooms.length > 0 && (
         <div className="finish-rows">
           <div className="finish-row head">
@@ -63,7 +57,9 @@ export function FinishesProps() {
             const label = roomLabel(plan, r)
             return (
               <div key={r.id} className="finish-row">
-                <span className={roomIsNamed(plan, r) ? undefined : 'provisional'}>{roomName(plan, r, i)}</span>
+                <button className={`link room-link ${roomIsNamed(plan, r) ? '' : 'provisional'} ${isSelected(selection, 'room', r.id) ? 'on' : ''}`} onClick={() => select([{ kind: 'room', id: r.id }])} title="Select this room">
+                  {roomName(plan, r, i)}
+                </button>
                 <span className="picks">
                   <FinishSelect use="floor" value={label?.floor} allowDefault="Default" onChange={(v) => setRoomFinish(r, { floor: v })} />
                   <FinishSelect use="wall" value={label?.wall} allowDefault="Default" onChange={(v) => setRoomFinish(r, { wall: v })} />
@@ -73,7 +69,7 @@ export function FinishesProps() {
           })}
         </div>
       )}
-      <p className="muted small">Floors and room walls are set per room; a wall's own finish (select the wall) overrides its rooms. Faces with no room behind them use the exterior finish. The roof's finish is on the roof.</p>
+      <p className="muted small">A wall's own finish (select the wall) overrides its rooms'. The exterior finish is on the Building, the roof's on the Roof.</p>
     </div>
   )
 }

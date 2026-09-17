@@ -6,7 +6,7 @@ import { resolveModelUrl } from '../furniture/catalog'
 import { isCustomKey } from '../furniture/customModels'
 import type { Furniture } from '../model/types'
 import * as THREE from 'three'
-import { SEASON_DAY, sunPosition, sunVector, type SunPosition } from '../model/sun'
+import { located, SEASON_DAY, sunPosition, sunVector, type SunPosition } from '../model/sun'
 import { useEditor } from '../model/store'
 import { floorElevation, floorHeight, projectTopElevation } from '../model/project'
 import { buildRoofGeometry, buildScene, type OpeningMeshData, type SceneData } from './buildScene'
@@ -307,7 +307,7 @@ function useSun(radius: number): { dir: [number, number, number]; intensity: num
   const site = useEditor((s) => s.project.site)
   const sun = useEditor((s) => s.sun)
   return useMemo(() => {
-    if (!site) return { dir: [radius, radius * 1.6 + 6, radius * 0.6].map((v) => v / Math.hypot(radius, radius * 1.6 + 6, radius * 0.6)) as [number, number, number], intensity: 1.6, color: '#ffffff', sky: 1, position: null, fill: 1 }
+    if (!located(site)) return { dir: [radius, radius * 1.6 + 6, radius * 0.6].map((v) => v / Math.hypot(radius, radius * 1.6 + 6, radius * 0.6)) as [number, number, number], intensity: 1.6, color: '#ffffff', sky: 1, position: null, fill: 1 }
     const position = sunPosition(site, SEASON_DAY[sun.season], sun.hour)
     const dir = sunVector(position, site.north)
     const up = Math.max(0, Math.sin((position.elevation * Math.PI) / 180))
