@@ -13,7 +13,7 @@ import { snapFurnitureToWall } from '../model/furniture'
 import { formatLength } from '../model/units'
 import type { OpeningKind, Vec2 } from '../model/types'
 import type { RoofType } from '../model/project'
-import { navigate } from '../router'
+import { navigate, projectPath } from '../router'
 
 export interface AgentTool {
   name: string
@@ -34,9 +34,15 @@ const str = (v: unknown, name: string, fallback?: string): string => {
   throw new Error(`${name} must be a non-empty string`)
 }
 
+/** bring the current project's editor on screen, wherever the app is */
+function showEditor() {
+  const path = projectPath(st().project.id)
+  if (location.pathname !== path) navigate(path)
+}
+
 function ensureEditable() {
   if (isReadOnly(st())) throw new Error('this project is read-only (shared with you as a viewer or opened through a view link)')
-  if (location.pathname !== '/') navigate('/')
+  showEditor()
 }
 
 const EPS = 0.01
@@ -172,9 +178,9 @@ export const TOOLS: AgentTool[] = [
     description: 'Start a new empty project and make it current.',
     inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
     execute: ({ name }) => {
-      if (location.pathname !== '/') navigate('/')
       st().newProject()
       st().renameProject(str(name, 'name'))
+      showEditor()
       return { projectId: st().project.id, floorId: st().activeFloorId }
     },
   },
@@ -383,7 +389,7 @@ export const TOOLS: AgentTool[] = [
     description: 'Show the plan in 2D, 3D or walkthrough, and zoom the 2D view to fit.',
     inputSchema: { type: 'object', properties: { view: { type: 'string', enum: ['2d', '3d', 'walk'] } } },
     execute: ({ view }) => {
-      if (location.pathname !== '/') navigate('/')
+      showEditor()
       st().setMode(view === '3d' ? '3d' : view === 'walk' ? 'walk' : 'plan')
       if (view !== '3d' && view !== 'walk') st().requestFit()
       return { view: st().mode }

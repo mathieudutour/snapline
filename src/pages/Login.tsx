@@ -11,7 +11,7 @@ export function Login({ reason }: { reason?: string }) {
       <div className="login-card">
         <h1>Keep your plans</h1>
         <p className="muted">{reason ?? 'Sign in to sync your projects across devices and share them with other people.'}</p>
-        <a className="button primary large google" href={signInUrl('/')}>
+        <a className="button primary large google" href={signInUrl('/projects')}>
           <GoogleMark /> Continue with Google
         </a>
         <p className="fine">We only store the name and email address of your Google account, to show who is signed in. No passwords, no emails sent.</p>

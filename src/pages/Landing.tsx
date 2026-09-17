@@ -27,7 +27,7 @@ export function Landing() {
   const user = useEditor((s) => s.user)
   const apiAvailable = useEditor((s) => s.apiAvailable)
   const canEdit = !!user || apiAvailable === false
-  const primary = canEdit ? { href: '/', label: 'Open the editor' } : { href: signInUrl('/'), label: 'Start a plan — free' }
+  const primary = canEdit ? { href: '/projects', label: 'Open your plans' } : { href: signInUrl('/projects'), label: 'Start a plan — free' }
   return (
     <div className="landing">
       <header className="landing-nav">
@@ -44,8 +44,8 @@ export function Landing() {
           <a href="https://github.com/mathieudutour/snapline" target="_blank" rel="noreferrer">
             Source
           </a>
-          <a className="button" href={canEdit ? '/' : '/login'} onClick={onLinkClick}>
-            {canEdit ? 'Open the editor' : 'Sign in'}
+          <a className="button" href={canEdit ? '/projects' : '/login'} onClick={onLinkClick}>
+            {canEdit ? 'Your plans' : 'Sign in'}
           </a>
         </nav>
       </header>
@@ -60,7 +60,7 @@ export function Landing() {
           </h1>
           <p>Every measurement you type becomes a rule the plan has to keep. Move a corner and the rest holds — or tells you exactly which two rules disagree.</p>
           <div className="hero-actions">
-            <a className="button primary large" href={primary.href} onClick={primary.href === '/' ? onLinkClick : undefined}>
+            <a className="button primary large" href={primary.href} onClick={primary.href === '/projects' ? onLinkClick : undefined}>
               {primary.label}
             </a>
             <a className="button large" href="#features" onClick={scrollToFeatures}>

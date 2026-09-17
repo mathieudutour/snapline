@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useEditor } from '../model/store'
-import { navigate, onLinkClick } from '../router'
+import { navigate, onLinkClick, projectPath } from '../router'
 import { AccountButton } from '../panels/Account'
 import { confirmAction, InlineRename } from '../panels/Confirm'
 import { Icon } from '../brand/Icons'
@@ -37,8 +37,10 @@ export function Projects() {
   const [renaming, setRenaming] = useState<string | null>(null)
   const open = (id: string) => {
     openProject(id)
-    navigate('/')
+    navigate(projectPath(id))
   }
+  /** after newProject / loadExample / importProject made a project current: go and edit it */
+  const editCurrent = () => navigate(projectPath(useEditor.getState().project.id))
   const rename = (id: string, name: string) => {
     if (id !== current.id) openProject(id)
     renameProject(name)
@@ -65,10 +67,10 @@ export function Projects() {
         <button className="quiet" onClick={() => fileRef.current?.click()}>
           Import
         </button>
-        <button className="quiet" onClick={() => (loadExample(), navigate('/'))}>
+        <button className="quiet" onClick={() => (loadExample(), editCurrent())}>
           Example house
         </button>
-        <button className="primary" onClick={() => (newProject(), navigate('/'))}>
+        <button className="primary" onClick={() => (newProject(), editCurrent())}>
           New plan
         </button>
         <AccountButton />
@@ -123,7 +125,7 @@ export function Projects() {
           const f = e.target.files?.[0]
           if (f)
             f.text()
-              .then((t) => (importProject(JSON.parse(t)), navigate('/')))
+              .then((t) => (importProject(JSON.parse(t)), editCurrent()))
               .catch(() => setNotice('That file could not be read as a Cordeau project.'))
           e.target.value = ''
         }}

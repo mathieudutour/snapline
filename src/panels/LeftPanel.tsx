@@ -59,7 +59,7 @@ function ProjectMenu() {
       )}
       {open && (
         <div className="menu">
-          <button className="menu-item" onClick={() => (navigate(viewLink ? '/' : '/projects'), setOpen(false))}>
+          <button className="menu-item" onClick={() => (navigate('/projects'), setOpen(false))}>
             {viewLink ? 'My projects…' : 'All projects…'}
           </button>
           <div className="menu-sep" />
