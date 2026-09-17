@@ -1593,14 +1593,6 @@ fieldset.plain:disabled {
   background: var(--hover);
   color: var(--text);
 }
-.settings-nav .menu-sep {
-  margin: 10px 8px;
-}
-.settings-nav p {
-  margin: 0;
-  padding: 0 9px;
-  line-height: 1.45;
-}
 .settings-cards {
   display: flex;
   flex-direction: column;
@@ -1781,10 +1773,6 @@ button.danger-outline:hover:not(:disabled) {
   }
   .settings-nav h1 {
     width: 100%;
-  }
-  .settings-nav .menu-sep,
-  .settings-nav p {
-    display: none;
   }
   .unit-options {
     grid-template-columns: 1fr;

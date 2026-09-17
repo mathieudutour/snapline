@@ -42,8 +42,6 @@ export function Settings() {
             <a href="#units">Units</a>
             <a href="#furniture">Furniture library</a>
             <a href="#data">Your data</a>
-            <div className="menu-sep" />
-            <p className="muted small">Drawing aids — snap, auto-lock, the floor below — are on the canvas, in the view pill.</p>
           </nav>
           <div className="settings-cards">
             <AccountCard />
