@@ -661,12 +661,7 @@ export function CataloguePanel() {
   const categories = customModels.length > 0 ? [CUSTOM_CATEGORY, ...CATEGORIES] : CATEGORIES
   return (
     <div className="props catalogue">
-      <div className="row space">
-        <h3>Furniture</h3>
-        <button onClick={() => setImporting(true)} title="Import a .glb or .gltf model">
-          <Icon name="upload" size={13} strokeWidth={2} /> Import
-        </button>
-      </div>
+      <h3>Furniture</h3>
       {importing && <ImportModelDialog onClose={() => setImporting(false)} onImported={() => setCategory(CUSTOM_CATEGORY)} />}
       <input className="search" placeholder="Search…" value={query} onChange={(e) => setQuery(e.target.value)} />
       <div className="chips">
@@ -706,12 +701,18 @@ export function CataloguePanel() {
           </button>
         ))}
       </div>
-      <p className="muted small">
-        Import your own .glb files (for example models you downloaded for your own planning). Bundled models come from the free <a href="https://www.sweethome3d.com/" target="_blank" rel="noreferrer">Sweet Home 3D</a> libraries (CC0, CC-BY and Free Art licences).{' '}
-        <a href={creditsUrl} target="_blank" rel="noreferrer">
-          Credits
-        </a>
-      </p>
+      {/* importing is a thing you do once you have looked and not found: it sits with the note that says you can */}
+      <div className="catalogue-foot">
+        <p className="muted small">
+          Import your own .glb files (for example models you downloaded for your own planning). Bundled models come from the free <a href="https://www.sweethome3d.com/" target="_blank" rel="noreferrer">Sweet Home 3D</a> libraries (CC0, CC-BY and Free Art licences).{' '}
+          <a href={creditsUrl} target="_blank" rel="noreferrer">
+            Credits
+          </a>
+        </p>
+        <button onClick={() => setImporting(true)} title="Import a .glb or .gltf model">
+          <Icon name="upload" size={13} strokeWidth={2} /> Import
+        </button>
+      </div>
     </div>
   )
 }

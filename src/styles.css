@@ -1473,11 +1473,23 @@ fieldset.plain:disabled {
   font-size: 12px;
 }
 
-/* north is set where north is shown: the arrow opens the project settings */
-.north-arrow {
-  position: absolute;
+/* the drawing's corner: scale and north, above the cursor readout */
+.canvas-chrome-group.bottom-right {
+  top: auto;
+  left: auto;
   right: 14px;
   bottom: 40px;
+  align-items: center;
+}
+.canvas-chrome.scale {
+  overflow: visible;
+}
+.menu.up {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+/* north is set where north is shown: the arrow opens the project settings */
+.north-arrow {
   padding: 0;
   border: none;
   background: none;
@@ -1777,6 +1789,25 @@ button.danger-outline:hover:not(:disabled) {
   .unit-options {
     grid-template-columns: 1fr;
   }
+}
+
+/* the catalogue's import lives at the foot, beside the note that says you can */
+.catalogue-foot {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 10px;
+}
+.catalogue-foot p {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+.catalogue-foot button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 /* ---------- modals & sheets ---------- */
@@ -2874,7 +2905,7 @@ button.account img {
     left: 10px;
     width: auto;
   }
-  .north-arrow {
+  .canvas-chrome-group.bottom-right {
     bottom: 76px;
   }
   .project-grid {

@@ -16,7 +16,6 @@ import { roomIsNamed, roomLabel, roomName, roomNameSuggestions } from '../model/
 import { FINISH_BY_KEY } from '../model/finishes'
 import { stairSteps, structureKind } from '../model/structures'
 import { PeerCursors, usePeerSelections } from './Peers'
-import { Compass } from '../panels/Site'
 import { CommentComposer, CommentPin, CommentThread } from './Comments'
 import { ensureFileUrl, fileUrl, onFileUrls } from '../files/planFiles'
 import type { Underlay } from '../model/project'
@@ -162,7 +161,6 @@ export function Editor2D() {
   const toScreen = useCallback((p: Vec2): Vec2 => worldToScreen(vp, p, size.width, size.height), [vp, size])
 
   const peerSelections = usePeerSelections()
-  const north = useEditor((s) => s.project.site?.north)
   /** wall under the pointer for Option-hover measuring; hovering a door or window counts as its wall */
   /** Option held with one wall selected: the pointer is measuring */
   const measuring = alt && tool === 'select' && selection.length === 1 && selection[0].kind === 'wall'
@@ -1454,11 +1452,6 @@ export function Editor2D() {
           </g>
         </g>
       </svg>
-      {north !== undefined && (
-        <button className="north-arrow" title={`North is at ${Math.round(north)}° from the top of the plan · click to change`} onClick={() => useEditor.getState().setProjectSettingsOpen(true)}>
-          <Compass north={north} size={36} />
-        </button>
-      )}
 
       {editing && (
         <EditBox

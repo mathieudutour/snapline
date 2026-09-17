@@ -3,6 +3,7 @@ import { isReadOnly, useEditor } from '../model/store'
 import { AccountButton } from './Account'
 import { PeerAvatars } from '../editor/Peers'
 import { Icon, LockIcon, WarningIcon } from '../brand/Icons'
+import { Compass } from './Site'
 import { constraintTargets, describeConstraint } from '../model/constraints'
 import { DENSITY_HINTS, DENSITY_LABELS, drawingScale, DRAWING_SCALES, zoomForScale } from '../editor/labels'
 
@@ -28,6 +29,7 @@ export function CanvasChrome() {
           <DrawingSwitches />
         </div>
       )}
+      {mode === 'plan' && <ScaleCorner />}
       <PresencePill />
       {mode === 'plan' && <ConflictCard />}
     </>
@@ -69,7 +71,54 @@ function DrawingSwitches() {
 /** the zooms worth a click: 100 % is a metre drawn 100 px across, which Shift+0 also gives */
 const ZOOM_PRESETS = [25, 50, 100, 200, 400]
 
-/** floor · zoom · the scale the plan is drawn at · how many measurements it shows */
+/**
+ * The bottom right corner is the drawing's: the scale it is drawn at and which way is north,
+ * the two things a title block carries. The scale snaps to a conventional value (≈ when it is
+ * only close) and opens a menu of scales to zoom to exactly; the north arrow opens the site.
+ */
+function ScaleCorner() {
+  const zoom = useEditor((s) => s.zoomLevel)
+  const requestZoom = useEditor((s) => s.requestZoom)
+  const north = useEditor((s) => s.project.site?.north)
+  const setProjectSettingsOpen = useEditor((s) => s.setProjectSettingsOpen)
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    window.addEventListener('pointerdown', close)
+    return () => window.removeEventListener('pointerdown', close)
+  }, [open])
+  const scale = drawingScale(zoom, PX_PER_MM)
+  return (
+    <div className="canvas-chrome-group bottom-right">
+      <div className="canvas-chrome scale popover-anchor" ref={ref}>
+        <button className="pill-item num" onClick={() => setOpen((o) => !o)} title={scale.approx ? `Drawn at about 1:${scale.exact} on a 96 dpi screen — pick a scale to zoom to` : `Drawn at 1:${scale.nearest} on a 96 dpi screen — pick a scale to zoom to`}>
+          {scale.nearest ? `${scale.approx ? '≈ ' : ''}1:${scale.nearest}` : '1:—'}
+        </button>
+        {open && (
+          <div className="menu up">
+            <div className="menu-title">Draw at</div>
+            {DRAWING_SCALES.map((d) => (
+              <button key={d} className={`menu-item num ${d === scale.nearest && !scale.approx ? 'on' : ''}`} onClick={() => (requestZoom(zoomForScale(d, PX_PER_MM)), setOpen(false))}>
+                1:{d}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {north !== undefined && (
+        <button className="north-arrow" title={`North is at ${Math.round(north)}° from the top of the plan · click to change`} onClick={() => setProjectSettingsOpen(true)}>
+          <Compass north={north} size={36} />
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** floor · zoom · how many measurements it shows */
 function ViewPill() {
   const floors = useEditor((s) => s.project.floors)
   const activeFloorId = useEditor((s) => s.activeFloorId)
@@ -81,7 +130,7 @@ function ViewPill() {
   const cycleDensity = useEditor((s) => s.cycleLabelDensity)
   const labelStats = useEditor((s) => s.labelStats)
   const hasSelection = useEditor((s) => s.selection.length > 0)
-  const [open, setOpen] = useState<'floors' | 'zoom' | 'scale' | null>(null)
+  const [open, setOpen] = useState<'floors' | 'zoom' | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
@@ -92,8 +141,6 @@ function ViewPill() {
     return () => window.removeEventListener('pointerdown', close)
   }, [open])
   const floor = floors.find((f) => f.id === activeFloorId)
-  // a drawing scale is a conventional value: 1:83 as you scroll implies a precision the screen has not got
-  const scale = drawingScale(zoom, PX_PER_MM)
   const hidden = labelStats.hidden > 0 ? `, ${labelStats.hidden} hidden so none overlap` : ''
   return (
     <div className="canvas-chrome left popover-anchor" ref={ref}>
@@ -103,10 +150,6 @@ function ViewPill() {
       <span className="pill-sep" />
       <button className="pill-item num" onClick={() => setOpen((o) => (o === 'zoom' ? null : 'zoom'))} title="Screen zoom: how many pixels a metre is drawn across — click to fit the plan or pick a zoom">
         {Math.round(zoom)}%
-      </button>
-      <span className="pill-sep" />
-      <button className="pill-item num" onClick={() => setOpen((o) => (o === 'scale' ? null : 'scale'))} title={scale.approx ? `Drawn at about 1:${scale.exact} on a 96 dpi screen — pick a scale to zoom to` : `Drawn at 1:${scale.nearest} on a 96 dpi screen — pick a scale to zoom to`}>
-        {scale.nearest ? `${scale.approx ? '≈ ' : ''}1:${scale.nearest}` : '1:—'}
       </button>
       <span className="pill-sep" />
       <button className="pill-item density" onClick={cycleDensity} title={`Measurements: ${DENSITY_LABELS[density].toLowerCase()} — ${DENSITY_HINTS[density]} (${labelStats.shown} shown${hidden}). Shift+D cycles.`}>
@@ -135,16 +178,6 @@ function ViewPill() {
           {ZOOM_PRESETS.map((z) => (
             <button key={z} className={`menu-item num ${Math.round(zoom) === z ? 'on' : ''}`} onClick={() => (requestZoom(z), setOpen(null))}>
               {z}%{z === 100 ? <kbd>⇧0</kbd> : null}
-            </button>
-          ))}
-        </div>
-      )}
-      {open === 'scale' && (
-        <div className="menu">
-          <div className="menu-title">Draw at</div>
-          {DRAWING_SCALES.map((d) => (
-            <button key={d} className={`menu-item num ${d === scale.nearest && !scale.approx ? 'on' : ''}`} onClick={() => (requestZoom(zoomForScale(d, PX_PER_MM)), setOpen(null))}>
-              1:{d}
             </button>
           ))}
         </div>
