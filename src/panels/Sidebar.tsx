@@ -773,7 +773,6 @@ function ProjectStatus() {
   const setLeftTab = useEditor((s) => s.setLeftTab)
   const setRailTab = useEditor((s) => s.setRailTab)
   const setDrawer = useEditor((s) => s.setDrawer)
-  const setPrefsOpen = useEditor((s) => s.setPrefsOpen)
   const selectRoof = useEditor((s) => s.selectRoof)
   const setProjectSettingsOpen = useEditor((s) => s.setProjectSettingsOpen)
   const mobile = useMedia(MOBILE_QUERY)
@@ -783,7 +782,6 @@ function ProjectStatus() {
   const site = project.site
   const openFinishes = () => {
     setRailTab('layers')
-    setPrefsOpen(false)
     setLeftTab('finishes')
     if (mobile) setDrawer('left')
   }

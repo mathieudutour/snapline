@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { isReadOnly, useEditor } from '../model/store'
 import { AccountButton } from './Account'
 import { PeerAvatars } from '../editor/Peers'
-import { Icon, WarningIcon } from '../brand/Icons'
+import { Icon, LockIcon, WarningIcon } from '../brand/Icons'
 import { constraintTargets, describeConstraint } from '../model/constraints'
 import { DENSITY_HINTS, DENSITY_LABELS, drawingScale, DRAWING_SCALES, zoomForScale } from '../editor/labels'
 
@@ -22,10 +22,47 @@ export function CanvasChrome() {
   if (mode === 'walk') return null
   return (
     <>
-      {mode === 'plan' && <ViewPill />}
+      {mode === 'plan' && (
+        <div className="canvas-chrome-group">
+          <ViewPill />
+          <DrawingSwitches />
+        </div>
+      )}
       <PresencePill />
       {mode === 'plan' && <ConflictCard />}
     </>
+  )
+}
+
+/**
+ * Snap to grid, auto-lock and the ghost of the floor below are judged against the drawing
+ * and flipped mid-draw, so they live next to the plan rather than on the settings page.
+ * They are a second cluster, not more items on the view pill: the pill is text you click
+ * to change a value, these are three binaries whose whole state is the fill. Icon-only —
+ * a switch that is on does not need the word beside it, and the titles carry the names.
+ */
+function DrawingSwitches() {
+  const snapGrid = useEditor((s) => s.snapGrid)
+  const setSnapGrid = useEditor((s) => s.setSnapGrid)
+  const autoHV = useEditor((s) => s.autoHV)
+  const setAutoHV = useEditor((s) => s.setAutoHV)
+  const showFloorBelow = useEditor((s) => s.showFloorBelow)
+  const setShowFloorBelow = useEditor((s) => s.setShowFloorBelow)
+  const hasFloorBelow = useEditor((s) => s.project.floors.findIndex((f) => f.id === s.activeFloorId) > 0)
+  const readOnly = useEditor(isReadOnly)
+  if (readOnly) return null
+  return (
+    <div className="canvas-chrome switches" role="group" aria-label="Drawing aids">
+      <button className={`switch-item ${snapGrid ? 'on' : ''}`} aria-pressed={snapGrid} onClick={() => setSnapGrid(!snapGrid)} title={`Snap to the 5 cm grid: ${snapGrid ? 'on' : 'off'} (hold Ctrl / ⌘ while drawing to skip it)`}>
+        <Icon name="grid" size={15} strokeWidth={1.9} title="Snap to grid" />
+      </button>
+      <button className={`switch-item ${autoHV ? 'on' : ''}`} aria-pressed={autoHV} onClick={() => setAutoHV(!autoHV)} title={`Auto-lock straight walls and furniture dropped against walls: ${autoHV ? 'on' : 'off'}`}>
+        <LockIcon size={15} strokeWidth={2.1} />
+      </button>
+      <button className={`switch-item ${showFloorBelow && hasFloorBelow ? 'on' : ''}`} aria-pressed={showFloorBelow} disabled={!hasFloorBelow} onClick={() => setShowFloorBelow(!showFloorBelow)} title={hasFloorBelow ? `Show the floor below as a ghost: ${showFloorBelow ? 'on' : 'off'}` : 'Show the floor below as a ghost — there is no floor below this one'}>
+        <Icon name="ghostFloor" size={15} strokeWidth={1.8} title="Floor below" />
+      </button>
+    </div>
   )
 }
 

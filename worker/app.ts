@@ -123,6 +123,16 @@ export function createApp(cfg: AppConfig) {
       if (!csrfOk(req, url)) return error(403, 'bad origin')
       const me = await currentUser(req)
       if (path === '/api/me' && req.method === 'GET') return json({ user: me ? publicUser(me.user) : null })
+      // ---- the account itself: everything it owns goes with it, and the session cookie is cleared ----
+      if (path === '/api/me' && req.method === 'DELETE') {
+        if (!me) return error(401, 'sign in first')
+        const owned = await cfg.store.deleteUser(me.user.id, me.user.email)
+        if (cfg.objects) {
+          await cfg.objects.deletePrefix(`users/${me.user.id}/`).catch(() => undefined)
+          for (const id of owned) await cfg.objects.deletePrefix(`projects/${id}/`).catch(() => undefined)
+        }
+        return json({ ok: true }, { headers: { 'Set-Cookie': serializeCookie(SESSION_COOKIE, '', { maxAge: 0, secure }) } })
+      }
       // ---- view links need no account ----
       const view = /^\/api\/view\/([A-Za-z0-9_-]{8,64})(\/live|\/files\/([A-Za-z0-9_-]{4,64}))?$/.exec(path)
       if (view && req.method === 'GET') {

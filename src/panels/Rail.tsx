@@ -5,6 +5,9 @@ import { Icon } from '../brand/Icons'
 import { Mark } from '../brand/Brand'
 
 /**
+ * The rail holds the panels of the plan and nothing else: units and your account are per
+ * user, not per project, so they live at /settings under the avatar, not behind a gear here.
+ *
  * The rail is light, like everything else in the app. A dark rail in an otherwise white
  * product reads as borrowed from another one; it was also the only place in the UI with
  * 10 px text, so the labels have gone too — the icons carry titles and the active tab is
@@ -15,8 +18,6 @@ import { Mark } from '../brand/Brand'
 export function Rail() {
   const railTab = useEditor((s) => s.railTab)
   const setRailTab = useEditor((s) => s.setRailTab)
-  const prefsOpen = useEditor((s) => s.prefsOpen)
-  const setPrefsOpen = useEditor((s) => s.setPrefsOpen)
   const toggleShortcuts = useEditor((s) => s.toggleShortcuts)
   const setTool = useEditor((s) => s.setTool)
   const tool = useEditor((s) => s.tool)
@@ -26,7 +27,7 @@ export function Rail() {
   /** on phones the rail tabs open the left drawer (and close it when tapped again) */
   const openLeft = (tab: 'layers' | 'furniture') => {
     if (!mobile) return
-    setDrawer(drawer === 'left' && railTab === tab && !prefsOpen ? null : 'left')
+    setDrawer(drawer === 'left' && railTab === tab ? null : 'left')
   }
   return (
     <nav className="rail">
@@ -35,15 +36,14 @@ export function Rail() {
           <Mark size={17} cut="full" onInk />
         </span>
       </a>
-      <button className={railTab === 'layers' && !prefsOpen && (!mobile || drawer === 'left') ? 'on' : ''} onClick={() => (openLeft('layers'), setRailTab('layers'), setPrefsOpen(false))} title="Layers: floors, rooms, walls, furniture, rules">
+      <button className={railTab === 'layers' && (!mobile || drawer === 'left') ? 'on' : ''} onClick={() => (openLeft('layers'), setRailTab('layers'))} title="Layers: floors, rooms, walls, furniture, rules">
         <Icon name="layers" size={20} title="Layers" />
       </button>
       <button
-        className={railTab === 'furniture' && !prefsOpen && (!mobile || drawer === 'left') ? 'on' : ''}
+        className={railTab === 'furniture' && (!mobile || drawer === 'left') ? 'on' : ''}
         onClick={() => {
           openLeft('furniture')
           setRailTab('furniture')
-          setPrefsOpen(false)
           if (tool !== 'furniture') setTool('furniture')
         }}
         title="Furniture catalogue (F)"
@@ -51,15 +51,12 @@ export function Rail() {
         <Icon name="furniture" size={20} title="Furniture" />
       </button>
       {mobile && (
-        <button className={drawer === 'right' ? 'on' : ''} onClick={() => setDrawer(drawer === 'right' ? null : 'right')} title="Inspector: views, selection, settings">
+        <button className={drawer === 'right' ? 'on' : ''} onClick={() => setDrawer(drawer === 'right' ? null : 'right')} title="Inspector: views and the selection">
           <Icon name="inspect" size={20} title="Inspector" />
         </button>
       )}
       <button onClick={() => navigate('/projects')} title="All projects">
         <Icon name="projects" size={20} title="Projects" />
-      </button>
-      <button className={prefsOpen ? 'on' : ''} onClick={() => setPrefsOpen(!prefsOpen)} title="Preferences">
-        <Icon name="prefs" size={20} title="Preferences" />
       </button>
       <div className="rail-spacer" />
       <button onClick={() => toggleShortcuts()} title="Keyboard shortcuts (?)">

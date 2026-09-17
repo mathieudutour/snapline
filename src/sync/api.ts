@@ -79,6 +79,11 @@ export async function signOut(): Promise<void> {
   await call('/auth/logout', { method: 'POST' })
 }
 
+/** the account and everything it owns on the server; the session cookie is cleared by the response */
+export async function deleteAccount(): Promise<void> {
+  await call('/api/me', { method: 'DELETE' })
+}
+
 export async function listRemoteProjects(): Promise<RemoteProjectMeta[]> {
   return (await call<{ projects: RemoteProjectMeta[] }>('/api/projects')).projects
 }

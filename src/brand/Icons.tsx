@@ -27,6 +27,9 @@ const PATHS = {
   room: 'M4 5h16v14H4zM4 12h9',
   corner: 'M5 19V5h14',
   roof: 'M3 12 12 4l9 8M6 12v8h12v-8',
+  grid: 'M4 9h16M4 15h16M9 4v16M15 4v16',
+  /** the floor below as a ghost: a solid slab over a dashed one */
+  ghostFloor: 'M12 3 3 7.5 12 12l9-4.5L12 3ZM3 13.5 12 18l9-4.5',
   site: 'M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11ZM12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
   finishes: 'M4 7h16v12H4zM4 7l2-3h5l2 3M9 13h6',
   hand: 'M8 13V5a1.5 1.5 0 0 1 3 0v6m0-7a1.5 1.5 0 0 1 3 0v7m0-5a1.5 1.5 0 0 1 3 0v8a6 6 0 0 1-6 6h-1a6 6 0 0 1-5-3l-3-5a1.5 1.5 0 0 1 2.5-1.6L8 13',

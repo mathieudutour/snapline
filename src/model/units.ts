@@ -1,6 +1,7 @@
-export type Units = 'm' | 'cm' | 'ft'
+export type Units = 'm' | 'cm' | 'mm' | 'ft'
 
-export const UNIT_LABELS: Record<Units, string> = { m: 'Metric (m)', cm: 'Metric (cm)', ft: 'Imperial (ft, in)' }
+export const UNIT_LABELS: Record<Units, string> = { m: 'Metres', cm: 'Centimetres', mm: 'Millimetres', ft: 'Feet & inches' }
+export const UNIT_ORDER: Units[] = ['m', 'cm', 'mm', 'ft']
 
 const INCH = 0.0254
 
@@ -9,6 +10,10 @@ export function formatLength(metres: number, units: Units, withUnit = true): str
   if (units === 'cm') {
     const cm = Math.round(metres * 100)
     return withUnit ? `${cm} cm` : `${cm}`
+  }
+  if (units === 'mm') {
+    const mm = Math.round(metres * 1000)
+    return withUnit ? `${mm} mm` : `${mm}`
   }
   if (units === 'ft') {
     const sign = metres < 0 ? '-' : ''

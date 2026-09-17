@@ -10,7 +10,8 @@ import { wallGap } from './measure'
 import { exampleProject } from './example'
 import { defaultFloorName, floorElevation, newProject, normalizeProject, type Floor, type Project, type ProjectMeta, type Roof, type Underlay } from './project'
 import { addFile, newFileKey, rasterize, removeFile } from '../files/planFiles'
-import { deleteProjectFile, putProjectFile } from '../sync/api'
+import { deleteAccount as apiDeleteAccount, deleteProjectFile, putProjectFile } from '../sync/api'
+import { makeZip, safeFileName } from '../files/zip'
 import type { Units } from './units'
 import type { Season, Site } from './sun'
 import { applyOps, diffProjects, floorsTouched, type Op, type Peer, type Presence } from './collab'
@@ -66,6 +67,12 @@ export interface EditorState {
   initAccount: () => Promise<void>
   signOut: () => Promise<void>
   syncNow: () => Promise<void>
+  /** when the account and this device last agreed, for the settings page */
+  lastSyncAt: number | null
+  /** the account on the server and every copy of its plans and models here; leaves local-only plans alone */
+  deleteAccount: () => Promise<void>
+  /** every plan on this device as one JSON file each, zipped — the same files "Import…" takes back */
+  exportAllProjects: () => Blob
   /** projects whose account copy diverged from the local edits; the first one is shown in a dialog */
   conflicts: SyncConflict[]
   /** true while the user chose "decide later" on the current conflict */
@@ -104,8 +111,6 @@ export interface EditorState {
   /** which left-panel tab is open */
   railTab: 'layers' | 'furniture'
   setRailTab: (tab: 'layers' | 'furniture') => void
-  prefsOpen: boolean
-  setPrefsOpen: (v: boolean) => void
   /** on narrow screens the side panels are drawers over the canvas */
   drawer: 'left' | 'right' | null
   setDrawer: (d: 'left' | 'right' | null) => void
@@ -715,7 +720,7 @@ export const useEditor = create<EditorState>((set, get) => {
       const stillEditing = editSeq !== seqAtStart
       setMeta(project.id, { syncedVersion: r.version, dirty: stillEditing, role: meta?.role ?? 'owner', updatedBy: get().user ? { email: get().user!.email, name: get().user!.name } : null })
       if (force) dropConflict(project.id)
-      else set({ syncStatus: get().conflicts.length ? 'conflict' : 'synced' })
+      else set({ syncStatus: get().conflicts.length ? 'conflict' : 'synced', lastSyncAt: Date.now() })
     } catch (e) {
       if (e instanceof ConflictError) {
         const remote = normalizeProject(e.remote.project, normalizePlan)
@@ -808,6 +813,7 @@ export const useEditor = create<EditorState>((set, get) => {
       }
       if (notices.length) set({ notice: notices.join(' · ') })
       if (get().syncStatus !== 'error' || !quiet) set({ syncStatus: get().conflicts.length ? 'conflict' : 'synced' })
+      set({ lastSyncAt: Date.now() })
     } catch {
       if (!quiet) set({ syncStatus: 'error' })
     } finally {
@@ -871,6 +877,34 @@ export const useEditor = create<EditorState>((set, get) => {
       } finally {
         set({ user: null, syncStatus: 'offline' })
       }
+    },
+    lastSyncAt: null,
+    deleteAccount: async () => {
+      if (!get().user) return
+      await apiDeleteAccount()
+      // the account's copies go with it; a plan that never synced was never the account's
+      for (const meta of [...get().projects]) if (meta.syncedVersion !== undefined || meta.role) removeLocalProject(meta.id)
+      for (const m of [...get().customModels]) {
+        unregisterModelUrls(m.key)
+        await deleteModelBlobs(m.key).catch(() => undefined)
+      }
+      saveModels([])
+      set({ user: null, syncStatus: 'offline', conflicts: [], lastSyncAt: null })
+      if (!get().projects.some((p) => p.id === get().project.id)) openProjectState(exampleProject())
+    },
+    exportAllProjects: () => {
+      const { projects, project } = get()
+      const seen = new Set<string>()
+      const entries: { name: string; data: string; date: Date }[] = []
+      for (const meta of [...projects].sort((a, b) => b.updatedAt - a.updatedAt)) {
+        const p = meta.id === project.id ? project : loadProject(meta.id)
+        if (!p) continue
+        let name = safeFileName(p.name)
+        for (let n = 2; seen.has(name); n++) name = `${safeFileName(p.name)} ${n}`
+        seen.add(name)
+        entries.push({ name: `${name}.json`, data: JSON.stringify(p, null, 2), date: new Date(p.updatedAt || Date.now()) })
+      }
+      return new Blob([makeZip(entries)], { type: 'application/zip' })
     },
     syncNow: async () => {
       if (get().user) {
@@ -990,8 +1024,6 @@ export const useEditor = create<EditorState>((set, get) => {
     units: prefs.units,
     railTab: 'layers',
     setRailTab: (railTab) => set({ railTab }),
-    prefsOpen: false,
-    setPrefsOpen: (prefsOpen) => set({ prefsOpen }),
     drawer: null,
     setDrawer: (drawer) => set({ drawer }),
     customModels: [],

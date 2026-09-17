@@ -5,6 +5,8 @@ describe('units', () => {
   it('formats metric', () => {
     expect(formatLength(3.5, 'm')).toBe('3.50 m')
     expect(formatLength(3.5, 'cm')).toBe('350 cm')
+    expect(formatLength(3.5, 'mm')).toBe('3500 mm')
+    expect(parseLength('3500', 'mm')).toBe(3.5)
   })
   it('formats imperial as feet and inches', () => {
     expect(formatLength(0.3048 * 5 + 0.0254 * 10, 'ft')).toBe(`5' 10"`)
@@ -21,7 +23,7 @@ describe('units', () => {
     expect(parseLength('350cm', 'ft')).toBe(3.5)
   })
   it('round-trips the bare display value', () => {
-    for (const u of ['m', 'cm', 'ft'] as const) {
+    for (const u of ['m', 'cm', 'mm', 'ft'] as const) {
       const back = parseLength(formatLength(2.44, u, false), u)!
       expect(Math.abs(back - 2.44)).toBeLessThan(u === 'ft' ? 0.002 : 0.006)
     }

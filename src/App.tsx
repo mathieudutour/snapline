@@ -4,7 +4,7 @@ import { Rail } from './panels/Rail'
 import { LeftPanel } from './panels/LeftPanel'
 import { Inspector } from './panels/Inspector'
 import { BottomBar } from './panels/BottomBar'
-import { PreferencesPanel } from './panels/Preferences'
+import { Settings } from './pages/Settings'
 import { Projects } from './pages/Projects'
 import { useEditor } from './model/store'
 import { Landing } from './pages/Landing'
@@ -21,7 +21,6 @@ const Scene3D = lazy(() => import('./three/Scene3D').then((m) => ({ default: m.S
 
 export function EditorApp() {
   const mode = useEditor((s) => s.mode)
-  const prefsOpen = useEditor((s) => s.prefsOpen)
   const drawer = useEditor((s) => s.drawer)
   const setDrawer = useEditor((s) => s.setDrawer)
   const mobile = useMedia(MOBILE_QUERY)
@@ -40,7 +39,6 @@ export function EditorApp() {
         )}
         <CanvasChrome />
         <BottomBar />
-        {prefsOpen && <PreferencesPanel />}
       </div>
       <Inspector />
       <ProjectSettingsDialog />
@@ -57,6 +55,7 @@ export function EditorApp() {
  *   /home   landing page, always
  *   /login  sign-in page (sends signed-in users to the editor)
  *   /projects  list of projects
+ *   /settings  account, units, imported furniture, your data
  *   /view/<token>  read-only view of a project shared by link (no account needed)
  */
 export function App() {
@@ -71,8 +70,8 @@ export function App() {
   useEffect(() => {
     if (checking || viewToken) return
     if (path === '/login' && canEdit) navigate('/', true)
-    else if (path === '/projects' && !canEdit) navigate('/login', true)
-    else if (path !== '/' && path !== '/home' && path !== '/login' && path !== '/projects') navigate(canEdit ? '/' : '/home', true)
+    else if ((path === '/projects' || path === '/settings') && !canEdit) navigate('/login', true)
+    else if (path !== '/' && path !== '/home' && path !== '/login' && path !== '/projects' && path !== '/settings') navigate(canEdit ? '/' : '/home', true)
   }, [path, checking, canEdit, viewToken])
 
   if (viewToken) return <ViewLinkPage token={viewToken} />
@@ -84,6 +83,14 @@ export function App() {
       <>
         <Projects />
         <ConflictDialog />
+        <ConfirmSheet />
+        <Notice />
+      </>
+    ) : null
+  if (path === '/settings')
+    return canEdit ? (
+      <>
+        <Settings />
         <ConfirmSheet />
         <Notice />
       </>

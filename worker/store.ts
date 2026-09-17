@@ -85,6 +85,8 @@ export interface Store {
   createSession(input: { tokenHash: string; userId: string; expiresAt: number }): Promise<void>
   getSession(tokenHash: string): Promise<{ userId: string; expiresAt: number } | null>
   deleteSession(tokenHash: string): Promise<void>
+  /** the account and everything it owns: sessions, projects (with their sharing), memberships, models. Returns the ids of the projects that were owned, so their files can go too. */
+  deleteUser(userId: string, email: string): Promise<string[]>
   /** projects owned by or shared with the caller */
   listProjects(access: Access): Promise<ProjectMeta[]>
   getProject(access: Access, id: string): Promise<ProjectRow | null>
@@ -200,6 +202,20 @@ export class D1Store implements Store {
 
   async deleteProject(ownerId: string, id: string): Promise<void> {
     await this.db.batch([this.db.prepare('DELETE FROM project_members WHERE project_id = ? AND project_id IN (SELECT id FROM projects WHERE user_id = ?)').bind(id, ownerId), this.db.prepare('DELETE FROM projects WHERE user_id = ? AND id = ?').bind(ownerId, id)])
+  }
+
+  async deleteUser(userId: string, email: string): Promise<string[]> {
+    const owned = (await this.db.prepare('SELECT id FROM projects WHERE user_id = ?').bind(userId).all<{ id: string }>()).results.map((r) => r.id)
+    // explicit rather than relying on ON DELETE CASCADE, which needs foreign keys switched on
+    await this.db.batch([
+      this.db.prepare('DELETE FROM project_members WHERE project_id IN (SELECT id FROM projects WHERE user_id = ?)').bind(userId),
+      this.db.prepare('DELETE FROM project_members WHERE email = ?').bind(normalizeEmail(email)),
+      this.db.prepare('DELETE FROM projects WHERE user_id = ?').bind(userId),
+      this.db.prepare('DELETE FROM models WHERE user_id = ?').bind(userId),
+      this.db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(userId),
+      this.db.prepare('DELETE FROM users WHERE id = ?').bind(userId),
+    ])
+    return owned
   }
 
   async listMembers(projectId: string): Promise<ProjectMember[]> {
@@ -385,6 +401,19 @@ export class MemoryStore implements Store {
       this.projects.delete(id)
       this.members.delete(id)
     }
+  }
+  async deleteUser(userId: string, email: string) {
+    const owned = [...this.projects.values()].filter((p) => p.userId === userId).map((p) => p.id)
+    for (const id of owned) {
+      this.projects.delete(id)
+      this.members.delete(id)
+      this.viewTokens.delete(id)
+    }
+    for (const [id, list] of this.members) this.members.set(id, list.filter((m) => m.email !== normalizeEmail(email)))
+    for (const [key, m] of this.models) if (m.userId === userId) this.models.delete(key)
+    for (const [hash, s] of this.sessions) if (s.userId === userId) this.sessions.delete(hash)
+    this.users.delete(userId)
+    return owned
   }
   async listMembers(projectId: string) {
     return (this.members.get(projectId) ?? []).map((m) => ({ email: m.email, name: [...this.users.values()].find((u) => normalizeEmail(u.email) === m.email)?.name ?? null, role: m.role, createdAt: m.createdAt }))

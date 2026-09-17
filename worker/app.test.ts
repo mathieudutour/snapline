@@ -113,6 +113,41 @@ describe('worker app', () => {
     expect((await handle(new Request(`${ORIGIN}/api/projects/prj1`, { headers: auth }))).status).toBe(404)
   })
 
+  it('deletes an account with its projects, memberships, models and sessions', async () => {
+    const cb = await signIn()
+    const token = parseCookies(setCookieHeaders(cb).find((c) => c.startsWith(SESSION_COOKIE))!.split(';')[0])[SESSION_COOKIE]
+    const auth = { Cookie: `${SESSION_COOKIE}=${token}`, Origin: ORIGIN, 'Content-Type': 'application/json' }
+    const project = { id: 'prj-del', name: 'Mine', floors: [{ id: 'f', name: 'Ground', plan: {} }], roof: { type: 'none' } }
+    expect((await handle(new Request(`${ORIGIN}/api/projects/prj-del`, { method: 'PUT', headers: auth, body: JSON.stringify({ project }) }))).status).toBe(200)
+    expect((await handle(new Request(`${ORIGIN}/api/models/u-abcdefabcdef`, { method: 'PUT', headers: auth, body: JSON.stringify({ name: 'Chair', width: 1, depth: 1, height: 1, fit: {} }) }))).status).toBe(200)
+    // a second user shares a project with the first, who then deletes their account
+    resetJwksCache()
+    const cb2 = await signIn({ sub: 'google-sub-2', email: 'other@example.com' })
+    const token2 = parseCookies(setCookieHeaders(cb2).find((c) => c.startsWith(SESSION_COOKIE))!.split(';')[0])[SESSION_COOKIE]
+    const auth2 = { ...auth, Cookie: `${SESSION_COOKIE}=${token2}` }
+    await handle(new Request(`${ORIGIN}/api/projects/prj-theirs`, { method: 'PUT', headers: auth2, body: JSON.stringify({ project: { ...project, id: 'prj-theirs', name: 'Theirs' } }) }))
+    expect((await handle(new Request(`${ORIGIN}/api/projects/prj-theirs/members`, { method: 'POST', headers: auth2, body: JSON.stringify({ email: 'mathieu@example.com', role: 'editor' }) }))).status).toBe(200)
+    expect((await body(await handle(new Request(`${ORIGIN}/api/projects`, { headers: auth })))).projects).toHaveLength(2)
+
+    expect((await handle(new Request(`${ORIGIN}/api/me`, { method: 'DELETE', headers: { Origin: ORIGIN } }))).status).toBe(401)
+    const del = await handle(new Request(`${ORIGIN}/api/me`, { method: 'DELETE', headers: auth }))
+    expect(del.status).toBe(200)
+    expect(setCookieHeaders(del).some((c) => c.startsWith(SESSION_COOKIE) && /Max-Age=0/i.test(c))).toBe(true)
+    // the session is gone, and so is everything the account owned
+    expect((await body(await handle(new Request(`${ORIGIN}/api/me`, { headers: auth })))).user).toBeNull()
+    expect(store.projects.has('prj-del')).toBe(false)
+    expect(store.models.size).toBe(0)
+    expect(store.users.size).toBe(1)
+    // the other user's project survives, minus the deleted member
+    const theirs = await body(await handle(new Request(`${ORIGIN}/api/projects/prj-theirs/members`, { headers: auth2 })))
+    expect(theirs.members).toHaveLength(0)
+    // signing in again with the same Google account starts from nothing
+    resetJwksCache()
+    const cb3 = await signIn()
+    const token3 = parseCookies(setCookieHeaders(cb3).find((c) => c.startsWith(SESSION_COOKIE))!.split(';')[0])[SESSION_COOKIE]
+    expect((await body(await handle(new Request(`${ORIGIN}/api/projects`, { headers: { ...auth, Cookie: `${SESSION_COOKIE}=${token3}` } })))).projects).toHaveLength(0)
+  })
+
   it('requires a matching Origin on mutations and a session on the API', async () => {
     const noAuth = await handle(new Request(`${ORIGIN}/api/projects`))
     expect(noAuth.status).toBe(401)

@@ -1232,6 +1232,51 @@ fieldset.plain:disabled {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+/*
+ * Two clusters at the top left: the view pill (readouts you click to change a value) and
+ * the drawing switches (three binaries whose whole state is the fill). A third family
+ * would be a third cluster, not a longer strip.
+ */
+.canvas-chrome-group {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  z-index: 4;
+}
+.canvas-chrome-group .canvas-chrome {
+  position: static;
+}
+.canvas-chrome.switches {
+  padding: 3px;
+  gap: 2px;
+  overflow: visible;
+}
+.switch-item {
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: var(--faint);
+  display: grid;
+  place-items: center;
+}
+.switch-item:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text-2);
+}
+.switch-item.on,
+.switch-item.on:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.switch-item:disabled {
+  opacity: 0.4;
+}
 .canvas-chrome .pill-item.density {
   display: inline-flex;
   align-items: center;
@@ -1519,81 +1564,231 @@ fieldset.plain:disabled {
   margin: 4px 0;
 }
 
-.prefs {
-  position: absolute;
-  left: 14px;
-  /* clear of the floor pill, which owns the top-left corner */
-  top: 62px;
-  width: 300px;
+/* ---------- settings: the things that are yours, not the plan's, in the projects shell ---------- */
+.settings-layout {
+  display: grid;
+  grid-template-columns: 186px minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+.settings-nav {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 4px;
+}
+.settings-nav h1 {
+  padding: 0 8px 12px;
+}
+.settings-nav a {
+  padding: 7px 9px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  text-decoration: none;
+}
+.settings-nav a:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.settings-nav .menu-sep {
+  margin: 10px 8px;
+}
+.settings-nav p {
+  margin: 0;
+  padding: 0 9px;
+  line-height: 1.45;
+}
+.settings-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.settings-card {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--r-card);
-  box-shadow: var(--shadow-pop);
-  z-index: 6;
   overflow: hidden;
+  scroll-margin-top: 16px;
 }
-.panel-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 12px 12px 16px;
+.settings-card-head {
+  padding: 14px 18px 12px;
   border-bottom: 1px solid var(--border-soft);
 }
-.panel-head strong {
-  font-size: 15px;
-}
-.shortcuts {
-  position: absolute;
-  right: 14px;
-  top: 62px;
-  width: 340px;
-  max-height: calc(100% - 76px);
-  overflow-y: auto;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--r-card);
-  box-shadow: var(--shadow-pop);
-  padding: 12px 14px;
-  z-index: 6;
-}
-.shortcuts.below-conflict {
-  top: 190px;
-  max-height: calc(100% - 204px);
-}
-.shortcuts-head {
+.settings-card-head.with-action {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
+  align-items: flex-start;
+  gap: 12px;
 }
-.shortcuts-group + .shortcuts-group {
-  margin-top: 12px;
-}
-.shortcuts-group h4 {
-  margin: 0 0 5px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--faint);
-  font-weight: 700;
-}
-.shortcuts-grid {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 5px 12px;
-  align-items: center;
-  font-size: 12.5px;
-}
-.shortcut {
-  display: contents;
-}
-.shortcut kbd {
-  justify-self: start;
-  font-size: 11px;
-  padding: 1px 6px;
+.settings-card-head h2 {
   margin: 0;
-  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 600;
+}
+.settings-card-head p {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--faint);
+}
+.settings-card-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.settings-card-row:last-child {
+  border-bottom: none;
+}
+.settings-card-row .dot {
+  position: static;
+  width: 8px;
+  height: 8px;
+  border: none;
+  flex: none;
+}
+.settings-row-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.settings-row-title.danger {
+  color: var(--danger-ink);
+}
+.settings-row-sub {
+  font-size: 11.5px;
+  color: var(--faint);
+  font-family: var(--mono);
+  margin-top: 2px;
+}
+.settings-row-sub.faint {
+  color: var(--border);
+}
+.settings-card-foot {
+  padding: 11px 18px;
+  background: var(--accent-tint);
+  font-size: 12px;
+  color: var(--faint);
+  font-family: var(--mono);
+}
+.settings-card .identity {
+  padding: 16px 18px;
+}
+.avatar.large {
+  width: 46px;
+  height: 46px;
+  font-size: 18px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.provider {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-2);
+  background: var(--hover);
+  border-radius: 20px;
+  padding: 5px 11px;
+  flex: none;
+}
+.provider svg {
+  width: 12px;
+  height: 12px;
+}
+/* the same length, written four ways: the choice shows what it does */
+.unit-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 14px 18px;
+}
+.unit-option {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  text-align: left;
+  color: var(--text);
+}
+.unit-option > span:last-child {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.unit-option .settings-row-title,
+.unit-option .settings-row-sub {
+  display: block;
+}
+.unit-option .radio-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+.unit-option.on {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+}
+.unit-option.on .radio-dot {
+  border-color: var(--accent);
+}
+.unit-option.on .radio-dot::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.model-thumb {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: repeating-linear-gradient(135deg, #f4f5f7 0 5px, #eaebee 5px 10px);
+  object-fit: contain;
+  flex: none;
+}
+button.danger-outline {
+  border-color: var(--danger-line);
+  color: var(--danger-ink);
+  font-weight: 600;
+}
+button.danger-outline:hover:not(:disabled) {
+  background: var(--danger-soft);
+  border-color: var(--danger-line);
+  color: var(--danger-ink);
+}
+@media (max-width: 720px) {
+  .settings-layout {
+    grid-template-columns: 1fr;
+  }
+  .settings-nav {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .settings-nav h1 {
+    width: 100%;
+  }
+  .settings-nav .menu-sep,
+  .settings-nav p {
+    display: none;
+  }
+  .unit-options {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ---------- modals & sheets ---------- */

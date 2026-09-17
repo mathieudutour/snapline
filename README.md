@@ -55,7 +55,7 @@ Pushes to `main` run `.github/workflows/deploy.yml`: typecheck, tests and build,
 The interaction model follows Figma: single-key tools, scroll to pan, Ctrl/⌘ + scroll to zoom,
 Esc to go back to the Select tool. Press `?` in the app for the full list.
 
-The editor is laid out like Figma: an icon rail on the left (layers, furniture, projects, preferences),
+The editor is laid out like Figma: an icon rail on the left (layers, furniture, projects),
 a left panel with the floors and four views (Plan: rooms in reading order, walls, openings, furniture and
 the roof; Rules: every constraint; Notes: comments; Finishes: the materials schedule), the canvas in the middle with a floating toolbar at the
 bottom and a view pill at the top (floor, zoom, drawing scale, measurement density), and an inspector for the
@@ -88,7 +88,8 @@ status list for the roof, the finishes and the site.
 | Roof | The roof is one object per building and sits on the top floor: select its row in the Plan list there (or click Roof in the inspector's status list from any floor) and pick its type, pitch, ridge direction, overhang, finish and colour in the inspector. |
 | Export | Project menu → Export…: the plan as a PDF to scale (1:50, 1:100, 1:200 or fitted, A4/A3/Letter, one page per floor with a title block and a 1 m scale bar), as a PNG at a chosen resolution, the building as a glTF binary (.glb: walls with openings, floors, ceilings, roof, structures, furniture as boxes), or the project file to re-import. |
 | Projects | The project name at the top of the left panel opens a menu (rename, settings, import, export, delete); the Projects rail tab lists all projects. |
-| Preferences | The Prefs rail tab: metric (m or cm) or imperial (feet and inches), grid snap, auto-lock, ghost of the floor below. |
+| Drawing aids | Three switches beside the view pill above the canvas: snap to the 5 cm grid, auto-lock straight walls and furniture dropped against walls, and the ghost of the floor below. Filled means on; they are judged against the drawing, so they live next to it. |
+| Settings | Under your avatar (or at `/settings`): your account and sync status, units (metres, centimetres, millimetres, or feet and inches — one preference for every plan), the furniture you have imported with what each model weighs and which plans place it, and your data: export every plan as a zip of JSON files, or delete your account with everything it owns. |
 | Sharing | Project menu → Share… invites people by the email of their Google account as editors or read-only viewers (the owner can change the role later); they see the project in their list. Owners remove people or delete the project; invited people can leave it. |
 | View link | In the share dialog, "Anyone with the link can view" gives a `/view/…` link that opens the plan read-only, live, without an account (2D, 3D and walkthrough included). Turn it off to revoke the link. |
 | Live collaboration | A shared project opens a live session: everyone in it sees the others' cursors, selections and edits as they happen (avatars in the inspector header show who is there). Edits travel as per-entity operations, so people can work on different parts of the plan at once; when two people change the same wall, the last change wins. Undo only undoes your own steps. |
