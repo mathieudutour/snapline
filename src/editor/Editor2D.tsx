@@ -251,8 +251,10 @@ export function Editor2D() {
 
   const sized = size.width > 0
   useEffect(() => {
-    if (sized) fitBounds(planBounds(useEditor.getState().plan))
-  }, [fitVersion, sized, fitBounds])
+    if (!sized) return
+    const st = useEditor.getState()
+    fitBounds((st.fitTarget === 'selection' ? selectionBounds() : null) ?? planBounds(st.plan))
+  }, [fitVersion, sized, fitBounds, selectionBounds])
   useEffect(() => {
     if (zoomRequest.version > 0) setZoom(zoomRequest.scale)
   }, [zoomRequest, setZoom])

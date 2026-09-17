@@ -125,7 +125,9 @@ export interface EditorState {
   /** current 2D zoom in pixels per metre (display only) */
   zoomLevel: number
   setZoomLevel: (z: number) => void
-  requestFit: () => void
+  /** ask the canvas to fit the plan, or the selection, in the view */
+  requestFit: (target?: 'plan' | 'selection') => void
+  fitTarget: 'plan' | 'selection'
   plan: Plan
   report: SolveReport
   selection: SelectionItem[]
@@ -1078,7 +1080,8 @@ export const useEditor = create<EditorState>((set, get) => {
     catalogItem: (key) => CATALOG_BY_KEY[key] ?? get().customModels.find((m) => m.key === key),
     zoomLevel: 70,
     setZoomLevel: (zoomLevel) => set({ zoomLevel }),
-    requestFit: () => set({ fitVersion: get().fitVersion + 1 }),
+    requestFit: (target = 'plan') => set({ fitVersion: get().fitVersion + 1, fitTarget: target }),
+    fitTarget: 'plan',
     plan: solved.plan,
     report: solved.report,
     selection: [],

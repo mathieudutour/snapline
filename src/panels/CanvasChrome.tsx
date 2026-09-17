@@ -66,6 +66,9 @@ function DrawingSwitches() {
   )
 }
 
+/** the zooms worth a click: 100 % is a metre drawn 100 px across, which Shift+0 also gives */
+const ZOOM_PRESETS = [25, 50, 100, 200, 400]
+
 /** floor · zoom · the scale the plan is drawn at · how many measurements it shows */
 function ViewPill() {
   const floors = useEditor((s) => s.project.floors)
@@ -77,10 +80,8 @@ function ViewPill() {
   const density = useEditor((s) => s.labelDensity)
   const cycleDensity = useEditor((s) => s.cycleLabelDensity)
   const labelStats = useEditor((s) => s.labelStats)
-  const underlay = useEditor((s) => s.project.floors.find((f) => f.id === s.activeFloorId)?.underlay)
-  const setUnderlay = useEditor((s) => s.setUnderlay)
-  const readOnly = useEditor(isReadOnly)
-  const [open, setOpen] = useState<'floors' | 'scale' | 'underlay' | null>(null)
+  const hasSelection = useEditor((s) => s.selection.length > 0)
+  const [open, setOpen] = useState<'floors' | 'zoom' | 'scale' | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
@@ -100,9 +101,9 @@ function ViewPill() {
         {floor?.name ?? 'Floor'}
       </button>
       <span className="pill-sep" />
-      <span className="pill-item num" title="Screen zoom: how many pixels a metre is drawn across">
+      <button className="pill-item num" onClick={() => setOpen((o) => (o === 'zoom' ? null : 'zoom'))} title="Screen zoom: how many pixels a metre is drawn across — click to fit the plan or pick a zoom">
         {Math.round(zoom)}%
-      </span>
+      </button>
       <span className="pill-sep" />
       <button className="pill-item num" onClick={() => setOpen((o) => (o === 'scale' ? null : 'scale'))} title={scale.approx ? `Drawn at about 1:${scale.exact} on a 96 dpi screen — pick a scale to zoom to` : `Drawn at 1:${scale.nearest} on a 96 dpi screen — pick a scale to zoom to`}>
         {scale.nearest ? `${scale.approx ? '≈ ' : ''}1:${scale.nearest}` : '1:—'}
@@ -111,18 +112,6 @@ function ViewPill() {
       <button className="pill-item density" onClick={cycleDensity} title={`Measurements: ${DENSITY_LABELS[density].toLowerCase()} — ${DENSITY_HINTS[density]} (${labelStats.shown} shown${hidden}). Shift+D cycles.`}>
         <Icon name="density" size={15} />
         {DENSITY_LABELS[density]}
-      </button>
-      {underlay && (
-        <>
-          <span className="pill-sep" />
-          <button className={`pill-item ${!underlay.locked ? 'attention' : ''}`} onClick={() => setOpen((o) => (o === 'underlay' ? null : 'underlay'))} title={`Underlay: ${underlay.name} · ${Math.round(underlay.opacity * 100)}% · ${underlay.locked ? 'locked' : 'unlocked — drag it on the plan'}`}>
-            <Icon name="fileImage" size={15} title="Underlay" />
-          </button>
-        </>
-      )}
-      <span className="pill-sep" />
-      <button className="pill-item" onClick={requestFit} title="Zoom to fit (Shift+1)">
-        <Icon name="fit" size={15} title="Zoom to fit" />
       </button>
       {open === 'floors' && (
         <div className="menu">
@@ -134,18 +123,20 @@ function ViewPill() {
           ))}
         </div>
       )}
-      {open === 'underlay' && underlay && (
-        <div className="menu underlay-menu" onPointerDown={(e) => e.stopPropagation()}>
-          <div className="menu-title">Underlay</div>
-          <label className="field sun-time">
-            <span>Opacity</span>
-            <input type="range" min={0.1} max={1} step={0.05} value={underlay.opacity} disabled={readOnly} onChange={(e) => setUnderlay({ opacity: Number(e.target.value) })} />
-            <em>{Math.round(underlay.opacity * 100)}%</em>
-          </label>
-          <label className="toggle block">
-            <span>Locked in place</span>
-            <input className="switch" type="checkbox" checked={underlay.locked} disabled={readOnly} onChange={(e) => setUnderlay({ locked: e.target.checked })} />
-          </label>
+      {open === 'zoom' && (
+        <div className="menu">
+          <button className="menu-item" onClick={() => (requestFit('plan'), setOpen(null))}>
+            Zoom to fit <kbd>⇧1</kbd>
+          </button>
+          <button className="menu-item" disabled={!hasSelection} onClick={() => (requestFit('selection'), setOpen(null))}>
+            Zoom to selection <kbd>⇧2</kbd>
+          </button>
+          <div className="menu-sep" />
+          {ZOOM_PRESETS.map((z) => (
+            <button key={z} className={`menu-item num ${Math.round(zoom) === z ? 'on' : ''}`} onClick={() => (requestZoom(z), setOpen(null))}>
+              {z}%{z === 100 ? <kbd>⇧0</kbd> : null}
+            </button>
+          ))}
         </div>
       )}
       {open === 'scale' && (

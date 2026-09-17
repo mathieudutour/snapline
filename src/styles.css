@@ -935,15 +935,13 @@ fieldset.plain:disabled {
 .modal.settings {
   width: min(460px, 100%);
 }
-.canvas-chrome .pill-item.attention svg {
-  color: var(--amber);
-}
-.menu.underlay-menu {
-  min-width: 250px;
-  padding: 8px 12px 10px;
-}
-.menu.underlay-menu .menu-title {
-  padding-left: 0;
+.menu-item kbd {
+  margin-left: auto;
+  padding-left: 12px;
+  font-size: 10.5px;
+  color: var(--faint);
+  border: none;
+  background: none;
 }
 
 /* ---------- inspector: the header carries the mode switch and nothing else ---------- */
@@ -1525,6 +1523,8 @@ fieldset.plain:disabled {
   padding: 7px 9px 3px;
 }
 .menu-item {
+  display: flex;
+  align-items: center;
   text-align: left;
   justify-content: flex-start;
   padding: 7px 9px;
