@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { isReadOnly, useEditor } from '../model/store'
 import { NotesList, PlanTree, RulesList } from './Hierarchy'
+import { FinishesProps } from './Finishes'
 import { CataloguePanel } from './Sidebar'
 import { ShareDialog } from './Share'
 import { ExportDialog } from './Export'
@@ -18,6 +19,7 @@ function ProjectMenu() {
   const meta = useEditor((s) => s.projects.find((p) => p.id === s.project.id))
   const viewLink = useEditor((s) => s.viewLink)
   const readOnly = useEditor(isReadOnly)
+  const setProjectSettingsOpen = useEditor((s) => s.setProjectSettingsOpen)
   const isEditor = meta?.role === 'editor' || meta?.role === 'viewer'
   const [open, setOpen] = useState(false)
   const [renaming, setRenaming] = useState(false)
@@ -66,6 +68,9 @@ function ProjectMenu() {
               Rename
             </button>
           )}
+          <button className="menu-item" onClick={() => (setProjectSettingsOpen(true), setOpen(false))}>
+            Settings…
+          </button>
           {user && !viewLink && (
             <button className="menu-item" onClick={() => (setShareOpen(true), setOpen(false))}>
               {readOnly ? 'Shared with…' : 'Share…'}
@@ -172,7 +177,7 @@ function FloorsList() {
 }
 
 /**
- * Under the floors, three views of the same floor: the plan's tree, its rules and its notes.
+ * Under the floors, four views: the plan's tree, its rules, its notes and the finishes schedule.
  * The rules used to be one group at the bottom of the tree; once a rule lights its geometry
  * on hover, forty of them are a view in their own right, not a folder three levels down.
  */
@@ -182,10 +187,12 @@ function LayerTabs() {
   const rules = useEditor((s) => Object.keys(s.plan.constraints).length)
   const violated = useEditor((s) => s.report.violated.size)
   const notes = useEditor((s) => Object.values(s.plan.comments ?? {}).filter((c) => !c.resolved).length)
-  const tabs: { id: 'plan' | 'rules' | 'notes'; label: string; count?: number; bad?: boolean }[] = [
+  // Finishes is a schedule — a per-room table — which is what this panel is for, not an inspector section
+  const tabs: { id: 'plan' | 'rules' | 'notes' | 'finishes'; label: string; count?: number; bad?: boolean }[] = [
     { id: 'plan', label: 'Plan' },
     { id: 'rules', label: 'Rules', count: rules, bad: violated > 0 },
     { id: 'notes', label: 'Notes', count: notes },
+    { id: 'finishes', label: 'Finishes' },
   ]
   return (
     <div className="section">
@@ -200,6 +207,7 @@ function LayerTabs() {
       {leftTab === 'plan' && <PlanTree />}
       {leftTab === 'rules' && <RulesList />}
       {leftTab === 'notes' && <NotesList />}
+      {leftTab === 'finishes' && <FinishesProps />}
     </div>
   )
 }

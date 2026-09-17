@@ -40,7 +40,10 @@ function ViewPill() {
   const density = useEditor((s) => s.labelDensity)
   const cycleDensity = useEditor((s) => s.cycleLabelDensity)
   const labelStats = useEditor((s) => s.labelStats)
-  const [open, setOpen] = useState<'floors' | 'scale' | null>(null)
+  const underlay = useEditor((s) => s.project.floors.find((f) => f.id === s.activeFloorId)?.underlay)
+  const setUnderlay = useEditor((s) => s.setUnderlay)
+  const readOnly = useEditor(isReadOnly)
+  const [open, setOpen] = useState<'floors' | 'scale' | 'underlay' | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
@@ -72,6 +75,14 @@ function ViewPill() {
         <Icon name="density" size={15} />
         {DENSITY_LABELS[density]}
       </button>
+      {underlay && (
+        <>
+          <span className="pill-sep" />
+          <button className={`pill-item ${!underlay.locked ? 'attention' : ''}`} onClick={() => setOpen((o) => (o === 'underlay' ? null : 'underlay'))} title={`Underlay: ${underlay.name} · ${Math.round(underlay.opacity * 100)}% · ${underlay.locked ? 'locked' : 'unlocked — drag it on the plan'}`}>
+            <Icon name="fileImage" size={15} title="Underlay" />
+          </button>
+        </>
+      )}
       <span className="pill-sep" />
       <button className="pill-item" onClick={requestFit} title="Zoom to fit (Shift+1)">
         <Icon name="fit" size={15} title="Zoom to fit" />
@@ -84,6 +95,20 @@ function ViewPill() {
               {f.name}
             </button>
           ))}
+        </div>
+      )}
+      {open === 'underlay' && underlay && (
+        <div className="menu underlay-menu" onPointerDown={(e) => e.stopPropagation()}>
+          <div className="menu-title">Underlay</div>
+          <label className="field sun-time">
+            <span>Opacity</span>
+            <input type="range" min={0.1} max={1} step={0.05} value={underlay.opacity} disabled={readOnly} onChange={(e) => setUnderlay({ opacity: Number(e.target.value) })} />
+            <em>{Math.round(underlay.opacity * 100)}%</em>
+          </label>
+          <label className="toggle block">
+            <span>Locked in place</span>
+            <input className="switch" type="checkbox" checked={underlay.locked} disabled={readOnly} onChange={(e) => setUnderlay({ locked: e.target.checked })} />
+          </label>
         </div>
       )}
       {open === 'scale' && (

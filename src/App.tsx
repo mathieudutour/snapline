@@ -13,6 +13,7 @@ import { navigate, useRoute } from './router'
 import { ConflictDialog, Notice } from './panels/Conflict'
 import { ConfirmSheet } from './panels/Confirm'
 import { CanvasChrome } from './panels/CanvasChrome'
+import { ProjectSettingsDialog } from './panels/ProjectSettings'
 import { MOBILE_QUERY, useMedia } from './panels/useMedia'
 import { ViewLinkPage } from './pages/ViewLink'
 
@@ -42,6 +43,7 @@ export function EditorApp() {
         {prefsOpen && <PreferencesPanel />}
       </div>
       <Inspector />
+      <ProjectSettingsDialog />
       <ConflictDialog />
       <ConfirmSheet />
       <Notice />

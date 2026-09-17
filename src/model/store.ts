@@ -23,7 +23,9 @@ export type Tool = 'select' | 'wall' | 'door' | 'window' | 'furniture' | 'pan' |
 export type ViewMode = 'plan' | '3d' | 'walk'
 
 /** rooms are derived from the walls; their id is the sorted list of their corner ids, so it survives until a corner goes */
-export type SelectionItem = { kind: 'point' | 'wall' | 'opening' | 'furniture' | 'room'; id: string }
+/** the roof is one object per building; it is selected like anything else, with the id 'roof' */
+export type SelectionItem = { kind: 'point' | 'wall' | 'opening' | 'furniture' | 'room' | 'roof'; id: string }
+export const ROOF_ITEM: SelectionItem = { kind: 'roof', id: 'roof' }
 
 interface Snapshot {
   project: Project
@@ -152,8 +154,13 @@ export interface EditorState {
   hoverRule: string | null
   setHoverRule: (id: string | null) => void
   /** what the left panel shows under the floors */
-  leftTab: 'plan' | 'rules' | 'notes'
-  setLeftTab: (tab: 'plan' | 'rules' | 'notes') => void
+  leftTab: 'plan' | 'rules' | 'notes' | 'finishes'
+  setLeftTab: (tab: 'plan' | 'rules' | 'notes' | 'finishes') => void
+  /** the project settings sheet (site, north, slab): facts about the building set once, not the floor you are on */
+  projectSettingsOpen: boolean
+  setProjectSettingsOpen: (v: boolean) => void
+  /** switch to the top floor if needed and select the roof */
+  selectRoof: () => void
   /** catalogue key of the piece being placed with the furniture tool */
   placing: string | null
   setPlacing: (key: string | null) => void
@@ -924,6 +931,7 @@ export const useEditor = create<EditorState>((set, get) => {
       }
       let roomIds: Set<string> | null = null
       const exists = (s: SelectionItem) => {
+        if (s.kind === 'roof') return true
         if (s.kind === 'room') return (roomIds ??= new Set(findRooms(plan).map((r) => r.id))).has(s.id)
         return s.kind === 'point' ? !!plan.points[s.id] : s.kind === 'wall' ? !!plan.walls[s.id] : s.kind === 'furniture' ? !!plan.furniture[s.id] : !!plan.openings[s.id]
       }
@@ -1076,6 +1084,14 @@ export const useEditor = create<EditorState>((set, get) => {
     },
     leftTab: 'plan',
     setLeftTab: (leftTab) => set({ leftTab }),
+    projectSettingsOpen: false,
+    setProjectSettingsOpen: (projectSettingsOpen) => set({ projectSettingsOpen }),
+    selectRoof: () => {
+      const { project, activeFloorId } = get()
+      const top = project.floors[project.floors.length - 1]
+      if (top && top.id !== activeFloorId) get().setActiveFloor(top.id)
+      set({ selection: [ROOF_ITEM], mode: get().mode === 'walk' ? 'plan' : get().mode })
+    },
     placing: null,
     setPlacing: (placing) => set({ placing }),
 
@@ -1118,6 +1134,7 @@ export const useEditor = create<EditorState>((set, get) => {
       const undoStack = [...get().undoStack, { project, activeFloorId }].slice(-MAX_UNDO)
       let roomIds: Set<string> | null = null
       const selection = get().selection.filter((s) => {
+        if (s.kind === 'roof') return true
         if (s.kind === 'point') return !!solvedPlan.points[s.id]
         if (s.kind === 'wall') return !!solvedPlan.walls[s.id]
         if (s.kind === 'furniture') return !!solvedPlan.furniture[s.id]

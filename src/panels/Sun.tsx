@@ -8,18 +8,17 @@ export function SunControls() {
   const site = useEditor((s) => s.project.site)
   const sun = useEditor((s) => s.sun)
   const setSun = useEditor((s) => s.setSun)
-  const setMode = useEditor((s) => s.setMode)
-  const clearSelection = useEditor((s) => s.clearSelection)
+  const setProjectSettingsOpen = useEditor((s) => s.setProjectSettingsOpen)
   if (!site)
     return (
       <div className="props">
         <h3>Sun</h3>
         <p className="muted small">
           Give the project a location and orientation to light it with the real sun.{' '}
-          <button className="link" onClick={() => (clearSelection(), setMode('plan'))}>
+          <button className="link" onClick={() => setProjectSettingsOpen(true)}>
             Set the site
           </button>{' '}
-          in the 2D settings (nothing selected).
+          in the project settings.
         </p>
       </div>
     )

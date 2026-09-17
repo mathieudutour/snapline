@@ -12,7 +12,7 @@ import { Dimension, dimensionChipSize } from './Dimension'
 import { chainedStrings, cullLabels, nearestSide, onSide, planEnvelope, RANK, rotatedRect, type LabelCandidate } from './labels'
 import { setLiveCursor } from '../sync/liveController'
 import { wallGap } from '../model/measure'
-import { roomLabel, roomName, roomNameSuggestions } from '../model/rooms'
+import { roomIsNamed, roomLabel, roomName, roomNameSuggestions } from '../model/rooms'
 import { FINISH_BY_KEY } from '../model/finishes'
 import { stairSteps, structureKind } from '../model/structures'
 import { PeerCursors, usePeerSelections } from './Peers'
@@ -1139,7 +1139,8 @@ export function Editor2D() {
         value: `${name} · ${area}`,
         node: (
           <g key={'room:' + r.id} style={{ pointerEvents: 'none' }}>
-            <text x={r.centroid.x} y={r.centroid.y - 8 * px} fontSize={12.5 * px} fontWeight={600} textAnchor="middle" dominantBaseline="central" fill="#5d5240" stroke="white" strokeWidth={3 * px} paintOrder="stroke" fontFamily="ui-sans-serif, system-ui, sans-serif">
+            {/* a placeholder name is set in italic: it is an invitation to rename, not a name */}
+            <text x={r.centroid.x} y={r.centroid.y - 8 * px} fontSize={12.5 * px} fontWeight={600} fontStyle={roomIsNamed(plan, r) ? undefined : 'italic'} textAnchor="middle" dominantBaseline="central" fill={roomIsNamed(plan, r) ? '#5d5240' : '#8a8472'} stroke="white" strokeWidth={3 * px} paintOrder="stroke" fontFamily="ui-sans-serif, system-ui, sans-serif">
               {name}
             </text>
             <text x={r.centroid.x} y={r.centroid.y + 8 * px} fontSize={11 * px} textAnchor="middle" dominantBaseline="central" fill="#7d7160" stroke="white" strokeWidth={3 * px} paintOrder="stroke" fontFamily="ui-sans-serif, system-ui, sans-serif">
@@ -1452,9 +1453,9 @@ export function Editor2D() {
         </g>
       </svg>
       {north !== undefined && (
-        <div className="north-arrow" title={`North is at ${Math.round(north)}° from the top of the plan`}>
+        <button className="north-arrow" title={`North is at ${Math.round(north)}° from the top of the plan · click to change`} onClick={() => useEditor.getState().setProjectSettingsOpen(true)}>
           <Compass north={north} size={36} />
-        </div>
+        </button>
       )}
 
       {editing && (

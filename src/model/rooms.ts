@@ -11,6 +11,31 @@ export function roomName(plan: Plan, room: Room, index: number): string {
   return roomLabel(plan, room)?.name || `Room ${index + 1}`
 }
 
+/** has the user named this room, or is it still wearing its placeholder */
+export function roomIsNamed(plan: Plan, room: Room): boolean {
+  return !!roomLabel(plan, room)?.name
+}
+
+/**
+ * Rooms in the order the eye already reads the plan: top-left to bottom-right, by centroid.
+ * Rooms whose centroids sit in the same row band read left to right; a band is as tall as the
+ * gap between rows usually is. The index is the geometric one, which is what a placeholder
+ * name carries, so "Room 4" keeps its name wherever it lands in the list.
+ */
+export function readingOrder(rooms: Room[], band = 1.5): { room: Room; index: number }[] {
+  const byY = rooms.map((room, index) => ({ room, index })).sort((a, b) => a.room.centroid.y - b.room.centroid.y)
+  const rows: { room: Room; index: number }[][] = []
+  let rowStart = -Infinity
+  for (const r of byY) {
+    if (r.room.centroid.y - rowStart > band) {
+      rows.push([])
+      rowStart = r.room.centroid.y
+    }
+    rows[rows.length - 1].push(r)
+  }
+  return rows.flatMap((row) => row.sort((a, b) => a.room.centroid.x - b.room.centroid.x))
+}
+
 /** where a pixel of the underlay image lands on the plan */
 export function underlayToPlan(u: Underlay, p: { x: number; y: number }): Vec2 {
   const a = (u.rotation * Math.PI) / 180

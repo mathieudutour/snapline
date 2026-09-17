@@ -814,6 +814,138 @@ fieldset.plain:disabled {
   color: var(--muted);
 }
 
+/* the inspector with nothing selected: say so, and say what to do */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 24px 18px 22px;
+  text-align: center;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--faint);
+}
+.empty-state strong {
+  font-size: 13.5px;
+  color: var(--text);
+}
+.empty-state span {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--faint);
+}
+/* the once-per-project things: a status list, each row its current value and a way to where it is set */
+.status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 -6px;
+}
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 8px;
+  border: none;
+  background: none;
+  border-radius: 8px;
+  text-align: left;
+  color: var(--text);
+}
+.status-row:hover:not(:disabled) {
+  background: var(--hover);
+}
+.status-text {
+  flex: 1;
+  min-width: 0;
+}
+.status-text b {
+  display: block;
+  font-weight: 500;
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status-text span {
+  display: block;
+  font-size: 11.5px;
+  color: var(--faint);
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status-row .chev,
+.underlay-row .chev {
+  color: var(--faint);
+  line-height: 0;
+  flex: none;
+}
+/* the underlay, collapsed to one row */
+.underlay-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--panel);
+  text-align: left;
+  color: var(--text);
+}
+.underlay-row:hover:not(:disabled) {
+  background: var(--hover);
+}
+.underlay-row.open {
+  border-color: var(--accent-line);
+  background: var(--accent-tint);
+}
+.underlay-thumb {
+  width: 26px;
+  height: 34px;
+  flex: none;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: repeating-linear-gradient(135deg, #f4f5f7 0 4px, #eaebee 4px 8px);
+  object-fit: cover;
+  display: grid;
+  place-items: center;
+  color: var(--faint);
+}
+.underlay-details {
+  margin-top: 6px;
+  padding: 2px 2px 0;
+}
+.underlay-details .mono {
+  font-family: var(--mono);
+  margin: 4px 0 6px;
+}
+/* a placeholder name is set in italic: an invitation to rename, not a name */
+.provisional {
+  font-style: italic;
+  color: var(--muted);
+}
+.tree-head.on .provisional {
+  color: var(--text);
+}
+.modal.settings {
+  width: min(460px, 100%);
+}
+.canvas-chrome .pill-item.attention svg {
+  color: var(--amber);
+}
+.menu.underlay-menu {
+  min-width: 250px;
+  padding: 8px 12px 10px;
+}
+.menu.underlay-menu .menu-title {
+  padding-left: 0;
+}
+
 /* ---------- inspector: the header carries the mode switch and nothing else ---------- */
 .inspector-head {
   padding: 10px;
@@ -832,9 +964,10 @@ fieldset.plain:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 5px 8px;
-  font-size: 12.5px;
+  gap: 5px;
+  padding: 5px 4px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 .panel-tabs .count {
   padding: 0 6px;
@@ -1264,6 +1397,13 @@ fieldset.plain:disabled {
   background: var(--accent);
   color: white;
 }
+/* the underlay's Scale… button is pressed while calibrating: the same state, one more scope */
+.underlay-details button.active,
+.underlay-details button.active:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
 /* the key on each tool: 10 px at full colour, and only where it is readable — white on the
    active accent at 8 px was decoration, and the title already carries the key */
 .tool-key {
@@ -1290,12 +1430,21 @@ fieldset.plain:disabled {
   font-size: 12px;
 }
 
+/* north is set where north is shown: the arrow opens the project settings */
 .north-arrow {
   position: absolute;
   right: 14px;
   bottom: 40px;
-  pointer-events: none;
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 50%;
+  line-height: 0;
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
+}
+.north-arrow:hover:not(:disabled) {
+  background: none;
+  filter: drop-shadow(0 2px 5px rgba(20, 30, 60, 0.3));
 }
 .compass {
   flex: none;
@@ -1865,30 +2014,43 @@ button.account img {
   min-width: 0;
   max-width: 130px;
 }
-.finish-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
+/* the schedule: one room per row, its name on one line and its two finishes on the next, so it reads in a narrow panel */
+.finish-rows {
+  display: flex;
+  flex-direction: column;
   margin-top: 8px;
+  font-size: 12.5px;
 }
-.finish-table th {
-  text-align: left;
+.finish-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 0;
+  border-top: 1px solid var(--border-soft);
+}
+.finish-row.head {
+  border-top: none;
+  padding: 0 0 2px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--faint);
-  padding: 2px 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
-.finish-table td {
-  padding: 4px;
-  vertical-align: middle;
+.finish-row.head .picks > span {
+  flex: 1;
 }
-.finish-table td:first-child {
-  max-width: 80px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.finish-row .picks {
+  display: flex;
+  gap: 6px;
 }
-.finish-table .finish-select select {
-  max-width: 96px;
+.finish-row .finish-select {
+  flex: 1;
+}
+.finish-row .finish-select select {
+  flex: 1;
+  width: 100%;
+  max-width: none;
 }
 
 /* ---------- 3D & walkthrough ---------- */

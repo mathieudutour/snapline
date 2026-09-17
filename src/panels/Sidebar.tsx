@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { SiteProps } from './Site'
-import { UnderlayProps } from './Underlay'
-import { FinishesProps, FinishSelect } from './Finishes'
+import { UnderlayRow } from './Underlay'
+import { FinishSelect } from './Finishes'
+import { describeRoof } from './Hierarchy'
+import { DEFAULT_FINISHES, FINISH_BY_KEY } from '../model/finishes'
+import { MOBILE_QUERY, useMedia } from './useMedia'
 import { useEditor } from '../model/store'
 import type { Constraint, Furniture, FurnitureSide, Opening, Room, Wall } from '../model/types'
 import { nearestWallToSide, SIDE_LABELS } from '../model/furniture'
@@ -13,7 +15,7 @@ import { constraintsReferencing, describeConstraint, pointDistance, shortId } fr
 import { useMemo } from 'react'
 import { dimensionSide, findRooms, oppositeSide, wallFace, wallLength } from '../model/geometry'
 import { formatArea, formatLength, parseLength, type Units } from '../model/units'
-import { floorArea, roomLabel, roomName, roomNameSuggestions } from '../model/rooms'
+import { floorArea, roomIsNamed, roomLabel, roomName, roomNameSuggestions } from '../model/rooms'
 import { wallGap } from '../model/measure'
 
 /** a length input; `value` null means the selected items disagree and the field shows "Mixed" until a value is typed */
@@ -714,99 +716,189 @@ export function CataloguePanel() {
   )
 }
 
-/** total area of the rooms on this floor and of the whole project */
-function FloorAreaRow() {
-  const project = useEditor((s) => s.project)
-  const plan = useEditor((s) => s.plan)
-  const units = useEditor((s) => s.units)
-  const here = useMemo(() => floorArea(findRooms(plan)), [plan])
-  const total = useMemo(() => project.floors.reduce((sum, f) => sum + floorArea(findRooms(f.plan)), 0), [project])
-  if (here <= 0 && total <= 0) return null
+/**
+ * The inspector with nothing selected.
+ *
+ * It used to be thirty-nine controls: the floor, the roof, an eight-row finishes schedule,
+ * the underlay and the site, in one 1760 px scroll — and the sentence explaining how the
+ * panel works was the last line of the roof's help text. Sorted by how often each thing
+ * changes, three fields are touched while drawing and the rest once per project. So: the
+ * hint first, the floor's live defaults, the underlay as one row, and a status list for
+ * the once-per-project things, each showing its value and taking you to where it lives.
+ */
+function NothingSelected() {
   return (
-    <div className="field">
-      <span>Floor area</span>
-      <span className="muted small num">
-        {formatArea(here, units)}
-        {project.floors.length > 1 ? ` · all floors ${formatArea(total, units)}` : ''}
-      </span>
+    <>
+      <div className="empty-state">
+        <Icon name="select" size={28} strokeWidth={1.4} />
+        <strong>Nothing selected</strong>
+        <span>Click a wall, corner, door, window or piece of furniture to edit it.</span>
+      </div>
+      <FloorProps />
+      <ProjectStatus />
+    </>
+  )
+}
+
+/** the floor you are on: its name is the heading, its area the readout, its defaults the fields */
+function FloorProps() {
+  const settings = useEditor((s) => s.plan.settings)
+  const units = useEditor((s) => s.units)
+  const setSettings = useEditor((s) => s.setSettings)
+  const plan = useEditor((s) => s.plan)
+  const floor = useEditor((s) => s.project.floors.find((f) => f.id === s.activeFloorId))
+  const rooms = useMemo(() => findRooms(plan), [plan])
+  const area = floorArea(rooms)
+  return (
+    <div className="props">
+      <h3>
+        {floor?.name ?? 'Floor'}
+        {area > 0 && (
+          <span className="num">
+            {formatArea(area, units)} · {rooms.length} room{rooms.length > 1 ? 's' : ''}
+          </span>
+        )}
+      </h3>
+      <p className="muted small">Defaults for new walls on this floor. Floor height also sets where the floor above starts.</p>
+      <LengthField label="Floor height" units={units} value={settings.wallHeight} onChange={(v) => setSettings({ wallHeight: v })} />
+      <LengthField label="New wall thickness" units={units} value={settings.wallThickness} onChange={(v) => setSettings({ wallThickness: v })} />
+      <UnderlayRow />
     </div>
   )
 }
 
-function SettingsProps() {
-  const settings = useEditor((s) => s.plan.settings)
-  const units = useEditor((s) => s.units)
-  const setSettings = useEditor((s) => s.setSettings)
+/** not a nav: a status list. Each row shows its current value, and takes you to where it is set. */
+function ProjectStatus() {
   const project = useEditor((s) => s.project)
-  const activeFloorId = useEditor((s) => s.activeFloorId)
-  const renameFloor = useEditor((s) => s.renameFloor)
-  const setRoof = useEditor((s) => s.setRoof)
-  const setSlabThickness = useEditor((s) => s.setSlabThickness)
-  const floor = project.floors.find((f) => f.id === activeFloorId)
-  const roof = project.roof
-  const [name, setName] = useState(floor?.name ?? '')
-  useEffect(() => setName(floor?.name ?? ''), [floor?.name])
+  const setLeftTab = useEditor((s) => s.setLeftTab)
+  const setRailTab = useEditor((s) => s.setRailTab)
+  const setDrawer = useEditor((s) => s.setDrawer)
+  const setPrefsOpen = useEditor((s) => s.setPrefsOpen)
+  const selectRoof = useEditor((s) => s.selectRoof)
+  const setProjectSettingsOpen = useEditor((s) => s.setProjectSettingsOpen)
+  const mobile = useMedia(MOBILE_QUERY)
+  const top = project.floors[project.floors.length - 1]
+  const exterior = FINISH_BY_KEY[project.finishes?.exterior ?? DEFAULT_FINISHES.exterior]?.name ?? 'Default'
+  const roofFinish = FINISH_BY_KEY[project.finishes?.roof ?? DEFAULT_FINISHES.roof]?.name ?? 'Default'
+  const site = project.site
+  const openFinishes = () => {
+    setRailTab('layers')
+    setPrefsOpen(false)
+    setLeftTab('finishes')
+    if (mobile) setDrawer('left')
+  }
   return (
-    <>
-      <div className="props">
-        <h3>Floor</h3>
-        <label className="field">
-          <span>Name</span>
-          <span className="field-input wide">
-            <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => floor && name.trim() && name !== floor.name && renameFloor(floor.id, name.trim())} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
+    <div className="props">
+      <h4>This project</h4>
+      <div className="status-list">
+        <button className="status-row" onClick={openFinishes} title="Every room's floor and walls, and the exterior — in the left panel">
+          <span className="tree-icon">
+            <Icon name="finishes" size={15} />
           </span>
-        </label>
-        <FloorAreaRow />
-        <LengthField label="Floor height" units={units} value={settings.wallHeight} onChange={(v) => setSettings({ wallHeight: v })} />
-        <LengthField label="Wall thickness" units={units} value={settings.wallThickness} onChange={(v) => setSettings({ wallThickness: v })} />
-        <p className="muted small">Floor height is the default height of new walls on this floor and sets where the floor above starts.</p>
+          <span className="status-text">
+            <b>Finishes</b>
+            <span>
+              {exterior} · {roofFinish.toLowerCase()}
+            </span>
+          </span>
+          <span className="chev">
+            <Icon name="chevronRight" size={13} strokeWidth={2} />
+          </span>
+        </button>
+        <button className="status-row" onClick={selectRoof} title={`The roof sits on ${top?.name ?? 'the top floor'} — select it to edit it`}>
+          <span className="tree-icon">
+            <Icon name="roof" size={15} />
+          </span>
+          <span className="status-text">
+            <b>Roof</b>
+            <span>
+              {describeRoof(project.roof)}
+              {project.floors.length > 1 && top ? ` · on ${top.name}` : ''}
+            </span>
+          </span>
+          <span className="chev">
+            <Icon name="chevronRight" size={13} strokeWidth={2} />
+          </span>
+        </button>
+        <button className="status-row" onClick={() => setProjectSettingsOpen(true)} title="Where the building stands and which way the plan faces — project settings">
+          <span className="tree-icon">
+            <Icon name="site" size={15} />
+          </span>
+          <span className="status-text">
+            <b>Site &amp; north</b>
+            <span>{site ? `${site.lat}, ${site.lng} · ${Math.round(site.north)}°` : 'Not set'}</span>
+          </span>
+          <span className="chev">
+            <Icon name="chevronRight" size={13} strokeWidth={2} />
+          </span>
+        </button>
       </div>
-      <div className="props">
-        <h3>Roof</h3>
-        <label className="field">
-          <span>Type</span>
-          <select value={roof.type} onChange={(e) => setRoof({ type: e.target.value as typeof roof.type })}>
-            <option value="none">None</option>
-            <option value="flat">Flat</option>
-            <option value="gable">Gable</option>
-            <option value="hip">Hip</option>
-          </select>
-        </label>
-        {(roof.type === 'gable' || roof.type === 'hip') && (
-          <>
-            <label className="field">
-              <span>Pitch</span>
-              <span className="field-input">
-                <input type="number" min={5} max={70} value={roof.pitch} onChange={(e) => setRoof({ pitch: Math.min(70, Math.max(5, Number(e.target.value) || 0)) })} />
-                <em>°</em>
-              </span>
-            </label>
-            <label className="field">
-              <span>Ridge</span>
-              <select value={roof.ridge} onChange={(e) => setRoof({ ridge: e.target.value as typeof roof.ridge })}>
-                <option value="long">Along the long side</option>
-                <option value="short">Along the short side</option>
-              </select>
-            </label>
-          </>
-        )}
-        {roof.type !== 'none' && (
-          <>
-            <LengthField label="Overhang" units={units} value={roof.overhang} onChange={(v) => setRoof({ overhang: Math.max(0, v) })} />
-            {roof.type === 'flat' && <LengthField label="Thickness" units={units} value={roof.thickness} onChange={(v) => setRoof({ thickness: Math.max(0.05, v) })} />}
-            <label className="field">
-              <span>Colour</span>
-              <input type="color" value={roof.color} onChange={(e) => setRoof({ color: e.target.value })} />
-            </label>
-          </>
-        )}
-        <LengthField label="Slab between floors" units={units} value={project.slabThickness} onChange={setSlabThickness} />
-        <p className="muted small">The roof covers the top floor's outline, aligned with its longest wall. Select a wall, corner, door, window or piece of furniture to edit it.</p>
-      </div>
-      <FinishesProps />
-      <UnderlayProps />
-      <SiteProps />
-    </>
+    </div>
+  )
+}
+
+/**
+ * The roof is one object per building, not a property of the floor you happen to be on: it
+ * used to be editable from the ground floor, showing values that belonged to the floor above.
+ * Now it is selected — from the Plan tree on the top floor, or the status row below — and
+ * fills the inspector like everything else.
+ */
+function RoofProps() {
+  const roof = useEditor((s) => s.project.roof)
+  const setRoof = useEditor((s) => s.setRoof)
+  const finishes = useEditor((s) => s.project.finishes)
+  const setProjectFinishes = useEditor((s) => s.setProjectFinishes)
+  const top = useEditor((s) => s.project.floors[s.project.floors.length - 1])
+  const units = useEditor((s) => s.units)
+  return (
+    <div className="props">
+      <h3>
+        Roof
+        <span className="num">on {top?.name ?? 'the top floor'}</span>
+      </h3>
+      <label className="field">
+        <span>Type</span>
+        <select value={roof.type} onChange={(e) => setRoof({ type: e.target.value as typeof roof.type })}>
+          <option value="none">None</option>
+          <option value="flat">Flat</option>
+          <option value="gable">Gable</option>
+          <option value="hip">Hip</option>
+        </select>
+      </label>
+      {(roof.type === 'gable' || roof.type === 'hip') && (
+        <>
+          <label className="field">
+            <span>Pitch</span>
+            <span className="field-input">
+              <input type="number" min={5} max={70} value={roof.pitch} onChange={(e) => setRoof({ pitch: Math.min(70, Math.max(5, Number(e.target.value) || 0)) })} />
+              <em>°</em>
+            </span>
+          </label>
+          <label className="field">
+            <span>Ridge</span>
+            <select value={roof.ridge} onChange={(e) => setRoof({ ridge: e.target.value as typeof roof.ridge })}>
+              <option value="long">Along the long side</option>
+              <option value="short">Along the short side</option>
+            </select>
+          </label>
+        </>
+      )}
+      {roof.type !== 'none' && (
+        <>
+          <LengthField label="Overhang" units={units} value={roof.overhang} onChange={(v) => setRoof({ overhang: Math.max(0, v) })} />
+          {roof.type === 'flat' && <LengthField label="Thickness" units={units} value={roof.thickness} onChange={(v) => setRoof({ thickness: Math.max(0.05, v) })} />}
+          <label className="field">
+            <span>Finish</span>
+            <FinishSelect use="roof" value={finishes?.roof ?? DEFAULT_FINISHES.roof} onChange={(v) => setProjectFinishes({ roof: v })} />
+          </label>
+          <label className="field">
+            <span>Colour</span>
+            <input type="color" value={roof.color} onChange={(e) => setRoof({ color: e.target.value })} />
+          </label>
+        </>
+      )}
+      <p className="muted small">The roof covers the top floor's outline, aligned with its longest wall. The colour applies to plain finishes.</p>
+    </div>
   )
 }
 
@@ -832,7 +924,7 @@ function RoomsProps({ rooms, indexOf }: { rooms: Room[]; indexOf: (room: Room) =
     .map((w) => w.id)
   return (
     <div className="props">
-      <h3>{single ? currentName : `${rooms.length} rooms`}</h3>
+      <h3 className={single && !roomIsNamed(plan, single) ? 'provisional' : undefined}>{single ? currentName : `${rooms.length} rooms`}</h3>
       {single && (
         <label className="field">
           <span>Name</span>
@@ -890,6 +982,7 @@ export function SelectionInspector() {
   const allRooms = useMemo(() => findRooms(plan), [plan])
   const rooms = selection.filter((s) => s.kind === 'room').map((s) => allRooms.find((r) => r.id === s.id)).filter((r): r is Room => !!r)
 
+  if (selection.length === 1 && selection[0].kind === 'roof') return <RoofProps />
   if (rooms.length > 0 && rooms.length === selection.length) return <RoomsProps rooms={rooms} indexOf={(room) => allRooms.indexOf(room)} />
 
   if (furniture.length === 1 && walls.length === 1 && points.length === 0 && openings.length === 0) return <FurnitureAndWallProps piece={furniture[0]} wall={walls[0]} />
@@ -909,6 +1002,6 @@ export function SelectionInspector() {
   if (walls.length > 2 && points.length === 0 && openings.length === 0) return <WallsProps walls={walls} />
   if (points.length === 1 && walls.length === 0 && openings.length === 0) return <PointProps id={points[0]} />
   if (points.length === 2 && walls.length === 0 && openings.length === 0) return <TwoPointsProps a={points[0]} b={points[1]} />
-  if (selection.length === 0) return <SettingsProps />
+  if (selection.length === 0) return <NothingSelected />
   return <div className="props muted small">{selection.length} items selected. Press Delete to remove them.</div>
 }

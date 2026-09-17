@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { isReadOnly, isSelected, useEditor, type SelectionItem } from '../model/store'
-import { floorArea, roomName, roomNameSuggestions } from '../model/rooms'
+import { isReadOnly, isSelected, ROOF_ITEM, useEditor, type SelectionItem } from '../model/store'
+import { floorArea, readingOrder, roomIsNamed, roomName, roomNameSuggestions } from '../model/rooms'
 import { findRooms, pointInPolygon, wallLength } from '../model/geometry'
 import { constraintsReferencing, constraintTargets, describeConstraint, shortId } from '../model/constraints'
 import { formatArea, formatLength } from '../model/units'
@@ -22,6 +22,7 @@ function Group({
   onRename,
   onCancelRename,
   suggestions,
+  provisional,
 }: {
   title: string
   count: number
@@ -36,6 +37,8 @@ function Group({
   onRename?: (name: string) => void
   onCancelRename?: () => void
   suggestions?: string[]
+  /** the title is a placeholder, not a name */
+  provisional?: boolean
 }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
@@ -55,7 +58,7 @@ function Group({
           <InlineRename value={title} onCommit={onRename} onCancel={onCancelRename} suggestions={suggestions} />
         ) : (
           <>
-            <span className="tree-label">{title}</span>
+            <span className={`tree-label ${provisional ? 'provisional' : ''}`}>{title}</span>
             {detail !== undefined ? <span className="tree-detail">{detail}</span> : <span className="count">{count}</span>}
           </>
         )}
@@ -65,7 +68,7 @@ function Group({
   )
 }
 
-/** rooms (largest first, ids stable) with their walls, openings and furniture, and what is outside any room */
+/** rooms (in reading order, ids stable) with their walls, openings and furniture, what is outside any room, and the roof on the top floor */
 export function PlanTree() {
   const plan = useEditor((s) => s.plan)
   const selection = useEditor((s) => s.selection)
@@ -76,6 +79,9 @@ export function PlanTree() {
   const nameRoom = useEditor((s) => s.nameRoom)
   const readOnly = useEditor(isReadOnly)
   const [renamingRoom, setRenamingRoom] = useState<string | null>(null)
+  // the roof is one object per building, sitting on the top floor: it is listed there and selected like anything else
+  const roof = useEditor((s) => s.project.roof)
+  const onTopFloor = useEditor((s) => s.project.floors[s.project.floors.length - 1]?.id === s.activeFloorId)
   const walls = Object.values(plan.walls)
   const openings = Object.values(plan.openings)
   const furniture = Object.values(plan.furniture)
@@ -83,21 +89,19 @@ export function PlanTree() {
   const pick = (items: SelectionItem[], e: React.MouseEvent) => select(items, e.shiftKey)
 
   // membership: a wall belongs to every room it bounds; an opening to its wall's rooms; furniture to the room containing its centre.
-  // Rooms are found in geometric order, which is what gives a default name its number; they are listed largest first, so the
-  // list stops reshuffling as you draw and "Room 1" keeps its name wherever it lands.
-  const roomsWithContent = rooms
-    .map((r, i) => {
-      const roomWalls = walls.filter((w) => r.pointIds.includes(w.a) && r.pointIds.includes(w.b))
-      const wallIds = new Set(roomWalls.map((w) => w.id))
-      return {
-        room: r,
-        index: i,
-        walls: roomWalls,
-        openings: openings.filter((o) => wallIds.has(o.wallId)),
-        furniture: furniture.filter((f) => pointInPolygon({ x: f.x, y: f.y }, r.polygon)),
-      }
-    })
-    .sort((a, b) => b.room.area - a.room.area)
+  // Rooms are listed in reading order on the plan — top-left to bottom-right — so a row's place in the list means something.
+  // A placeholder name carries the geometric index, so "Room 4" keeps its name wherever it lands.
+  const roomsWithContent = readingOrder(rooms).map(({ room: r, index }) => {
+    const roomWalls = walls.filter((w) => r.pointIds.includes(w.a) && r.pointIds.includes(w.b))
+    const wallIds = new Set(roomWalls.map((w) => w.id))
+    return {
+      room: r,
+      index,
+      walls: roomWalls,
+      openings: openings.filter((o) => wallIds.has(o.wallId)),
+      furniture: furniture.filter((f) => pointInPolygon({ x: f.x, y: f.y }, r.polygon)),
+    }
+  })
   const placedWalls = new Set(roomsWithContent.flatMap((r) => r.walls.map((w) => w.id)))
   const placedOpenings = new Set(roomsWithContent.flatMap((r) => r.openings.map((o) => o.id)))
   const placedFurniture = new Set(roomsWithContent.flatMap((r) => r.furniture.map((f) => f.id)))
@@ -174,6 +178,7 @@ export function PlanTree() {
           <Group
             key={r.room.id}
             title={roomName(plan, r.room, r.index)}
+            provisional={!roomIsNamed(plan, r.room)}
             count={0}
             detail={formatArea(r.room.area, units)}
             selected={on}
@@ -193,8 +198,24 @@ export function PlanTree() {
           {contents(outside, 1)}
         </Group>
       )}
+      {onTopFloor && (
+        <div className={`tree-row ${isSelected(selection, 'roof', 'roof') ? 'on' : ''}`} onClick={() => select([ROOF_ITEM])} title="The roof covers this floor's outline">
+          <span className="tree-icon">
+            <Icon name="roof" size={13} strokeWidth={2} />
+          </span>
+          <span className="tree-label">Roof</span>
+          <span className="tree-detail">{describeRoof(roof)}</span>
+        </div>
+      )}
     </div>
   )
+}
+
+/** "Gable 35°", "Flat", "None" */
+export function describeRoof(roof: { type: string; pitch: number }): string {
+  if (roof.type === 'none') return 'None'
+  const name = roof.type[0].toUpperCase() + roof.type.slice(1)
+  return roof.type === 'flat' ? name : `${name} ${Math.round(roof.pitch)}°`
 }
 
 /**

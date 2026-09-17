@@ -39,3 +39,20 @@ describe('room names read off the underlay', () => {
     expect(roomNameSuggestions(turned, room)).toEqual(['Bath'])
   })
 })
+
+describe('reading order', () => {
+  const room = (id: string, x: number, y: number) => ({ id, pointIds: [], polygon: [], area: 10, centroid: { x, y } })
+  it('lists rooms top-left to bottom-right by centroid, keeping their geometric index', async () => {
+    const { readingOrder } = await import('./rooms')
+    // found in some geometric order: a bottom-right room first, then top-right, then top-left, then bottom-left
+    const rooms = [room('br', 6, 5), room('tr', 6, 1.2), room('tl', 1, 0.8), room('bl', 1, 5.4)]
+    const ordered = readingOrder(rooms)
+    expect(ordered.map((r) => r.room.id)).toEqual(['tl', 'tr', 'bl', 'br'])
+    expect(ordered.map((r) => r.index)).toEqual([2, 1, 3, 0])
+  })
+  it('starts a new row only when the centroids drop by more than the band', async () => {
+    const { readingOrder } = await import('./rooms')
+    const rooms = [room('a', 5, 0), room('b', 1, 1), room('c', 3, 2.2), room('d', 0, 2.6)]
+    expect(readingOrder(rooms, 1.5).map((r) => r.room.id)).toEqual(['b', 'a', 'd', 'c'])
+  })
+})
